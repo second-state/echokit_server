@@ -19,3 +19,8 @@ tokio = { version = "1", features = ["full"] }
 
 reqwest = { version = "0.12", features = ["multipart", "json"] }
 hound = "3.5.1"
+rand = "0.9.0"
+uuid = { version = "1.14", features = [
+    "v4",       # Lets you generate random UUIDs
+    "fast-rng",
+] }

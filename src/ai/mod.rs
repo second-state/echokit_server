@@ -59,7 +59,7 @@ pub async fn asr(asr_url: &str, lang: &str, wav_audio: Vec<u8>) -> anyhow::Resul
 
 #[tokio::test]
 async fn test_asr() {
-    let asr_url = "http://localhost:3001/v1/audio/transcriptions";
+    let asr_url = "https://whisper.gaia.domains/v1/audio/transcriptions";
     let lang = "zh";
     let wav_audio = std::fs::read("./resources/test/out.wav").unwrap();
     let text = asr(asr_url, lang, wav_audio).await.unwrap();

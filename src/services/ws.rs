@@ -23,7 +23,7 @@ type WsRx = tokio::sync::mpsc::UnboundedReceiver<WsCommand>;
 
 #[derive(Debug, Default)]
 pub struct WsPool {
-    pub connections: tokio::sync::RwLock<HashMap<String, WsTx>>,
+    pub connections: tokio::sync::RwLock<HashMap<String, (u128, WsTx)>>,
 }
 
 impl WsPool {
@@ -32,7 +32,7 @@ impl WsPool {
         let ws_tx = pool
             .get(id)
             .ok_or_else(|| anyhow::anyhow!("`{id}` not found"))?;
-        ws_tx.send(cmd)?;
+        ws_tx.1.send(cmd)?;
 
         Ok(())
     }
@@ -42,20 +42,32 @@ pub async fn ws_handler(
     Extension(pool): Extension<Arc<WsPool>>,
     ws: WebSocketUpgrade,
     Path(id): Path<String>,
-    // user_agent: Option<TypedHeader<headers::UserAgent>>,
 ) -> impl IntoResponse {
-    log::info!("{id} connected.");
+    let request_id = uuid::Uuid::new_v4().as_u128();
+    log::info!("{id}:{request_id:x} connected.");
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<WsCommand>();
     {
-        pool.connections.write().await.insert(id.clone(), tx);
+        pool.connections
+            .write()
+            .await
+            .insert(id.clone(), (request_id, tx));
     }
-    // finalize the upgrade process by returning upgrade callback.
-    // we can customize the callback by sending additional info such as address.
+
     ws.on_upgrade(move |socket| async move {
-        if let Err(e) = handle_socket(socket, &id, rx, pool).await {
-            log::error!("`{id}` error: {e}");
+        let id = id.clone();
+        let pool = pool.clone();
+        if let Err(e) = handle_socket(socket, &id, rx, pool.clone()).await {
+            log::error!("{id}:{request_id:x} error: {e}");
         };
+        log::info!("{id}:{request_id:x} disconnected.");
+        {
+            let mut pool = pool.connections.write().await;
+            let (uuid_, _) = pool.get(&id).unwrap();
+            if request_id == *uuid_ {
+                pool.remove(&id);
+            }
+        }
     })
 }
 
@@ -65,14 +77,14 @@ enum WsEvent {
 }
 
 async fn submit_to_ai(
-    pool: Arc<WsPool>,
+    pool: &WsPool,
     id: &str,
     wav_audio: Vec<u8>,
     only_asr: bool,
 ) -> anyhow::Result<()> {
     use crate::ai::llm;
     // ASR
-    let asr_url = "http://localhost:3001/v1/audio/transcriptions";
+    let asr_url = "https://whisper.gaia.domains/v1/audio/transcriptions";
     let lang = "zh";
     let text = crate::ai::asr(asr_url, lang, wav_audio).await?;
     log::info!("ASR result: {:?}", text);
@@ -103,8 +115,7 @@ async fn submit_to_ai(
 
     log::info!("start llm");
     let llm_url = "https://cloud.fastgpt.cn/api/v1/chat/completions";
-    let mut resp =
-        crate::ai::llm_stable(llm_url, token, Some("esp32-test-1".to_string()), prompts).await?;
+    let mut resp = crate::ai::llm_stable(llm_url, token, None, prompts).await?;
 
     let mut deadline = None;
 
@@ -127,7 +138,7 @@ async fn submit_to_ai(
 
                         deadline = Some(
                             tokio::time::Instant::now()
-                                + tokio::time::Duration::from_secs_f32(duration_sec + 1.5),
+                                + tokio::time::Duration::from_secs_f32(duration_sec + 1.0),
                         );
 
                         let mut samples = reader.into_samples::<i16>();
@@ -185,13 +196,11 @@ async fn submit_to_ai(
     Ok(())
 }
 
-async fn handle_socket(
-    mut socket: WebSocket,
-    id: &str,
-    mut rx: WsRx,
-    pool: Arc<WsPool>,
-) -> anyhow::Result<()> {
-    // handle the socket here
+// return: wav data
+async fn process_socket_io(
+    rx: &mut WsRx,
+    socket: &mut WebSocket,
+) -> anyhow::Result<(bool, Vec<u8>)> {
     let spec = hound::WavSpec {
         channels: 1,
         sample_rate: 16000,
@@ -202,9 +211,6 @@ async fn handle_socket(
     let mut buffer_writer = std::io::Cursor::new(Vec::new());
     let mut wav_writer = hound::WavWriter::new(&mut buffer_writer, spec)?;
 
-    let cancel = Arc::new(tokio::sync::Notify::new());
-
-    let mut submit = 0;
     loop {
         let r = tokio::select! {
             cmd = rx.recv() => {
@@ -219,13 +225,8 @@ async fn handle_socket(
         };
 
         match r {
-            Some(WsEvent::Command(cmd)) => {
-                if let Err(e) = process_command(&mut socket, cmd).await {
-                    log::error!("`{id}` process_command error: {e}");
-                    break;
-                }
-            }
-            Some(WsEvent::Message(Ok(msg))) => match process_message(id, msg) {
+            Some(WsEvent::Command(cmd)) => process_command(socket, cmd).await?,
+            Some(WsEvent::Message(Ok(msg))) => match process_message(msg) {
                 ProcessMessageResult::Ok(d) => {
                     for data in d.chunks(2) {
                         if data.len() == 2 {
@@ -236,61 +237,78 @@ async fn handle_socket(
                 }
                 ProcessMessageResult::Skip => {}
                 ProcessMessageResult::Submit(s) => {
-                    log::info!("`{id}` submit: {s}");
-                    submit = s;
+                    wav_writer
+                        .finalize()
+                        .map_err(|e| anyhow::anyhow!("wav finalize error: {e}"))?;
+                    return Ok((s == 2, buffer_writer.into_inner()));
                 }
                 ProcessMessageResult::Close => {
-                    break;
+                    return Err(anyhow::anyhow!("ws close"));
                 }
             },
             Some(WsEvent::Message(Err(e))) => {
-                log::error!("`{id}` error: {e}");
-                break;
+                return Err(anyhow::anyhow!("ws error: {e}"));
             }
             None => {
+                return Err(anyhow::anyhow!("ws channel close"));
+            }
+        }
+    }
+}
+
+async fn handle_audio(
+    id: String,
+    pool: Arc<WsPool>,
+    mut rx: tokio::sync::mpsc::Receiver<(bool, Vec<u8>)>,
+) -> anyhow::Result<()> {
+    let (mut only_asr, mut wav_audio) = rx
+        .recv()
+        .await
+        .ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
+
+    loop {
+        let rx_recv = tokio::select! {
+            r = rx.recv() =>{
+                r
+            }
+            r = submit_to_ai(&pool, &id, wav_audio, only_asr) => {
+                if let Err(e) = r {
+                    log::error!("`{id}` error: {e}");
+                }
+                rx.recv().await
+            }
+        };
+        let r = rx_recv.ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
+        only_asr = r.0;
+        wav_audio = r.1;
+    }
+}
+
+async fn handle_socket(
+    mut socket: WebSocket,
+    id: &str,
+    mut rx: WsRx,
+    pool: Arc<WsPool>,
+) -> anyhow::Result<()> {
+    let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<(bool, Vec<u8>)>(1);
+    tokio::spawn(handle_audio(id.to_string(), pool.clone(), audio_rx));
+
+    loop {
+        let wav_audio = process_socket_io(&mut rx, &mut socket).await;
+        match wav_audio {
+            Ok((only_asr, wav_audio)) => {
+                audio_tx
+                    .send((only_asr, wav_audio))
+                    .await
+                    .map_err(|_| anyhow::anyhow!("{id} audio_tx closed"))?;
+            }
+            Err(e) => {
+                log::error!("`{id}` process_socket_io error: {e}");
                 break;
             }
         }
-
-        if submit > 0 {
-            cancel.notify_waiters();
-
-            if wav_writer.finalize().is_err() {
-                buffer_writer = std::io::Cursor::new(Vec::new());
-                wav_writer = hound::WavWriter::new(&mut buffer_writer, spec)?;
-                continue;
-            }
-            let wav_audio = buffer_writer.into_inner();
-            buffer_writer = std::io::Cursor::new(Vec::new());
-            wav_writer = hound::WavWriter::new(&mut buffer_writer, spec)?;
-            let pool_ = pool.clone();
-            let id_ = id.to_string();
-            let cancel_ = cancel.clone();
-
-            tokio::spawn(async move {
-                tokio::select! {
-                    _ = cancel_.notified() => {
-                        log::info!("`{id_}` canceled.");
-                        return;
-                    }
-                    r = submit_to_ai(pool_, &id_, wav_audio, submit==2) => {
-                        if let Err(e) = r {
-                            log::error!("`{id_}` error: {e}");
-                        }
-                    }
-                }
-            });
-            submit = 0;
-        }
     }
-    log::info!("`{id}` disconnected.");
-    // remove the connection from the pool
-    {
-        let mut pool = pool.connections.write().await;
-        if !rx.is_closed() {
-            pool.remove(id);
-        }
-    }
+
     Ok(())
 }
 
@@ -340,7 +358,7 @@ enum ProcessMessageResult {
     Skip,
 }
 
-fn process_message(id: &str, msg: Message) -> ProcessMessageResult {
+fn process_message(msg: Message) -> ProcessMessageResult {
     match msg {
         Message::Text(t) => {
             if t.as_str() == "End:Normal" {
@@ -348,7 +366,6 @@ fn process_message(id: &str, msg: Message) -> ProcessMessageResult {
             } else if t.as_str() == "End:Interrupt" {
                 ProcessMessageResult::Submit(2)
             } else {
-                log::warn!("{id} received unexpected text message: {t}");
                 ProcessMessageResult::Skip
             }
         }
