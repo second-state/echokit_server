@@ -1,0 +1,21 @@
+[package]
+name = "esp_assistant"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+env_logger = "0.11.6"
+log = "0.4.25"
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+anyhow = "1.0"
+
+axum = { version = "0.8.1", features = ["ws"] }
+axum-extra = { version = "0.10.0", features = ["typed-header"] }
+
+tokio = { version = "1", features = ["full"] }
+
+reqwest = { version = "0.12", features = ["multipart", "json"] }
+hound = "3.5.1"
