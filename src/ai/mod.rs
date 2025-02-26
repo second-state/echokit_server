@@ -1,6 +1,8 @@
 use axum::body::Bytes;
 use reqwest::multipart::Part;
 
+pub mod store;
+
 /// return: wav_audio: 16bit,32k,single-channel.
 pub async fn tts(tts_url: &str, speaker: &str, text: &str) -> anyhow::Result<Bytes> {
     let client = reqwest::Client::new();
@@ -22,6 +24,74 @@ async fn test_tts() {
     let speaker = "ht";
     let text = "你好，我是胡桃";
     let wav_audio = tts(tts_url, speaker, text).await.unwrap();
+    std::fs::write("./resources/test/out.wav", wav_audio).unwrap();
+}
+
+#[derive(Debug, serde::Serialize)]
+struct FishTTSRequest {
+    text: String,
+    chunk_length: usize,
+    format: String,
+    mp3_bitrate: usize,
+    reference_id: String,
+    normalize: bool,
+    latency: String,
+}
+
+impl FishTTSRequest {
+    fn new(speaker: String, text: String, format: String) -> Self {
+        Self {
+            text,
+            chunk_length: 200,
+            format,
+            mp3_bitrate: 128,
+            reference_id: speaker,
+            normalize: true,
+            latency: "normal".to_string(),
+        }
+    }
+}
+
+pub async fn fish_tts(token: &str, speaker: &str, text: &str) -> anyhow::Result<Bytes> {
+    let client = reqwest::Client::new();
+    let res = client
+        .post("https://api.fish.audio/v1/tts")
+        .header("content-type", "application/msgpack")
+        .header("authorization", &format!("Bearer {}", token))
+        .body(rmp_serde::to_vec_named(&FishTTSRequest::new(
+            speaker.to_string(),
+            text.to_string(),
+            "wav".to_string(),
+        ))?)
+        .send()
+        .await?;
+    let status = res.status();
+    if status != 200 {
+        let body = res.text().await?;
+        return Err(anyhow::anyhow!(
+            "tts failed, status:{}, body:{}",
+            status,
+            body
+        ));
+    }
+    let bytes = res.bytes().await?;
+    Ok(bytes)
+}
+
+#[tokio::test]
+async fn test_fish_tts() {
+    let token = std::env::var("FISH_API_KEY").unwrap();
+    let speaker = "256e1a3007a74904a91d132d1e9bf0aa";
+    let text = "hello fish";
+
+    let r = rmp_serde::to_vec_named(&FishTTSRequest::new(
+        speaker.to_string(),
+        text.to_string(),
+        "wav".to_string(),
+    ));
+    println!("{:x?}", r);
+
+    let wav_audio = fish_tts(&token, speaker, text).await.unwrap();
     std::fs::write("./resources/test/out.wav", wav_audio).unwrap();
 }
 
@@ -70,6 +140,7 @@ async fn test_asr() {
 pub struct StableLlmRequest {
     stream: bool,
     #[serde(rename = "chatId")]
+    #[serde(skip_serializing_if = "String::is_empty")]
     chat_id: String,
     messages: Vec<llm::Content>,
 }
@@ -92,7 +163,7 @@ struct StableStreamChunk {
 }
 
 impl StableLlmResponse {
-    const CHUNK_SIZE: usize = 20;
+    const CHUNK_SIZE: usize = 50;
 
     fn return_string_buffer(&mut self) -> anyhow::Result<Option<String>> {
         self.stopped = true;
@@ -102,6 +173,31 @@ impl StableLlmResponse {
             return Ok(Some(new_str));
         } else {
             return Ok(None);
+        }
+    }
+
+    fn push_str(&mut self, s: &str) -> Option<String> {
+        let mut ret = s;
+
+        loop {
+            if let Some(i) = ret.find(&['.', '!', '?', ';', '。', '！', '？', '；', '\n']) {
+                let (chunk, ret_) = if ret.is_char_boundary(i + 1) {
+                    ret.split_at(i + 1)
+                } else {
+                    ret.split_at(i + 3)
+                };
+
+                self.string_buffer.push_str(chunk);
+                ret = ret_;
+                if self.string_buffer.len() > Self::CHUNK_SIZE {
+                    let mut new_str = ret.to_string();
+                    std::mem::swap(&mut new_str, &mut self.string_buffer);
+                    return Some(new_str);
+                }
+            } else {
+                self.string_buffer.push_str(ret);
+                return None;
+            }
         }
     }
 
@@ -118,32 +214,20 @@ impl StableLlmResponse {
             let body = body.unwrap();
             let body = String::from_utf8_lossy(&body);
 
-            let mut chunks = vec![];
+            let mut chunks = String::new();
             body.split("data: ").for_each(|s| {
                 if s.is_empty() || s.starts_with("[DONE]") {
                     return;
                 }
 
                 if let Ok(chunk) = serde_json::from_str::<StableStreamChunk>(s.trim()) {
-                    chunks.push(chunk);
+                    if !chunk.choices[0].finish_reason.is_some() {
+                        chunks.push_str(&chunk.choices[0].delta.message);
+                    }
                 }
             });
 
-            for body in chunks {
-                if body.choices[0].finish_reason.is_some() {
-                    return self.return_string_buffer();
-                }
-
-                self.string_buffer.push_str(&body.choices[0].delta.message);
-            }
-
-            if self
-                .string_buffer
-                .ends_with(&[',', '.', '!', '?', ';', '，', '。', '！', '？', '；', '\n'])
-                && self.string_buffer.len() > Self::CHUNK_SIZE
-            {
-                let mut new_str = String::new();
-                std::mem::swap(&mut new_str, &mut self.string_buffer);
+            if let Some(new_str) = self.push_str(&chunks) {
                 return Ok(Some(new_str));
             }
         }
@@ -222,6 +306,7 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
     };
 
     let response = response_builder
+        .header(reqwest::header::USER_AGENT, "curl/7.81.0")
         .json(&StableLlmRequest {
             stream: true,
             chat_id: chat_id.unwrap_or_default(),
@@ -232,10 +317,12 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
 
     let state = response.status();
     if !state.is_success() {
+        let headers = response.headers().clone();
         let body = response.text().await?;
         return Err(anyhow::anyhow!(
-            "llm failed, status:{}, body:{}",
+            "llm failed, status:{},\nheader:{:?}\n body:{}",
             state,
+            headers,
             body
         ));
     }
@@ -260,15 +347,7 @@ async fn test_statble_llm() {
         },
         llm::Content {
             role: llm::Role::User,
-            message: "给我解释一下鸡兔同笼".to_string(),
-        },
-        llm::Content {
-            role: llm::Role::Assistant,
-            message: "".to_string(),
-        },
-        llm::Content {
-            role: llm::Role::User,
-            message: "给我解释一下鸡兔同笼吗吗吗".to_string(),
+            message: "给我介绍一下妲己".to_string(),
         },
     ];
 
@@ -277,6 +356,7 @@ async fn test_statble_llm() {
     } else {
         ""
     };
+    log::info!("token: {:#?}", token);
 
     let mut resp = llm_stable(
         "https://cloud.fastgpt.cn/api/v1/chat/completions",

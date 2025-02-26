@@ -10,6 +10,8 @@ use axum::{
     Extension,
 };
 
+use crate::{ai::llm::Content, config::Config};
+
 pub enum WsCommand {
     AsrResult(Vec<String>),
     Action { action: String, text: String },
@@ -21,9 +23,19 @@ pub enum WsCommand {
 type WsTx = tokio::sync::mpsc::UnboundedSender<WsCommand>;
 type WsRx = tokio::sync::mpsc::UnboundedReceiver<WsCommand>;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct WsPool {
+    pub config: Config,
     pub connections: tokio::sync::RwLock<HashMap<String, (u128, WsTx)>>,
+}
+
+impl WsPool {
+    pub fn new(config: Config) -> Self {
+        Self {
+            config,
+            connections: tokio::sync::RwLock::new(HashMap::new()),
+        }
+    }
 }
 
 impl WsPool {
@@ -81,10 +93,11 @@ async fn submit_to_ai(
     id: &str,
     wav_audio: Vec<u8>,
     only_asr: bool,
+    sys_prompts: &[Content],
+    dynamic_prompts: &mut std::collections::LinkedList<Content>,
 ) -> anyhow::Result<()> {
-    use crate::ai::llm;
     // ASR
-    let asr_url = "https://whisper.gaia.domains/v1/audio/transcriptions";
+    let asr_url = &pool.config.asr.url;
     let lang = "zh";
     let text = crate::ai::asr(asr_url, lang, wav_audio).await?;
     log::info!("ASR result: {:?}", text);
@@ -102,28 +115,53 @@ async fn submit_to_ai(
     }
 
     // LLM
-    let token = std::env::var("API_KEY").ok().map(|k| format!("Bearer {k}"));
-    let prompts = vec![llm::Content {
-        role: llm::Role::User,
-        message,
-    }];
-
-    let token = match &token {
-        Some(t) => t.as_str(),
-        None => "",
+    let token = if let Some(t) = &pool.config.llm.api_key {
+        t.as_str()
+    } else {
+        ""
     };
 
+    if matches!(
+        dynamic_prompts.back(),
+        Some(Content {
+            role: crate::ai::llm::Role::User,
+            ..
+        })
+    ) {
+        dynamic_prompts.pop_back();
+    }
+
+    dynamic_prompts.push_back(Content {
+        role: crate::ai::llm::Role::User,
+        message,
+    });
+
+    let prompts = sys_prompts
+        .iter()
+        .chain(dynamic_prompts.iter())
+        .collect::<Vec<_>>();
+
     log::info!("start llm");
-    let llm_url = "https://cloud.fastgpt.cn/api/v1/chat/completions";
+    let llm_url = &pool.config.llm.llm_chat_url;
     let mut resp = crate::ai::llm_stable(llm_url, token, None, prompts).await?;
 
     let mut deadline = None;
+
+    let (tts_url, speaker) = match &pool.config.tts {
+        crate::config::TTSConfig::Stable(tts) => (&tts.url, &tts.speaker),
+        crate::config::TTSConfig::Fish(_) => {
+            return Err(anyhow::anyhow!("Fish TTS is not implemented yet"));
+        }
+    };
+
+    let mut llm_response = String::with_capacity(128);
 
     loop {
         match resp.next_chunk().await {
             Ok(Some(chunk)) => {
                 log::info!("start tts");
-                match crate::ai::tts("http://localhost:3000/tts", "ht", &chunk).await {
+                llm_response.push_str(&chunk);
+                match crate::ai::tts(tts_url, speaker, &chunk).await {
                     Ok(wav_data) => {
                         if let Some(deadline) = deadline {
                             tokio::time::sleep_until(deadline).await;
@@ -143,7 +181,7 @@ async fn submit_to_ai(
 
                         let mut samples = reader.into_samples::<i16>();
 
-                        log::info!("llm chunk:{}", chunk);
+                        log::info!("llm chunk:{:?}", chunk);
 
                         pool.send(
                             id,
@@ -185,6 +223,13 @@ async fn submit_to_ai(
             }
             Ok(None) => {
                 log::info!("llm done");
+                if !llm_response.is_empty() {
+                    dynamic_prompts.push_back(Content {
+                        role: crate::ai::llm::Role::Assistant,
+                        message: llm_response,
+                    });
+                }
+
                 break;
             }
             Err(e) => {
@@ -266,12 +311,15 @@ async fn handle_audio(
         .await
         .ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
 
+    let sys_prompts = &pool.config.llm.sys_prompts;
+    let mut dynameic_prompts = pool.config.llm.dynamic_prompts.clone();
+
     loop {
         let rx_recv = tokio::select! {
             r = rx.recv() =>{
                 r
             }
-            r = submit_to_ai(&pool, &id, wav_audio, only_asr) => {
+            r = submit_to_ai(&pool, &id, wav_audio, only_asr,sys_prompts,&mut dynameic_prompts) => {
                 if let Err(e) = r {
                     log::error!("`{id}` error: {e}");
                 }
