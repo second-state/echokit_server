@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type")]
 pub enum JsonCommand {
     ASR { text: String },
-    Action { action: String, text: String },
+    Action { action: String },
     StartAudio,
     EndAudio,
     StartVideo,
@@ -13,12 +13,11 @@ pub enum JsonCommand {
 
 #[test]
 fn test_json_command() {
-    let json = r#"{"type":"Action","action":"say","text":"Hello, world!"}"#;
+    let json = r#"{"type":"Action","action":"say"}"#;
     let cmd: JsonCommand = serde_json::from_str(json).unwrap();
     match cmd {
-        JsonCommand::Action { action, text } => {
+        JsonCommand::Action { action } => {
             assert_eq!(action, "say");
-            assert_eq!(text, "Hello, world!");
         }
         _ => panic!("Unexpected command: {:?}", cmd),
     }

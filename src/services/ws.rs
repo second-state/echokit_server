@@ -14,7 +14,7 @@ use crate::{ai::llm::Content, config::Config};
 
 pub enum WsCommand {
     AsrResult(Vec<String>),
-    Action { action: String, text: String },
+    Action { action: String },
     Audio(Bytes),
     StartAudio,
     EndAudio,
@@ -165,14 +165,7 @@ async fn submit_to_ai(
                     first_chunk = false;
                     let action = chunk[1..chunk.len() - 2].to_string();
                     log::info!("llm action: {action}");
-                    pool.send(
-                        id,
-                        WsCommand::Action {
-                            action,
-                            text: String::new(),
-                        },
-                    )
-                    .await?;
+                    pool.send(id, WsCommand::Action { action }).await?;
                     continue;
                 }
                 log::info!("start tts");
@@ -380,10 +373,9 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
             ws.send(Message::Text(json.into())).await?;
         }
 
-        WsCommand::Action { action, text } => {
-            let json =
-                serde_json::to_string(&crate::protocol::JsonCommand::Action { action, text })
-                    .expect("Failed to serialize JsonCommand");
+        WsCommand::Action { action } => {
+            let json = serde_json::to_string(&crate::protocol::JsonCommand::Action { action })
+                .expect("Failed to serialize JsonCommand");
             ws.send(Message::Text(json.into())).await?;
         }
         WsCommand::StartAudio => {
