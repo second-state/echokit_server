@@ -189,7 +189,8 @@ impl StableLlmResponse {
 
                 self.string_buffer.push_str(chunk);
                 ret = ret_;
-                if self.string_buffer.len() > Self::CHUNK_SIZE {
+                if self.string_buffer.len() > Self::CHUNK_SIZE || self.string_buffer.ends_with("\n")
+                {
                     let mut new_str = ret.to_string();
                     std::mem::swap(&mut new_str, &mut self.string_buffer);
                     return Some(new_str);

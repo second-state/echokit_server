@@ -156,9 +156,25 @@ async fn submit_to_ai(
 
     let mut llm_response = String::with_capacity(128);
 
+    let mut first_chunk = true;
+
     loop {
         match resp.next_chunk().await {
             Ok(Some(chunk)) => {
+                if first_chunk && chunk.starts_with("[") && chunk.ends_with("]\n") {
+                    first_chunk = false;
+                    let action = chunk[1..chunk.len() - 2].to_string();
+                    log::info!("llm action: {action}");
+                    pool.send(
+                        id,
+                        WsCommand::Action {
+                            action,
+                            text: String::new(),
+                        },
+                    )
+                    .await?;
+                    continue;
+                }
                 log::info!("start tts");
                 llm_response.push_str(&chunk);
                 match crate::ai::tts(tts_url, speaker, &chunk).await {
@@ -182,15 +198,6 @@ async fn submit_to_ai(
                         let mut samples = reader.into_samples::<i16>();
 
                         log::info!("llm chunk:{:?}", chunk);
-
-                        pool.send(
-                            id,
-                            WsCommand::Action {
-                                action: "".to_string(),
-                                text: chunk.clone(),
-                            },
-                        )
-                        .await?;
 
                         pool.send(id, WsCommand::StartAudio).await?;
 
