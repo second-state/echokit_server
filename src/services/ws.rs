@@ -19,6 +19,7 @@ pub enum WsCommand {
     StartAudio,
     EndAudio,
     Video(Vec<Vec<u8>>),
+    InitSetting,
 }
 type WsTx = tokio::sync::mpsc::UnboundedSender<WsCommand>;
 type WsRx = tokio::sync::mpsc::UnboundedReceiver<WsCommand>;
@@ -109,6 +110,10 @@ async fn submit_to_ai(
 
     let message = text.join("\n");
     pool.send(id, WsCommand::AsrResult(text)).await?;
+    if message == "初始化系统" {
+        pool.send(id, WsCommand::InitSetting).await?;
+        return Ok(());
+    }
 
     if only_asr {
         return Ok(());
@@ -393,6 +398,11 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
         }
         WsCommand::Video(_) => {
             log::warn!("video command is not implemented yet");
+        }
+        WsCommand::InitSetting => {
+            let init_setting = serde_json::to_string(&crate::protocol::JsonCommand::InitSetting)
+                .expect("Failed to serialize JsonCommand");
+            ws.send(Message::Text(init_setting.into())).await?;
         }
     }
     Ok(())

@@ -9,6 +9,7 @@ pub enum JsonCommand {
     EndAudio,
     StartVideo,
     EndVideo,
+    InitSetting,
 }
 
 #[test]
