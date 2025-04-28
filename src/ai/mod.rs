@@ -5,6 +5,7 @@ pub mod store;
 
 /// return: wav_audio: 16bit,32k,single-channel.
 pub async fn tts(tts_url: &str, speaker: &str, text: &str) -> anyhow::Result<Bytes> {
+    log::debug!("speaker: {speaker}, text: {text}");
     let client = reqwest::Client::new();
     let res = client
         .post(tts_url)
@@ -12,6 +13,14 @@ pub async fn tts(tts_url: &str, speaker: &str, text: &str) -> anyhow::Result<Byt
         // .body(serde_json::json!({"speaker": speaker, "input": text}).to_string())
         .send()
         .await?;
+    let status = res.status();
+    if status != 200 {
+        let body = res.text().await?;
+        return Err(anyhow::anyhow!(
+            "tts failed, status:{status}, body:{}",
+            body
+        ));
+    }
     let bytes = res.bytes().await?;
     log::info!("TTS response: {:?}", bytes.len());
     Ok(bytes)
@@ -20,10 +29,11 @@ pub async fn tts(tts_url: &str, speaker: &str, text: &str) -> anyhow::Result<Byt
 // cargo test --package esp_assistant --bin esp_assistant -- ai::test_tts --exact --show-output
 #[tokio::test]
 async fn test_tts() {
-    let tts_url = "http://localhost:3000/tts";
-    let speaker = "ht";
+    let tts_url = "https://0x66b496fba1fdff4237cca9ac597d7171126369c8.gaia.domains/v1/audio/speech";
+    let speaker = "speaker2";
     let text = "你好，我是胡桃";
     let wav_audio = tts(tts_url, speaker, text).await.unwrap();
+    hound::WavReader::new(wav_audio.as_ref()).unwrap();
     std::fs::write("./resources/test/out.wav", wav_audio).unwrap();
 }
 

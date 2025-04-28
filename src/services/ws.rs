@@ -166,15 +166,21 @@ async fn submit_to_ai(
     loop {
         match resp.next_chunk().await {
             Ok(Some(chunk)) => {
-                if first_chunk && chunk.starts_with("[") && chunk.ends_with("]\n") {
+                log::info!("start tts: {chunk:?}");
+
+                let chunk_ = chunk.trim();
+                log::debug!("llm chunk: {chunk_:?}");
+                if first_chunk && chunk_.starts_with("[") && chunk_.ends_with("]") {
                     first_chunk = false;
-                    let action = chunk[1..chunk.len() - 2].to_string();
+                    let action = chunk[1..chunk.len() - 1].to_string();
                     log::info!("llm action: {action}");
                     pool.send(id, WsCommand::Action { action }).await?;
                     continue;
                 }
-                log::info!("start tts");
                 llm_response.push_str(&chunk);
+                if chunk_.is_empty() {
+                    continue;
+                }
                 match crate::ai::tts(tts_url, speaker, &chunk).await {
                     Ok(wav_data) => {
                         if let Some(deadline) = deadline {
