@@ -99,7 +99,8 @@ async fn submit_to_ai(
 ) -> anyhow::Result<()> {
     // ASR
     let asr_url = &pool.config.asr.url;
-    let lang = "zh";
+    // let lang = "zh";
+    let lang = pool.config.asr.lang.as_str();
     let text = crate::ai::asr(asr_url, lang, wav_audio).await?;
     log::info!("ASR result: {:?}", text);
 
@@ -228,7 +229,7 @@ async fn submit_to_ai(
                     }
                     Err(e) => {
                         log::error!("tts error:{e}");
-                        break;
+                        continue;
                     }
                 }
             }

@@ -40,6 +40,8 @@ pub struct ASRConfig {
     pub url: String,
     #[serde(default)]
     pub api_key: Option<String>,
+    #[serde(default)]
+    pub lang: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
