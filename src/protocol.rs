@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum JsonCommand {
     ASR { text: String },
     Action { action: String },
-    StartAudio,
+    StartAudio { text: String },
     EndAudio,
     StartVideo,
     EndVideo,
@@ -25,7 +25,7 @@ fn test_json_command() {
     let json = r#"{"type":"StartAudio"}"#;
     let cmd: JsonCommand = serde_json::from_str(json).unwrap();
     match cmd {
-        JsonCommand::StartAudio => {}
+        JsonCommand::StartAudio { .. } => {}
         _ => panic!("Unexpected command: {:?}", cmd),
     }
     let json = r#"{"type":"EndAudio"}"#;

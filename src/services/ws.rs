@@ -16,7 +16,7 @@ pub enum WsCommand {
     AsrResult(Vec<String>),
     Action { action: String },
     Audio(Bytes),
-    StartAudio,
+    StartAudio(String),
     EndAudio,
     Video(Vec<Vec<u8>>),
     InitSetting,
@@ -203,7 +203,7 @@ async fn submit_to_ai(
 
                         log::info!("llm chunk:{:?}", chunk);
 
-                        pool.send(id, WsCommand::StartAudio).await?;
+                        pool.send(id, WsCommand::StartAudio(chunk)).await?;
 
                         'a: loop {
                             for _ in 0..(5 * 3200) {
@@ -389,9 +389,10 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
                 .expect("Failed to serialize JsonCommand");
             ws.send(Message::Text(json.into())).await?;
         }
-        WsCommand::StartAudio => {
-            let start_audio = serde_json::to_string(&crate::protocol::JsonCommand::StartAudio)
-                .expect("Failed to serialize JsonCommand");
+        WsCommand::StartAudio(text) => {
+            let start_audio =
+                serde_json::to_string(&crate::protocol::JsonCommand::StartAudio { text })
+                    .expect("Failed to serialize JsonCommand");
             ws.send(Message::Text(start_audio.into())).await?;
         }
         WsCommand::Audio(d) => {
