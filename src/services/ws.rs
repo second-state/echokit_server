@@ -137,6 +137,10 @@ async fn submit_to_ai(
         dynamic_prompts.pop_back();
     }
 
+    while dynamic_prompts.len() > pool.config.llm.history * 2 {
+        dynamic_prompts.pop_front();
+    }
+
     dynamic_prompts.push_back(Content {
         role: crate::ai::llm::Role::User,
         message,
@@ -324,14 +328,14 @@ async fn handle_audio(
         .ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
 
     let sys_prompts = &pool.config.llm.sys_prompts;
-    let mut dynameic_prompts = pool.config.llm.dynamic_prompts.clone();
+    let mut dynamic_prompts = pool.config.llm.dynamic_prompts.clone();
 
     loop {
         let rx_recv = tokio::select! {
             r = rx.recv() =>{
                 r
             }
-            r = submit_to_ai(&pool, &id, wav_audio, only_asr,sys_prompts,&mut dynameic_prompts) => {
+            r = submit_to_ai(&pool, &id, wav_audio, only_asr,sys_prompts,&mut dynamic_prompts) => {
                 if let Err(e) = r {
                     log::error!("`{id}` error: {e}");
                 }
