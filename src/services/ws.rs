@@ -111,10 +111,6 @@ async fn submit_to_ai(
 
     let message = text.join("\n");
     pool.send(id, WsCommand::AsrResult(text)).await?;
-    if message == "初始化系统" {
-        pool.send(id, WsCommand::InitSetting).await?;
-        return Ok(());
-    }
 
     if only_asr {
         return Ok(());
