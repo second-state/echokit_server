@@ -19,7 +19,7 @@ pub enum WsCommand {
     StartAudio(String),
     EndAudio,
     Video(Vec<Vec<u8>>),
-    InitSetting,
+    EndResponse,
 }
 type WsTx = tokio::sync::mpsc::UnboundedSender<WsCommand>;
 type WsRx = tokio::sync::mpsc::UnboundedReceiver<WsCommand>;
@@ -208,6 +208,7 @@ async fn submit_to_ai(
                         pool.send(id, WsCommand::StartAudio(chunk)).await?;
 
                         'a: loop {
+                            // 0.5s per chunk
                             for _ in 0..(5 * 3200) {
                                 if let Some(Ok(sample)) = samples.next() {
                                     buff.extend_from_slice(&sample.to_le_bytes());
@@ -336,6 +337,10 @@ async fn handle_audio(
                 if let Err(e) = r {
                     log::error!("`{id}` error: {e}");
                 }
+                if let Err(e) = pool.send(&id, WsCommand::EndResponse).await{
+                    log::error!("`{id}` error: {e}");
+                };
+
                 rx.recv().await
             }
         };
@@ -408,10 +413,10 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
         WsCommand::Video(_) => {
             log::warn!("video command is not implemented yet");
         }
-        WsCommand::InitSetting => {
-            let init_setting = serde_json::to_string(&crate::protocol::JsonCommand::InitSetting)
+        WsCommand::EndResponse => {
+            let end_response = serde_json::to_string(&crate::protocol::JsonCommand::EndResponse)
                 .expect("Failed to serialize JsonCommand");
-            ws.send(Message::Text(init_setting.into())).await?;
+            ws.send(Message::Text(end_response.into())).await?;
         }
     }
     Ok(())
