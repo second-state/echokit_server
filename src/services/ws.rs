@@ -101,6 +101,7 @@ async fn submit_to_ai(
     let asr_url = &pool.config.asr.url;
     // let lang = "zh";
     let lang = pool.config.asr.lang.as_str();
+    std::fs::write(format!("asr.{id}.wav"), &wav_audio).unwrap();
     let text = crate::ai::asr(asr_url, lang, wav_audio).await?;
     log::info!("ASR result: {:?}", text);
 
