@@ -89,6 +89,53 @@ enum WsEvent {
     Command(WsCommand),
 }
 
+async fn retry_asr(
+    url: &str,
+    lang: &str,
+    wav_audio: Vec<u8>,
+    retry: usize,
+    timeout: std::time::Duration,
+) -> Vec<String> {
+    for i in 0..retry {
+        let r = tokio::time::timeout(timeout, crate::ai::asr(url, lang, wav_audio.clone())).await;
+        match r {
+            Ok(Ok(v)) => return v,
+            Ok(Err(e)) => {
+                log::error!("asr error: {e}");
+                continue;
+            }
+            Err(_) => {
+                log::error!("asr timeout, retry {i}");
+                continue;
+            }
+        }
+    }
+    vec![]
+}
+
+async fn retry_tts(
+    url: &str,
+    speaker: &str,
+    text: &str,
+    retry: usize,
+    timeout: std::time::Duration,
+) -> anyhow::Result<Bytes> {
+    for i in 0..retry {
+        let r = tokio::time::timeout(timeout, crate::ai::tts(url, speaker, text)).await;
+        match r {
+            Ok(Ok(v)) => return Ok(v),
+            Ok(Err(e)) => {
+                return Err(anyhow::anyhow!("tts error: {e}"));
+            }
+            Err(_) => {
+                log::error!("tts timeout, retry {i}");
+                continue;
+            }
+        }
+    }
+    Err(anyhow::anyhow!("tts timeout"))
+}
+
 async fn submit_to_ai(
     pool: &WsPool,
     id: &str,
@@ -102,7 +149,15 @@ async fn submit_to_ai(
     // let lang = "zh";
     let lang = pool.config.asr.lang.as_str();
     std::fs::write(format!("asr.{id}.wav"), &wav_audio).unwrap();
-    let text = crate::ai::asr(asr_url, lang, wav_audio).await?;
+    let text = retry_asr(
+        asr_url,
+        lang,
+        wav_audio,
+        3,
+        std::time::Duration::from_secs(10),
+    )
+    .await;
+
     log::info!("ASR result: {:?}", text);
 
     if text.is_empty() {
@@ -184,7 +239,15 @@ async fn submit_to_ai(
                 if chunk_.is_empty() {
                     continue;
                 }
-                match crate::ai::tts(tts_url, speaker, &chunk).await {
+                match retry_tts(
+                    tts_url,
+                    speaker,
+                    &chunk,
+                    3,
+                    std::time::Duration::from_secs(15),
+                )
+                .await
+                {
                     Ok(wav_data) => {
                         if let Some(deadline) = deadline {
                             tokio::time::sleep_until(deadline).await;
@@ -209,8 +272,8 @@ async fn submit_to_ai(
                         pool.send(id, WsCommand::StartAudio(chunk)).await?;
 
                         'a: loop {
-                            // 1s per chunk
-                            for _ in 0..(10 * 3200) {
+                            // 0.5s per chunk
+                            for _ in 0..(5 * 3200) {
                                 if let Some(Ok(sample)) = samples.next() {
                                     buff.extend_from_slice(&sample.to_le_bytes());
                                 } else {
