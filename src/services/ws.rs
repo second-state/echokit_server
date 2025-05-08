@@ -110,8 +110,9 @@ async fn submit_to_ai(
         return Ok(());
     }
 
-    let message = text.join("\n");
-    pool.send(id, WsCommand::AsrResult(text)).await?;
+    let message = hanconv::tw2sp(text.join("\n"));
+    pool.send(id, WsCommand::AsrResult(vec![message.clone()]))
+        .await?;
 
     if only_asr {
         return Ok(());
@@ -208,8 +209,8 @@ async fn submit_to_ai(
                         pool.send(id, WsCommand::StartAudio(chunk)).await?;
 
                         'a: loop {
-                            // 0.5s per chunk
-                            for _ in 0..(5 * 3200) {
+                            // 1s per chunk
+                            for _ in 0..(10 * 3200) {
                                 if let Some(Ok(sample)) = samples.next() {
                                     buff.extend_from_slice(&sample.to_le_bytes());
                                 } else {

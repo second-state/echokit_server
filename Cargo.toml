@@ -28,3 +28,5 @@ uuid = { version = "1.14", features = [
 ] }
 bytes = "1.10.0"
 aho-corasick = "1.1.3"
+hanconv = "0.3.4"
+# opencc-rust = { version = "1.1.19", features = ["static-dictionaries"] }
