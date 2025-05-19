@@ -21,6 +21,7 @@ tokio = { version = "1", features = ["full"] }
 
 reqwest = { version = "0.12", features = ["multipart", "json"] }
 hound = "3.5.1"
+wav_io = "0.1.15"
 rand = "0.9.0"
 uuid = { version = "1.14", features = [
     "v4",       # Lets you generate random UUIDs
@@ -29,4 +30,5 @@ uuid = { version = "1.14", features = [
 bytes = "1.10.0"
 aho-corasick = "1.1.3"
 hanconv = "0.3.4"
+fon = { git = "https://github.com/ardaku/fon.git", branch = "v1" }
 # opencc-rust = { version = "1.1.19", features = ["static-dictionaries"] }

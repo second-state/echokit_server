@@ -10,6 +10,8 @@ use axum::{
     Extension,
 };
 
+use fon::{chan::Samp16, Audio};
+
 use crate::{ai::llm::Content, config::Config};
 
 pub enum WsCommand {
@@ -111,6 +113,25 @@ async fn retry_asr(
         }
     }
     vec![]
+}
+
+fn resample(audio_samples: &[i16], in_hz: u32, out_hz: u32) -> anyhow::Result<Audio<Samp16, 1>> {
+    // let wav_reader = hound::WavReader::new(wav_audio)?;
+    // let spec = wav_reader.spec();
+    // let in_hz = spec.sample_rate;
+    // let out_hz = target_sr;
+
+    // let samples = wav_reader.into_samples::<i16>();
+    // let mut samples_vec = Vec::with_capacity(samples.len());
+    // for sample in samples {
+    //     let sample = sample?;
+    //     samples_vec.push(sample)
+    // }
+
+    let audio = Audio::<Samp16, 1>::with_i16_buffer(in_hz, audio_samples);
+    let audio = Audio::<Samp16, 1>::with_audio(out_hz, &audio);
+
+    Ok(audio)
 }
 
 async fn retry_tts(
@@ -254,43 +275,46 @@ async fn submit_to_ai(
                             log::info!("end audio");
                         }
 
-                        let mut buff = Vec::with_capacity(5 * 3200 * 2);
-                        let reader = hound::WavReader::new(wav_data.as_ref())?;
+                        let mut buff = Vec::with_capacity(5 * 1600 * 2);
+                        let reader = hound::WavReader::new(wav_data.as_ref())
+                            .map_err(|e| anyhow::anyhow!("hound error:{e}"))?;
 
                         let duration_sec =
                             reader.duration() as f32 / reader.spec().sample_rate as f32;
 
                         deadline = Some(
                             tokio::time::Instant::now()
-                                + tokio::time::Duration::from_secs_f32(duration_sec + 1.0),
+                                + tokio::time::Duration::from_secs_f32(duration_sec),
                         );
 
-                        let mut samples = reader.into_samples::<i16>();
+                        let in_hz = reader.spec().sample_rate;
+                        let out_hz = 16000;
+                        let samples = reader.into_samples::<i16>();
+                        let mut samples_vec = Vec::with_capacity(samples.len());
+                        for sample in samples {
+                            if let Ok(sample) = sample {
+                                samples_vec.push(sample)
+                            } else {
+                                log::warn!("sample error: {}", sample.unwrap_err());
+                            }
+                        }
+                        let mut audio_16k = resample(&samples_vec, in_hz, out_hz)
+                            .map_err(|e| anyhow::anyhow!("resample error:{e}"))?;
 
                         log::info!("llm chunk:{:?}", chunk);
 
                         pool.send(id, WsCommand::StartAudio(chunk)).await?;
 
-                        'a: loop {
-                            // 0.5s per chunk
-                            for _ in 0..(5 * 3200) {
-                                if let Some(Ok(sample)) = samples.next() {
-                                    buff.extend_from_slice(&sample.to_le_bytes());
-                                } else {
-                                    break 'a;
-                                }
+                        let samples = audio_16k.as_i16_slice();
+                        for chunk in samples.chunks(5 * out_hz as usize / 10) {
+                            for i in chunk {
+                                buff.extend_from_slice(&i.to_le_bytes());
                             }
-                            {
-                                let mut send_data = Vec::with_capacity(buff.capacity());
-                                std::mem::swap(&mut send_data, &mut buff);
-                                pool.send(id, WsCommand::Audio(send_data.into())).await?;
-                            }
+                            // std::mem::swap(&mut send_data, &mut buff);
+                            pool.send(id, WsCommand::Audio(buff.into())).await?;
+                            buff = Vec::with_capacity(5 * 1600 * 2);
                         }
-                        if buff.len() > 0 {
-                            let mut send_data = Vec::with_capacity(buff.capacity());
-                            std::mem::swap(&mut send_data, &mut buff);
-                            pool.send(id, WsCommand::Audio(send_data.into())).await?;
-                        }
+
                         pool.send(id, WsCommand::EndAudio).await?;
                     }
                     Err(e) => {
