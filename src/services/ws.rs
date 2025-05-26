@@ -12,7 +12,16 @@ use axum::{
 
 use fon::{chan::Samp16, Audio};
 
-use crate::{ai::llm::Content, config::Config};
+use crate::{
+    ai::{
+        genai::{
+            self,
+            types::{Blob, GenerationConfig, RealtimeAudio},
+        },
+        llm::Content,
+    },
+    config::AIConfig,
+};
 
 pub enum WsCommand {
     AsrResult(Vec<String>),
@@ -28,12 +37,12 @@ type WsRx = tokio::sync::mpsc::UnboundedReceiver<WsCommand>;
 
 #[derive(Debug)]
 pub struct WsPool {
-    pub config: Config,
+    pub config: AIConfig,
     pub connections: tokio::sync::RwLock<HashMap<String, (u128, WsTx)>>,
 }
 
 impl WsPool {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: AIConfig) -> Self {
         Self {
             config,
             connections: tokio::sync::RwLock::new(HashMap::new()),
@@ -159,6 +168,9 @@ async fn retry_tts(
 
 async fn submit_to_ai(
     pool: &WsPool,
+    asr: &crate::config::ASRConfig,
+    llm: &crate::config::LLMConfig,
+    tts: &crate::config::TTSConfig,
     id: &str,
     wav_audio: Vec<u8>,
     only_asr: bool,
@@ -166,9 +178,8 @@ async fn submit_to_ai(
     dynamic_prompts: &mut std::collections::LinkedList<Content>,
 ) -> anyhow::Result<()> {
     // ASR
-    let asr_url = &pool.config.asr.url;
-    // let lang = "zh";
-    let lang = pool.config.asr.lang.as_str();
+    let asr_url = &asr.url;
+    let lang = asr.lang.as_str();
     std::fs::write(format!("asr.{id}.wav"), &wav_audio).unwrap();
     let text = retry_asr(
         asr_url,
@@ -195,7 +206,7 @@ async fn submit_to_ai(
     }
 
     // LLM
-    let token = if let Some(t) = &pool.config.llm.api_key {
+    let token = if let Some(t) = &llm.api_key {
         t.as_str()
     } else {
         ""
@@ -211,7 +222,7 @@ async fn submit_to_ai(
         dynamic_prompts.pop_back();
     }
 
-    while dynamic_prompts.len() > pool.config.llm.history * 2 {
+    while dynamic_prompts.len() > llm.history * 2 {
         dynamic_prompts.pop_front();
     }
 
@@ -226,12 +237,12 @@ async fn submit_to_ai(
         .collect::<Vec<_>>();
 
     log::info!("start llm");
-    let llm_url = &pool.config.llm.llm_chat_url;
+    let llm_url = &llm.llm_chat_url;
     let mut resp = crate::ai::llm_stable(llm_url, token, None, prompts).await?;
 
     let mut deadline = None;
 
-    let (tts_url, speaker) = match &pool.config.tts {
+    let (tts_url, speaker) = match &tts {
         crate::config::TTSConfig::Stable(tts) => (&tts.url, &tts.speaker),
         crate::config::TTSConfig::Fish(_) => {
             return Err(anyhow::anyhow!("Fish TTS is not implemented yet"));
@@ -343,6 +354,117 @@ async fn submit_to_ai(
     Ok(())
 }
 
+async fn submit_to_genai_and_tts(
+    pool: &WsPool,
+    client: &mut genai::LiveClient,
+    tts: &crate::config::TTSConfig,
+    id: &str,
+    wav_audio: Vec<u8>,
+) -> anyhow::Result<()> {
+    // Genai live api
+    let mut reader = wav_io::reader::Reader::from_vec(wav_audio)?;
+    let header = reader.read_header()?;
+    let mut samples = reader.get_samples_f32()?;
+    if header.sample_rate != 16000 {
+        samples = wav_io::resample::linear(samples, 1, header.sample_rate, 16000);
+    }
+
+    let data = wav_io::convert_samples_f32_to_i16(&samples);
+    let mut submit_data = Vec::with_capacity(data.len() * 2);
+    for sample in data {
+        submit_data.extend_from_slice(&sample.to_le_bytes());
+    }
+
+    client
+        .send_realtime_audio(RealtimeAudio {
+            data: Blob::new(submit_data),
+            mime_type: "audio/pcm;rate=16000".to_string(),
+        })
+        .await?;
+
+    let mut text = String::new();
+    loop {
+        match client.receive().await? {
+            genai::types::ServerContent::ModelTurn(turn) => {
+                turn.parts.iter().for_each(|part| {
+                    if let genai::types::Parts::Text(text_part) = part {
+                        text.push_str(&text_part);
+                    }
+                });
+            }
+            genai::types::ServerContent::GenerationComplete(_) => {}
+            genai::types::ServerContent::Interrupted(_) => {}
+            genai::types::ServerContent::TurnComplete(_) => {
+                break;
+            }
+        }
+    }
+
+    let message = hanconv::tw2sp(text);
+    pool.send(id, WsCommand::AsrResult(vec![message.clone()]))
+        .await?;
+
+    log::info!("start llm");
+
+    let (tts_url, speaker) = match &tts {
+        crate::config::TTSConfig::Stable(tts) => (&tts.url, &tts.speaker),
+        crate::config::TTSConfig::Fish(_) => {
+            return Err(anyhow::anyhow!("Fish TTS is not implemented yet"));
+        }
+    };
+
+    match retry_tts(
+        tts_url,
+        speaker,
+        &message,
+        3,
+        std::time::Duration::from_secs(15),
+    )
+    .await
+    {
+        Ok(wav_data) => {
+            let mut buff = Vec::with_capacity(5 * 1600 * 2);
+            let reader = hound::WavReader::new(wav_data.as_ref())
+                .map_err(|e| anyhow::anyhow!("hound error:{e}"))?;
+
+            let in_hz = reader.spec().sample_rate;
+            let out_hz = 16000;
+            let samples = reader.into_samples::<i16>();
+            let mut samples_vec = Vec::with_capacity(samples.len());
+            for sample in samples {
+                if let Ok(sample) = sample {
+                    samples_vec.push(sample)
+                } else {
+                    log::warn!("sample error: {}", sample.unwrap_err());
+                }
+            }
+            let mut audio_16k = resample(&samples_vec, in_hz, out_hz)
+                .map_err(|e| anyhow::anyhow!("resample error:{e}"))?;
+
+            log::info!("llm response:{:?}", message);
+
+            pool.send(id, WsCommand::StartAudio(message)).await?;
+
+            let samples = audio_16k.as_i16_slice();
+            for chunk in samples.chunks(5 * out_hz as usize / 10) {
+                for i in chunk {
+                    buff.extend_from_slice(&i.to_le_bytes());
+                }
+                // std::mem::swap(&mut send_data, &mut buff);
+                pool.send(id, WsCommand::Audio(buff.into())).await?;
+                buff = Vec::with_capacity(5 * 1600 * 2);
+            }
+
+            pool.send(id, WsCommand::EndAudio).await?;
+        }
+        Err(e) => {
+            log::error!("tts error:{e}");
+        }
+    }
+
+    Ok(())
+}
+
 // return: wav data
 async fn process_socket_io(
     rx: &mut WsRx,
@@ -413,28 +535,79 @@ async fn handle_audio(
         .await
         .ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
 
-    let sys_prompts = &pool.config.llm.sys_prompts;
-    let mut dynamic_prompts = pool.config.llm.dynamic_prompts.clone();
+    match &pool.config {
+        AIConfig::Stable { llm, tts, asr } => {
+            let sys_prompts = &llm.sys_prompts;
+            let mut dynamic_prompts = llm.dynamic_prompts.clone();
 
-    loop {
-        let rx_recv = tokio::select! {
-            r = rx.recv() =>{
-                r
-            }
-            r = submit_to_ai(&pool, &id, wav_audio, only_asr,sys_prompts,&mut dynamic_prompts) => {
-                if let Err(e) = r {
-                    log::error!("`{id}` error: {e}");
-                }
-                if let Err(e) = pool.send(&id, WsCommand::EndResponse).await{
-                    log::error!("`{id}` error: {e}");
+            loop {
+                let rx_recv = tokio::select! {
+                    r = rx.recv() =>{
+                        r
+                    }
+                    r = submit_to_ai(&pool, asr, llm, tts, &id, wav_audio, only_asr,sys_prompts,&mut dynamic_prompts) => {
+                        if let Err(e) = r {
+                            log::error!("`{id}` error: {e}");
+                        }
+                        if let Err(e) = pool.send(&id, WsCommand::EndResponse).await{
+                            log::error!("`{id}` error: {e}");
+                        };
+
+                        rx.recv().await
+                    }
                 };
-
-                rx.recv().await
+                let r = rx_recv.ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
+                only_asr = r.0;
+                wav_audio = r.1;
             }
-        };
-        let r = rx_recv.ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
-        only_asr = r.0;
-        wav_audio = r.1;
+        }
+        AIConfig::GenaiAndTTS { genai, tts } => {
+            let mut client = genai::LiveClient::connect(&genai.api_key).await?;
+            let model = genai
+                .model
+                .clone()
+                .unwrap_or("models/gemini-2.0-flash-live-001".to_string());
+
+            let mut generation_config = GenerationConfig::default();
+            generation_config.response_modalities = Some(vec![genai::types::Modality::TEXT]);
+
+            let system_instruction = if let Some(sys_prompts) = genai.sys_prompts.clone() {
+                Some(genai::types::Content {
+                    parts: vec![genai::types::Parts::Text(sys_prompts.message)],
+                })
+            } else {
+                None
+            };
+
+            let setup = genai::types::Setup {
+                model,
+                generation_config: Some(generation_config),
+                system_instruction,
+            };
+
+            client.setup(setup).await?;
+
+            loop {
+                let rx_recv = tokio::select! {
+                    r = rx.recv() =>{
+                        r
+                    }
+                    r = submit_to_genai_and_tts(&pool, &mut client, tts, &id, wav_audio) => {
+                        if let Err(e) = r {
+                            log::error!("`{id}` error: {e}");
+                        }
+                        if let Err(e) = pool.send(&id, WsCommand::EndResponse).await{
+                            log::error!("`{id}` error: {e}");
+                        };
+
+                        rx.recv().await
+                    }
+                };
+                let r = rx_recv.ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
+                wav_audio = r.1;
+            }
+        }
+        AIConfig::Genai { genai } => todo!(),
     }
 }
 
