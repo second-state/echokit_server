@@ -27,5 +27,7 @@ fn routes(config: Config) -> Router {
     Router::new()
         // .route("/", get(handler))
         .route("/ws/{id}", any(services::ws::ws_handler))
-        .layer(axum::Extension(Arc::new(services::ws::WsPool::new(config))))
+        .layer(axum::Extension(Arc::new(services::ws::WsPool::new(
+            config.config,
+        ))))
 }

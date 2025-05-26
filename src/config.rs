@@ -15,6 +15,15 @@ pub struct LLMConfig {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GenaiConfig {
+    pub api_key: String,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub sys_prompts: Option<Content>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FishTTS {
     pub api_key: String,
     pub speaker: String,
@@ -47,9 +56,25 @@ pub struct ASRConfig {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Config {
     pub addr: String,
-    pub llm: LLMConfig,
-    pub tts: TTSConfig,
-    pub asr: ASRConfig,
+    #[serde(flatten)]
+    pub config: AIConfig,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum AIConfig {
+    Stable {
+        llm: LLMConfig,
+        tts: TTSConfig,
+        asr: ASRConfig,
+    },
+    GenaiAndTTS {
+        genai: GenaiConfig,
+        tts: TTSConfig,
+    },
+    Genai {
+        genai: GenaiConfig,
+    },
 }
 
 impl Config {
