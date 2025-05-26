@@ -70,6 +70,10 @@ impl Blob {
     pub fn new(data: Vec<u8>) -> Self {
         Blob(data)
     }
+
+    pub fn into_inner(self) -> Vec<u8> {
+        self.0
+    }
 }
 impl serde::Serialize for Blob {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

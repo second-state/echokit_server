@@ -465,6 +465,77 @@ async fn submit_to_genai_and_tts(
     Ok(())
 }
 
+async fn submit_to_genai(
+    pool: &WsPool,
+    client: &mut genai::LiveClient,
+    id: &str,
+    wav_audio: Vec<u8>,
+) -> anyhow::Result<()> {
+    // Genai live api
+    let mut reader = wav_io::reader::Reader::from_vec(wav_audio)?;
+    let header = reader.read_header()?;
+    let mut samples = reader.get_samples_f32()?;
+    if header.sample_rate != 16000 {
+        samples = wav_io::resample::linear(samples, 1, header.sample_rate, 16000);
+    }
+
+    let data = wav_io::convert_samples_f32_to_i16(&samples);
+    let mut submit_data = Vec::with_capacity(data.len() * 2);
+    for sample in data {
+        submit_data.extend_from_slice(&sample.to_le_bytes());
+    }
+
+    client
+        .send_realtime_audio(RealtimeAudio {
+            data: Blob::new(submit_data),
+            mime_type: "audio/pcm;rate=16000".to_string(),
+        })
+        .await?;
+
+    pool.send(id, WsCommand::AsrResult(vec![format!("Wait genai")]))
+        .await?;
+
+    let mut buff = Vec::with_capacity(5 * 1600 * 2);
+
+    loop {
+        match client.receive().await? {
+            genai::types::ServerContent::ModelTurn(turn) => {
+                for item in turn.parts {
+                    if let genai::types::Parts::InlineData { data, mime_type } = item {
+                        if mime_type.starts_with("audio/pcm") {
+                            let audio_data = data.into_inner();
+                            let sample = unsafe {
+                                std::slice::from_raw_parts(
+                                    audio_data.as_ptr() as *const i16,
+                                    audio_data.len() / 2,
+                                )
+                            };
+                            let mut audio_16k = resample(sample, 24000, 16000)?;
+                            let samples = audio_16k.as_i16_slice();
+                            for chunk in samples.chunks(5 * 16000 / 10) {
+                                for i in chunk {
+                                    buff.extend_from_slice(&i.to_le_bytes());
+                                }
+                                // std::mem::swap(&mut send_data, &mut buff);
+                                pool.send(id, WsCommand::Audio(buff.into())).await?;
+                                buff = Vec::with_capacity(5 * 1600 * 2);
+                            }
+                        }
+                    }
+                }
+            }
+            genai::types::ServerContent::GenerationComplete(_) => {}
+            genai::types::ServerContent::Interrupted(_) => {}
+            genai::types::ServerContent::TurnComplete(_) => {
+                break;
+            }
+        }
+    }
+    pool.send(id, WsCommand::EndAudio).await?;
+
+    Ok(())
+}
+
 // return: wav data
 async fn process_socket_io(
     rx: &mut WsRx,
@@ -607,7 +678,52 @@ async fn handle_audio(
                 wav_audio = r.1;
             }
         }
-        AIConfig::Genai { genai } => todo!(),
+        AIConfig::Genai { genai } => {
+            let mut client = genai::LiveClient::connect(&genai.api_key).await?;
+            let model = genai
+                .model
+                .clone()
+                .unwrap_or("models/gemini-2.0-flash-live-001".to_string());
+
+            let mut generation_config = GenerationConfig::default();
+            generation_config.response_modalities = Some(vec![genai::types::Modality::AUDIO]);
+
+            let system_instruction = if let Some(sys_prompts) = genai.sys_prompts.clone() {
+                Some(genai::types::Content {
+                    parts: vec![genai::types::Parts::Text(sys_prompts.message)],
+                })
+            } else {
+                None
+            };
+
+            let setup = genai::types::Setup {
+                model,
+                generation_config: Some(generation_config),
+                system_instruction,
+            };
+
+            client.setup(setup).await?;
+
+            loop {
+                let rx_recv = tokio::select! {
+                    r = rx.recv() =>{
+                        r
+                    }
+                    r = submit_to_genai(&pool, &mut client, &id, wav_audio) => {
+                        if let Err(e) = r {
+                            log::error!("`{id}` error: {e}");
+                        }
+                        if let Err(e) = pool.send(&id, WsCommand::EndResponse).await{
+                            log::error!("`{id}` error: {e}");
+                        };
+
+                        rx.recv().await
+                    }
+                };
+                let r = rx_recv.ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
+                wav_audio = r.1;
+            }
+        }
     }
 }
 
