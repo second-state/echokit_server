@@ -2,6 +2,7 @@ use axum::body::Bytes;
 use reqwest::multipart::Part;
 
 pub mod genai;
+pub mod openai;
 pub mod store;
 
 /// return: wav_audio: 16bit,32k,single-channel.
