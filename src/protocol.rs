@@ -2,6 +2,16 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ServerEvent {
+    // set Hello
+    HelloStart,
+    HelloChunk { data: Vec<u8> },
+    HelloEnd,
+
+    // set Background
+    BGStart,
+    BGChunk { data: Vec<u8> },
+    BGEnd,
+
     ASR { text: String },
     Action { action: String },
     StartAudio { text: String },

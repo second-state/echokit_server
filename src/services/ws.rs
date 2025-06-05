@@ -39,13 +39,17 @@ type WsRx = tokio::sync::mpsc::UnboundedReceiver<WsCommand>;
 pub struct WsPool {
     pub config: AIConfig,
     pub connections: tokio::sync::RwLock<HashMap<String, (u128, WsTx)>>,
+    pub hello_wav: Option<Vec<u8>>,
+    pub bg_gif: Option<Vec<u8>>,
 }
 
 impl WsPool {
-    pub fn new(config: AIConfig) -> Self {
+    pub fn new(hello_wav: Option<Vec<u8>>, bg_gif: Option<Vec<u8>>, config: AIConfig) -> Self {
         Self {
             config,
             connections: tokio::sync::RwLock::new(HashMap::new()),
+            hello_wav,
+            bg_gif,
         }
     }
 }
@@ -727,12 +731,64 @@ async fn handle_audio(
     }
 }
 
+async fn send_bg_gif(socket: &mut WebSocket, bg_gif: &[u8]) -> anyhow::Result<()> {
+    let bg_start = rmp_serde::to_vec(&crate::protocol::ServerEvent::BGStart)
+        .expect("Failed to serialize BgStart ServerEvent");
+    socket.send(Message::binary(bg_start)).await?;
+
+    for chunk in bg_gif.chunks(1024 * 2) {
+        let bg_chunk = rmp_serde::to_vec(&crate::protocol::ServerEvent::BGChunk {
+            data: chunk.to_vec(),
+        })
+        .expect("Failed to serialize BgChunk ServerEvent");
+        socket.send(Message::binary(bg_chunk)).await?;
+    }
+
+    let bg_end = rmp_serde::to_vec(&crate::protocol::ServerEvent::BGEnd)
+        .expect("Failed to serialize BgEnd ServerEvent");
+    socket.send(Message::binary(bg_end)).await?;
+
+    Ok(())
+}
+
+async fn send_hello_wav(socket: &mut WebSocket, hello: &[u8]) -> anyhow::Result<()> {
+    let hello_start = rmp_serde::to_vec(&crate::protocol::ServerEvent::HelloStart)
+        .expect("Failed to serialize HelloStart ServerEvent");
+    socket.send(Message::binary(hello_start)).await?;
+
+    for chunk in hello.chunks(1024 * 2) {
+        let hello_chunk = rmp_serde::to_vec(&crate::protocol::ServerEvent::HelloChunk {
+            data: chunk.to_vec(),
+        })
+        .expect("Failed to serialize HelloChunk ServerEvent");
+        socket.send(Message::binary(hello_chunk)).await?;
+    }
+
+    let hello_end = rmp_serde::to_vec(&crate::protocol::ServerEvent::HelloEnd)
+        .expect("Failed to serialize HelloEnd ServerEvent");
+    socket.send(Message::binary(hello_end)).await?;
+
+    Ok(())
+}
+
 async fn handle_socket(
     mut socket: WebSocket,
     id: &str,
     mut rx: WsRx,
     pool: Arc<WsPool>,
 ) -> anyhow::Result<()> {
+    if let Some(hello_wav) = &pool.hello_wav {
+        if !hello_wav.is_empty() {
+            send_hello_wav(&mut socket, hello_wav).await?;
+        }
+    }
+
+    if let Some(bg_gif) = &pool.bg_gif {
+        if !bg_gif.is_empty() {
+            send_bg_gif(&mut socket, bg_gif).await?;
+        }
+    }
+
     let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<(bool, Vec<u8>)>(1);
     tokio::spawn(handle_audio(id.to_string(), pool.clone(), audio_rx));
 
