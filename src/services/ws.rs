@@ -26,7 +26,7 @@ use crate::{
 pub enum WsCommand {
     AsrResult(Vec<String>),
     Action { action: String },
-    Audio(Bytes),
+    Audio(Vec<u8>),
     StartAudio(String),
     EndAudio,
     Video(Vec<Vec<u8>>),
@@ -322,7 +322,7 @@ async fn submit_to_ai(
                                 buff.extend_from_slice(&i.to_le_bytes());
                             }
                             // std::mem::swap(&mut send_data, &mut buff);
-                            pool.send(id, WsCommand::Audio(buff.into())).await?;
+                            pool.send(id, WsCommand::Audio(buff)).await?;
                             buff = Vec::with_capacity(5 * 1600 * 2);
                         }
 
@@ -451,7 +451,7 @@ async fn submit_to_genai_and_tts(
                     buff.extend_from_slice(&i.to_le_bytes());
                 }
                 // std::mem::swap(&mut send_data, &mut buff);
-                pool.send(id, WsCommand::Audio(buff.into())).await?;
+                pool.send(id, WsCommand::Audio(buff)).await?;
                 buff = Vec::with_capacity(5 * 1600 * 2);
             }
 
@@ -517,7 +517,7 @@ async fn submit_to_genai(
                                     buff.extend_from_slice(&i.to_le_bytes());
                                 }
                                 // std::mem::swap(&mut send_data, &mut buff);
-                                pool.send(id, WsCommand::Audio(buff.into())).await?;
+                                pool.send(id, WsCommand::Audio(buff)).await?;
                                 buff = Vec::with_capacity(5 * 1600 * 2);
                             }
                         }
@@ -761,39 +761,40 @@ pub const SAMPLE_RATE_BUFFER_SIZE: usize = 2 * (SAMPLE_RATE as usize) / 10;
 async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<()> {
     match cmd {
         WsCommand::AsrResult(texts) => {
-            let json = serde_json::to_string(&crate::protocol::JsonCommand::ASR {
+            let asr = rmp_serde::to_vec(&crate::protocol::ServerEvent::ASR {
                 text: texts.join("\n"),
             })
-            .expect("Failed to serialize JsonCommand");
-            ws.send(Message::Text(json.into())).await?;
+            .expect("Failed to serialize ASR ServerEvent");
+            ws.send(Message::binary(asr)).await?;
         }
 
         WsCommand::Action { action } => {
-            let json = serde_json::to_string(&crate::protocol::JsonCommand::Action { action })
-                .expect("Failed to serialize JsonCommand");
-            ws.send(Message::Text(json.into())).await?;
+            let action = rmp_serde::to_vec(&crate::protocol::ServerEvent::Action { action })
+                .expect("Failed to serialize Action ServerEvent");
+            ws.send(Message::binary(action)).await?;
         }
         WsCommand::StartAudio(text) => {
-            let start_audio =
-                serde_json::to_string(&crate::protocol::JsonCommand::StartAudio { text })
-                    .expect("Failed to serialize JsonCommand");
-            ws.send(Message::Text(start_audio.into())).await?;
+            let start_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::StartAudio { text })
+                .expect("Failed to serialize StartAudio ServerEvent");
+            ws.send(Message::binary(start_audio)).await?;
         }
-        WsCommand::Audio(d) => {
-            ws.send(Message::Binary(d)).await?;
+        WsCommand::Audio(data) => {
+            let start_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunk { data })
+                .expect("Failed to serialize StartAudio ServerEvent");
+            ws.send(Message::binary(start_audio)).await?;
         }
         WsCommand::EndAudio => {
-            let end_audio = serde_json::to_string(&crate::protocol::JsonCommand::EndAudio)
-                .expect("Failed to serialize JsonCommand");
-            ws.send(Message::Text(end_audio.into())).await?;
+            let end_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndAudio)
+                .expect("Failed to serialize EndAudio ServerEvent");
+            ws.send(Message::binary(end_audio)).await?;
         }
         WsCommand::Video(_) => {
             log::warn!("video command is not implemented yet");
         }
         WsCommand::EndResponse => {
-            let end_response = serde_json::to_string(&crate::protocol::JsonCommand::EndResponse)
+            let end_response = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndResponse)
                 .expect("Failed to serialize JsonCommand");
-            ws.send(Message::Text(end_response.into())).await?;
+            ws.send(Message::binary(end_response)).await?;
         }
     }
     Ok(())
