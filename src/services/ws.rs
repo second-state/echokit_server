@@ -26,7 +26,7 @@ use crate::{
 pub enum WsCommand {
     AsrResult(Vec<String>),
     Action { action: String },
-    Audio(Bytes),
+    Audio(Vec<u8>),
     StartAudio(String),
     EndAudio,
     Video(Vec<Vec<u8>>),
@@ -39,13 +39,17 @@ type WsRx = tokio::sync::mpsc::UnboundedReceiver<WsCommand>;
 pub struct WsPool {
     pub config: AIConfig,
     pub connections: tokio::sync::RwLock<HashMap<String, (u128, WsTx)>>,
+    pub hello_wav: Option<Vec<u8>>,
+    pub bg_gif: Option<Vec<u8>>,
 }
 
 impl WsPool {
-    pub fn new(config: AIConfig) -> Self {
+    pub fn new(hello_wav: Option<Vec<u8>>, bg_gif: Option<Vec<u8>>, config: AIConfig) -> Self {
         Self {
             config,
             connections: tokio::sync::RwLock::new(HashMap::new()),
+            hello_wav,
+            bg_gif,
         }
     }
 }
@@ -322,7 +326,7 @@ async fn submit_to_ai(
                                 buff.extend_from_slice(&i.to_le_bytes());
                             }
                             // std::mem::swap(&mut send_data, &mut buff);
-                            pool.send(id, WsCommand::Audio(buff.into())).await?;
+                            pool.send(id, WsCommand::Audio(buff)).await?;
                             buff = Vec::with_capacity(5 * 1600 * 2);
                         }
 
@@ -451,7 +455,7 @@ async fn submit_to_genai_and_tts(
                     buff.extend_from_slice(&i.to_le_bytes());
                 }
                 // std::mem::swap(&mut send_data, &mut buff);
-                pool.send(id, WsCommand::Audio(buff.into())).await?;
+                pool.send(id, WsCommand::Audio(buff)).await?;
                 buff = Vec::with_capacity(5 * 1600 * 2);
             }
 
@@ -517,7 +521,7 @@ async fn submit_to_genai(
                                     buff.extend_from_slice(&i.to_le_bytes());
                                 }
                                 // std::mem::swap(&mut send_data, &mut buff);
-                                pool.send(id, WsCommand::Audio(buff.into())).await?;
+                                pool.send(id, WsCommand::Audio(buff)).await?;
                                 buff = Vec::with_capacity(5 * 1600 * 2);
                             }
                         }
@@ -727,12 +731,64 @@ async fn handle_audio(
     }
 }
 
+async fn send_bg_gif(socket: &mut WebSocket, bg_gif: &[u8]) -> anyhow::Result<()> {
+    let bg_start = rmp_serde::to_vec(&crate::protocol::ServerEvent::BGStart)
+        .expect("Failed to serialize BgStart ServerEvent");
+    socket.send(Message::binary(bg_start)).await?;
+
+    for chunk in bg_gif.chunks(1024 * 2) {
+        let bg_chunk = rmp_serde::to_vec(&crate::protocol::ServerEvent::BGChunk {
+            data: chunk.to_vec(),
+        })
+        .expect("Failed to serialize BgChunk ServerEvent");
+        socket.send(Message::binary(bg_chunk)).await?;
+    }
+
+    let bg_end = rmp_serde::to_vec(&crate::protocol::ServerEvent::BGEnd)
+        .expect("Failed to serialize BgEnd ServerEvent");
+    socket.send(Message::binary(bg_end)).await?;
+
+    Ok(())
+}
+
+async fn send_hello_wav(socket: &mut WebSocket, hello: &[u8]) -> anyhow::Result<()> {
+    let hello_start = rmp_serde::to_vec(&crate::protocol::ServerEvent::HelloStart)
+        .expect("Failed to serialize HelloStart ServerEvent");
+    socket.send(Message::binary(hello_start)).await?;
+
+    for chunk in hello.chunks(1024 * 2) {
+        let hello_chunk = rmp_serde::to_vec(&crate::protocol::ServerEvent::HelloChunk {
+            data: chunk.to_vec(),
+        })
+        .expect("Failed to serialize HelloChunk ServerEvent");
+        socket.send(Message::binary(hello_chunk)).await?;
+    }
+
+    let hello_end = rmp_serde::to_vec(&crate::protocol::ServerEvent::HelloEnd)
+        .expect("Failed to serialize HelloEnd ServerEvent");
+    socket.send(Message::binary(hello_end)).await?;
+
+    Ok(())
+}
+
 async fn handle_socket(
     mut socket: WebSocket,
     id: &str,
     mut rx: WsRx,
     pool: Arc<WsPool>,
 ) -> anyhow::Result<()> {
+    if let Some(hello_wav) = &pool.hello_wav {
+        if !hello_wav.is_empty() {
+            send_hello_wav(&mut socket, hello_wav).await?;
+        }
+    }
+
+    if let Some(bg_gif) = &pool.bg_gif {
+        if !bg_gif.is_empty() {
+            send_bg_gif(&mut socket, bg_gif).await?;
+        }
+    }
+
     let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<(bool, Vec<u8>)>(1);
     tokio::spawn(handle_audio(id.to_string(), pool.clone(), audio_rx));
 
@@ -761,39 +817,40 @@ pub const SAMPLE_RATE_BUFFER_SIZE: usize = 2 * (SAMPLE_RATE as usize) / 10;
 async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<()> {
     match cmd {
         WsCommand::AsrResult(texts) => {
-            let json = serde_json::to_string(&crate::protocol::JsonCommand::ASR {
+            let asr = rmp_serde::to_vec(&crate::protocol::ServerEvent::ASR {
                 text: texts.join("\n"),
             })
-            .expect("Failed to serialize JsonCommand");
-            ws.send(Message::Text(json.into())).await?;
+            .expect("Failed to serialize ASR ServerEvent");
+            ws.send(Message::binary(asr)).await?;
         }
 
         WsCommand::Action { action } => {
-            let json = serde_json::to_string(&crate::protocol::JsonCommand::Action { action })
-                .expect("Failed to serialize JsonCommand");
-            ws.send(Message::Text(json.into())).await?;
+            let action = rmp_serde::to_vec(&crate::protocol::ServerEvent::Action { action })
+                .expect("Failed to serialize Action ServerEvent");
+            ws.send(Message::binary(action)).await?;
         }
         WsCommand::StartAudio(text) => {
-            let start_audio =
-                serde_json::to_string(&crate::protocol::JsonCommand::StartAudio { text })
-                    .expect("Failed to serialize JsonCommand");
-            ws.send(Message::Text(start_audio.into())).await?;
+            let start_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::StartAudio { text })
+                .expect("Failed to serialize StartAudio ServerEvent");
+            ws.send(Message::binary(start_audio)).await?;
         }
-        WsCommand::Audio(d) => {
-            ws.send(Message::Binary(d)).await?;
+        WsCommand::Audio(data) => {
+            let start_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunk { data })
+                .expect("Failed to serialize StartAudio ServerEvent");
+            ws.send(Message::binary(start_audio)).await?;
         }
         WsCommand::EndAudio => {
-            let end_audio = serde_json::to_string(&crate::protocol::JsonCommand::EndAudio)
-                .expect("Failed to serialize JsonCommand");
-            ws.send(Message::Text(end_audio.into())).await?;
+            let end_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndAudio)
+                .expect("Failed to serialize EndAudio ServerEvent");
+            ws.send(Message::binary(end_audio)).await?;
         }
         WsCommand::Video(_) => {
             log::warn!("video command is not implemented yet");
         }
         WsCommand::EndResponse => {
-            let end_response = serde_json::to_string(&crate::protocol::JsonCommand::EndResponse)
+            let end_response = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndResponse)
                 .expect("Failed to serialize JsonCommand");
-            ws.send(Message::Text(end_response.into())).await?;
+            ws.send(Message::binary(end_response)).await?;
         }
     }
     Ok(())

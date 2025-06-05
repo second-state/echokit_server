@@ -1,11 +1,21 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "type")]
-pub enum JsonCommand {
+pub enum ServerEvent {
+    // set Hello
+    HelloStart,
+    HelloChunk { data: Vec<u8> },
+    HelloEnd,
+
+    // set Background
+    BGStart,
+    BGChunk { data: Vec<u8> },
+    BGEnd,
+
     ASR { text: String },
     Action { action: String },
     StartAudio { text: String },
+    AudioChunk { data: Vec<u8> },
     EndAudio,
     StartVideo,
     EndVideo,
@@ -13,37 +23,21 @@ pub enum JsonCommand {
 }
 
 #[test]
-fn test_json_command() {
-    let json = r#"{"type":"Action","action":"say"}"#;
-    let cmd: JsonCommand = serde_json::from_str(json).unwrap();
+fn test_rmp_command() {
+    let event = ServerEvent::Action {
+        action: "say".to_string(),
+    };
+    let data = rmp_serde::to_vec(&event).unwrap();
+    println!("Serialized data: {:?}", data);
+    println!("Serialized data: {}", String::from_utf8_lossy(&data));
+    let data = rmp_serde::to_vec_named(&event).unwrap();
+    println!("Serialized data: {:?}", data);
+    println!("Serialized data: {}", String::from_utf8_lossy(&data));
+    let cmd: ServerEvent = rmp_serde::from_slice(&data).unwrap();
     match cmd {
-        JsonCommand::Action { action } => {
+        ServerEvent::Action { action } => {
             assert_eq!(action, "say");
         }
-        _ => panic!("Unexpected command: {:?}", cmd),
-    }
-    let json = r#"{"type":"StartAudio"}"#;
-    let cmd: JsonCommand = serde_json::from_str(json).unwrap();
-    match cmd {
-        JsonCommand::StartAudio { .. } => {}
-        _ => panic!("Unexpected command: {:?}", cmd),
-    }
-    let json = r#"{"type":"EndAudio"}"#;
-    let cmd: JsonCommand = serde_json::from_str(json).unwrap();
-    match cmd {
-        JsonCommand::EndAudio => {}
-        _ => panic!("Unexpected command: {:?}", cmd),
-    }
-    let json = r#"{"type":"StartVideo"}"#;
-    let cmd: JsonCommand = serde_json::from_str(json).unwrap();
-    match cmd {
-        JsonCommand::StartVideo => {}
-        _ => panic!("Unexpected command: {:?}", cmd),
-    }
-    let json = r#"{"type":"EndVideo"}"#;
-    let cmd: JsonCommand = serde_json::from_str(json).unwrap();
-    match cmd {
-        JsonCommand::EndVideo => {}
         _ => panic!("Unexpected command: {:?}", cmd),
     }
 }
