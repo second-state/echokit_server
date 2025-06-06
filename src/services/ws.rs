@@ -14,7 +14,7 @@ use fon::{chan::Samp16, Audio};
 
 use crate::{
     ai::{
-        genai::{
+        gemini::{
             self,
             types::{Blob, GenerationConfig, RealtimeAudio},
         },
@@ -358,14 +358,14 @@ async fn submit_to_ai(
     Ok(())
 }
 
-async fn submit_to_genai_and_tts(
+async fn submit_to_gemini_and_tts(
     pool: &WsPool,
-    client: &mut genai::LiveClient,
+    client: &mut gemini::LiveClient,
     tts: &crate::config::TTSConfig,
     id: &str,
     wav_audio: Vec<u8>,
 ) -> anyhow::Result<()> {
-    // Genai live api
+    // Gemini live api
     let mut reader = wav_io::reader::Reader::from_vec(wav_audio)?;
     let header = reader.read_header()?;
     let mut samples = reader.get_samples_f32()?;
@@ -389,16 +389,16 @@ async fn submit_to_genai_and_tts(
     let mut text = String::new();
     loop {
         match client.receive().await? {
-            genai::types::ServerContent::ModelTurn(turn) => {
+            gemini::types::ServerContent::ModelTurn(turn) => {
                 turn.parts.iter().for_each(|part| {
-                    if let genai::types::Parts::Text(text_part) = part {
+                    if let gemini::types::Parts::Text(text_part) = part {
                         text.push_str(&text_part);
                     }
                 });
             }
-            genai::types::ServerContent::GenerationComplete(_) => {}
-            genai::types::ServerContent::Interrupted(_) => {}
-            genai::types::ServerContent::TurnComplete(_) => {
+            gemini::types::ServerContent::GenerationComplete(_) => {}
+            gemini::types::ServerContent::Interrupted(_) => {}
+            gemini::types::ServerContent::TurnComplete(_) => {
                 break;
             }
         }
@@ -469,13 +469,13 @@ async fn submit_to_genai_and_tts(
     Ok(())
 }
 
-async fn submit_to_genai(
+async fn submit_to_gemini(
     pool: &WsPool,
-    client: &mut genai::LiveClient,
+    client: &mut gemini::LiveClient,
     id: &str,
     wav_audio: Vec<u8>,
 ) -> anyhow::Result<()> {
-    // Genai live api
+    // Gemini live api
     let mut reader = wav_io::reader::Reader::from_vec(wav_audio)?;
     let header = reader.read_header()?;
     let mut samples = reader.get_samples_f32()?;
@@ -496,16 +496,16 @@ async fn submit_to_genai(
         })
         .await?;
 
-    pool.send(id, WsCommand::AsrResult(vec![format!("Wait genai")]))
+    pool.send(id, WsCommand::AsrResult(vec![format!("Wait gemini")]))
         .await?;
 
     let mut buff = Vec::with_capacity(5 * 1600 * 2);
 
     loop {
         match client.receive().await? {
-            genai::types::ServerContent::ModelTurn(turn) => {
+            gemini::types::ServerContent::ModelTurn(turn) => {
                 for item in turn.parts {
-                    if let genai::types::Parts::InlineData { data, mime_type } = item {
+                    if let gemini::types::Parts::InlineData { data, mime_type } = item {
                         if mime_type.starts_with("audio/pcm") {
                             let audio_data = data.into_inner();
                             let sample = unsafe {
@@ -528,9 +528,9 @@ async fn submit_to_genai(
                     }
                 }
             }
-            genai::types::ServerContent::GenerationComplete(_) => {}
-            genai::types::ServerContent::Interrupted(_) => {}
-            genai::types::ServerContent::TurnComplete(_) => {
+            gemini::types::ServerContent::GenerationComplete(_) => {}
+            gemini::types::ServerContent::Interrupted(_) => {}
+            gemini::types::ServerContent::TurnComplete(_) => {
                 break;
             }
         }
@@ -636,25 +636,25 @@ async fn handle_audio(
                 wav_audio = r.1;
             }
         }
-        AIConfig::GenaiAndTTS { genai, tts } => {
-            let mut client = genai::LiveClient::connect(&genai.api_key).await?;
-            let model = genai
+        AIConfig::GeminiAndTTS { gemini, tts } => {
+            let mut client = gemini::LiveClient::connect(&gemini.api_key).await?;
+            let model = gemini
                 .model
                 .clone()
                 .unwrap_or("models/gemini-2.0-flash-live-001".to_string());
 
             let mut generation_config = GenerationConfig::default();
-            generation_config.response_modalities = Some(vec![genai::types::Modality::TEXT]);
+            generation_config.response_modalities = Some(vec![gemini::types::Modality::TEXT]);
 
-            let system_instruction = if let Some(sys_prompts) = genai.sys_prompts.clone() {
-                Some(genai::types::Content {
-                    parts: vec![genai::types::Parts::Text(sys_prompts.message)],
+            let system_instruction = if let Some(sys_prompts) = gemini.sys_prompts.clone() {
+                Some(gemini::types::Content {
+                    parts: vec![gemini::types::Parts::Text(sys_prompts.message)],
                 })
             } else {
                 None
             };
 
-            let setup = genai::types::Setup {
+            let setup = gemini::types::Setup {
                 model,
                 generation_config: Some(generation_config),
                 system_instruction,
@@ -667,7 +667,7 @@ async fn handle_audio(
                     r = rx.recv() =>{
                         r
                     }
-                    r = submit_to_genai_and_tts(&pool, &mut client, tts, &id, wav_audio) => {
+                    r = submit_to_gemini_and_tts(&pool, &mut client, tts, &id, wav_audio) => {
                         if let Err(e) = r {
                             log::error!("`{id}` error: {e}");
                         }
@@ -682,25 +682,25 @@ async fn handle_audio(
                 wav_audio = r.1;
             }
         }
-        AIConfig::Genai { genai } => {
-            let mut client = genai::LiveClient::connect(&genai.api_key).await?;
-            let model = genai
+        AIConfig::Gemini { gemini } => {
+            let mut client = gemini::LiveClient::connect(&gemini.api_key).await?;
+            let model = gemini
                 .model
                 .clone()
                 .unwrap_or("models/gemini-2.0-flash-live-001".to_string());
 
             let mut generation_config = GenerationConfig::default();
-            generation_config.response_modalities = Some(vec![genai::types::Modality::AUDIO]);
+            generation_config.response_modalities = Some(vec![gemini::types::Modality::AUDIO]);
 
-            let system_instruction = if let Some(sys_prompts) = genai.sys_prompts.clone() {
-                Some(genai::types::Content {
-                    parts: vec![genai::types::Parts::Text(sys_prompts.message)],
+            let system_instruction = if let Some(sys_prompts) = gemini.sys_prompts.clone() {
+                Some(gemini::types::Content {
+                    parts: vec![gemini::types::Parts::Text(sys_prompts.message)],
                 })
             } else {
                 None
             };
 
-            let setup = genai::types::Setup {
+            let setup = gemini::types::Setup {
                 model,
                 generation_config: Some(generation_config),
                 system_instruction,
@@ -713,7 +713,7 @@ async fn handle_audio(
                     r = rx.recv() =>{
                         r
                     }
-                    r = submit_to_genai(&pool, &mut client, &id, wav_audio) => {
+                    r = submit_to_gemini(&pool, &mut client, &id, wav_audio) => {
                         if let Err(e) = r {
                             log::error!("`{id}` error: {e}");
                         }
