@@ -21,12 +21,26 @@ pub enum Parts {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProactivityConfig {
+    pub proactive_audio: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioTranscriptionConfig {}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Setup {
     pub model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generation_config: Option<GenerationConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_instruction: Option<Content>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_audio_transcription: Option<AudioTranscriptionConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proactivity: Option<ProactivityConfig>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -116,6 +130,8 @@ pub struct RealtimeAudio {
 // response: {'serverContent': {'modelTurn': {'parts': [{'text': '是一个大型语言模型，由 Google 训练。'}]}}}
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ServerContent {
+    #[serde(rename = "inputTranscription")]
+    InputTranscription { text: String },
     #[serde(rename = "modelTurn")]
     ModelTurn(Content),
     #[serde(rename = "generationComplete")]
@@ -124,6 +140,8 @@ pub enum ServerContent {
     TurnComplete(bool),
     #[serde(rename = "interrupted")]
     Interrupted(bool),
+    #[serde(rename = "timeout")]
+    Timeout,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -165,6 +183,8 @@ mod test {
                     "You are a helpful assistant and answer in a friendly tone.".to_string(),
                 )],
             }),
+            input_audio_transcription: None,
+            proactivity: None,
         };
         let serialized = serde_json::to_string(&setup).unwrap();
         assert!(serialized.contains("gemini-2.0-flash-live-001"));
