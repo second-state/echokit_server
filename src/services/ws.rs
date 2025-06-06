@@ -366,6 +366,8 @@ async fn submit_to_gemini_and_tts(
     wav_audio: Vec<u8>,
 ) -> anyhow::Result<()> {
     // Gemini live api
+    std::fs::write(format!("asr.{id}.wav"), &wav_audio).unwrap();
+
     let mut reader = wav_io::reader::Reader::from_vec(wav_audio)?;
     let header = reader.read_header()?;
     let mut samples = reader.get_samples_f32()?;
@@ -379,6 +381,7 @@ async fn submit_to_gemini_and_tts(
         submit_data.extend_from_slice(&sample.to_le_bytes());
     }
 
+    log::info!("start gemini");
     client
         .send_realtime_audio(RealtimeAudio {
             data: Blob::new(submit_data),
@@ -388,6 +391,7 @@ async fn submit_to_gemini_and_tts(
 
     let mut text = String::new();
     loop {
+        log::info!("`{id}` waiting gemini response");
         match client.receive().await? {
             gemini::types::ServerContent::ModelTurn(turn) => {
                 turn.parts.iter().for_each(|part| {
@@ -401,12 +405,24 @@ async fn submit_to_gemini_and_tts(
             gemini::types::ServerContent::TurnComplete(_) => {
                 break;
             }
+            gemini::types::ServerContent::InputTranscription { text } => {
+                let message = hanconv::tw2sp(text);
+
+                log::info!("`{id}` gemini input transcription: {message}");
+                // If the input transcription is not empty, we can use it as the ASR result
+                pool.send(id, WsCommand::AsrResult(vec![message])).await?;
+            }
+            gemini::types::ServerContent::Timeout => {
+                log::warn!("`{id}` gemini timeout");
+                pool.send(id, WsCommand::AsrResult(vec![])).await?;
+                return Ok(());
+            }
         }
     }
 
     let message = hanconv::tw2sp(text);
-    pool.send(id, WsCommand::AsrResult(vec![message.clone()]))
-        .await?;
+    // pool.send(id, WsCommand::AsrResult(vec![message.clone()]))
+    //     .await?;
 
     log::info!("start llm");
 
@@ -489,6 +505,7 @@ async fn submit_to_gemini(
         submit_data.extend_from_slice(&sample.to_le_bytes());
     }
 
+    log::info!("start gemini");
     client
         .send_realtime_audio(RealtimeAudio {
             data: Blob::new(submit_data),
@@ -502,6 +519,7 @@ async fn submit_to_gemini(
     let mut buff = Vec::with_capacity(5 * 1600 * 2);
 
     loop {
+        log::info!("`{id}` waiting gemini response");
         match client.receive().await? {
             gemini::types::ServerContent::ModelTurn(turn) => {
                 for item in turn.parts {
@@ -528,9 +546,25 @@ async fn submit_to_gemini(
                     }
                 }
             }
-            gemini::types::ServerContent::GenerationComplete(_) => {}
-            gemini::types::ServerContent::Interrupted(_) => {}
+            gemini::types::ServerContent::GenerationComplete(_) => {
+                log::info!("`{id}` gemini generation complete");
+            }
+            gemini::types::ServerContent::Interrupted(_) => {
+                log::info!("`{id}` gemini interrupted");
+            }
             gemini::types::ServerContent::TurnComplete(_) => {
+                break;
+            }
+            gemini::types::ServerContent::InputTranscription { text } => {
+                let message = hanconv::tw2sp(text);
+
+                log::info!("`{id}` gemini input transcription: {message}");
+                // If the input transcription is not empty, we can use it as the ASR result
+                pool.send(id, WsCommand::AsrResult(vec![message])).await?;
+            }
+            gemini::types::ServerContent::Timeout => {
+                log::warn!("`{id}` gemini timeout");
+                pool.send(id, WsCommand::AsrResult(vec![])).await?;
                 break;
             }
         }
@@ -658,6 +692,8 @@ async fn handle_audio(
                 model,
                 generation_config: Some(generation_config),
                 system_instruction,
+                input_audio_transcription: Some(gemini::types::AudioTranscriptionConfig {}),
+                proactivity: None,
             };
 
             client.setup(setup).await?;
@@ -704,6 +740,10 @@ async fn handle_audio(
                 model,
                 generation_config: Some(generation_config),
                 system_instruction,
+                input_audio_transcription: Some(gemini::types::AudioTranscriptionConfig {}),
+                proactivity: Some(gemini::types::ProactivityConfig {
+                    proactive_audio: true,
+                }),
             };
 
             client.setup(setup).await?;

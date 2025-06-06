@@ -62,7 +62,11 @@ impl LiveClient {
     }
 
     pub async fn receive(&mut self) -> anyhow::Result<types::ServerContent> {
-        if let Some(msg) = self.ws.next().await {
+        let r = tokio::time::timeout(std::time::Duration::from_secs(5), self.ws.next()).await;
+        if r.is_err() {
+            return Ok(types::ServerContent::Timeout);
+        }
+        if let Some(msg) = r.unwrap() {
             log::debug!("Received message: {:?}", msg);
             let msg = msg?;
             match msg {
@@ -100,6 +104,7 @@ mod test {
     use super::types;
     use super::*;
 
+    // cargo test --package esp_assistant --bin esp_assistant -- ai::gemini::test::test_live_client --exact --show-output
     #[tokio::test]
     async fn test_live_client() -> anyhow::Result<()> {
         env_logger::init();
@@ -119,12 +124,14 @@ mod test {
                     "You are a helpful assistant and answer in a friendly tone.".to_string(),
                 )],
             }),
+            input_audio_transcription: Some(types::AudioTranscriptionConfig {}),
+            proactivity: None,
         };
         client.setup(setup).await?;
         log::info!("Setup completed");
 
         // let submit_data = std::fs::read("sample.pcm").unwrap();
-        let data = std::fs::read("out.wav").unwrap();
+        let data = std::fs::read("asr.fc012ccfcd71.wav").unwrap();
         let mut reader = wav_io::reader::Reader::from_vec(data).unwrap();
         let header = reader.read_header().unwrap();
         log::info!("WAV Header: {:?}", header);
