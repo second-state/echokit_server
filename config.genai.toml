@@ -2,7 +2,7 @@ addr = "0.0.0.0:8080"
 hello_wav = "out.wav"
 background_gif = "gosim.gif"
 
-[genai]
+[gemini]
 api_key = "xxxx"
 
 [tts]

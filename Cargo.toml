@@ -33,7 +33,7 @@ hanconv = "0.3.4"
 fon = { git = "https://github.com/ardaku/fon.git", branch = "v1" }
 # opencc-rust = { version = "1.1.19", features = ["static-dictionaries"] }
 
-# genai
+# gemini
 base64 = "0.22.1"
 reqwest-websocket = "0.5.0"
 futures-util = "0.3.31"

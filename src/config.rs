@@ -15,7 +15,7 @@ pub struct LLMConfig {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct GenaiConfig {
+pub struct GeminiConfig {
     pub api_key: String,
     #[serde(default)]
     pub model: Option<String>,
@@ -72,12 +72,12 @@ pub enum AIConfig {
         tts: TTSConfig,
         asr: ASRConfig,
     },
-    GenaiAndTTS {
-        genai: GenaiConfig,
+    GeminiAndTTS {
+        gemini: GeminiConfig,
         tts: TTSConfig,
     },
-    Genai {
-        genai: GenaiConfig,
+    Gemini {
+        gemini: GeminiConfig,
     },
 }
 
