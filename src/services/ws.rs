@@ -657,6 +657,9 @@ async fn handle_audio(
                     r = submit_to_ai(&pool, asr, llm, tts, &id, wav_audio, only_asr,sys_prompts,&mut dynamic_prompts) => {
                         if let Err(e) = r {
                             log::error!("`{id}` error: {e}");
+                            if let Err(e) = pool.send(&id, WsCommand::AsrResult(vec![])).await{
+                                log::error!("`{id}` error: {e}");
+                            };
                         }
                         if let Err(e) = pool.send(&id, WsCommand::EndResponse).await{
                             log::error!("`{id}` error: {e}");
@@ -706,6 +709,9 @@ async fn handle_audio(
                     r = submit_to_gemini_and_tts(&pool, &mut client, tts, &id, wav_audio) => {
                         if let Err(e) = r {
                             log::error!("`{id}` error: {e}");
+                            if let Err(e) = pool.send(&id, WsCommand::AsrResult(vec![])).await{
+                                log::error!("`{id}` error: {e}");
+                            };
                         }
                         if let Err(e) = pool.send(&id, WsCommand::EndResponse).await{
                             log::error!("`{id}` error: {e}");
@@ -756,6 +762,9 @@ async fn handle_audio(
                     r = submit_to_gemini(&pool, &mut client, &id, wav_audio) => {
                         if let Err(e) = r {
                             log::error!("`{id}` error: {e}");
+                            if let Err(e) = pool.send(&id, WsCommand::AsrResult(vec![])).await{
+                                log::error!("`{id}` error: {e}");
+                            };
                         }
                         if let Err(e) = pool.send(&id, WsCommand::EndResponse).await{
                             log::error!("`{id}` error: {e}");
