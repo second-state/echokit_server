@@ -424,7 +424,7 @@ async fn submit_to_gemini_and_tts(
     // pool.send(id, WsCommand::AsrResult(vec![message.clone()]))
     //     .await?;
 
-    log::info!("start llm");
+    log::info!("start tts");
 
     let (tts_url, speaker) = match &tts {
         crate::config::TTSConfig::Stable(tts) => (&tts.url, &tts.speaker),
