@@ -1,4 +1,6 @@
 addr = "0.0.0.0:8080"
+hello_wav = "hello.wav"
+background_gif = "background.gif"
 
 [tts]
 platform = "Stable"

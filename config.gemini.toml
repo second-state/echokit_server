@@ -1,6 +1,6 @@
 addr = "0.0.0.0:8080"
-hello_wav = "out.wav"
-background_gif = "gosim.gif"
+hello_wav = "hello.wav"
+background_gif = "background.gif"
 
 [gemini]
 api_key = "xxxx"
