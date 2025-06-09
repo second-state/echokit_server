@@ -129,18 +129,6 @@ async fn retry_asr(
 }
 
 fn resample(audio_samples: &[i16], in_hz: u32, out_hz: u32) -> anyhow::Result<Audio<Samp16, 1>> {
-    // let wav_reader = hound::WavReader::new(wav_audio)?;
-    // let spec = wav_reader.spec();
-    // let in_hz = spec.sample_rate;
-    // let out_hz = target_sr;
-
-    // let samples = wav_reader.into_samples::<i16>();
-    // let mut samples_vec = Vec::with_capacity(samples.len());
-    // for sample in samples {
-    //     let sample = sample?;
-    //     samples_vec.push(sample)
-    // }
-
     let audio = Audio::<Samp16, 1>::with_i16_buffer(in_hz, audio_samples);
     let audio = Audio::<Samp16, 1>::with_audio(out_hz, &audio);
 
@@ -170,6 +158,90 @@ async fn retry_tts(
     Err(anyhow::anyhow!("tts timeout"))
 }
 
+async fn send_tts_result(
+    pool: &WsPool,
+    id: &str,
+    text: String,
+    wav_data: Bytes,
+) -> anyhow::Result<std::time::Duration> {
+    let mut reader = wav_io::reader::Reader::from_vec(wav_data.into())
+        .map_err(|e| anyhow::anyhow!("wav_io reader error: {e}"))?;
+
+    let header = reader.read_header()?;
+    let mut samples = reader.get_samples_f32()?;
+    let duration_sec = samples.len() as f32 / (header.sample_rate as f32 * header.channels as f32);
+    let duration_sec = std::time::Duration::from_secs_f32(duration_sec);
+
+    let out_hz = 16000;
+
+    if header.sample_rate != out_hz {
+        // resample to 16000
+        log::info!("resampling from {} to 16000", header.sample_rate);
+        samples = wav_io::resample::linear(samples, header.channels, header.sample_rate, out_hz);
+    }
+    let audio_16k = wav_io::convert_samples_f32_to_i16(&samples);
+
+    log::info!("llm chunk:{:?}", text);
+
+    for chunk in audio_16k.chunks(5 * out_hz as usize / 10) {
+        let buff = if cfg!(target_endian = "big") {
+            let mut buff = Vec::with_capacity(chunk.len() * 2);
+            for i in chunk {
+                buff.extend_from_slice(&i.to_le_bytes());
+            }
+            buff
+        } else {
+            let chunk_bytes =
+                unsafe { std::slice::from_raw_parts(chunk.as_ptr() as *const u8, chunk.len() * 2) };
+            chunk_bytes.to_vec()
+        };
+
+        // std::mem::swap(&mut send_data, &mut buff);
+        pool.send(id, WsCommand::Audio(buff)).await?;
+    }
+
+    Ok(duration_sec)
+}
+
+async fn recv_audio_to_wav(
+    audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
+) -> anyhow::Result<Vec<u8>> {
+    let head = wav_io::new_header(16000, 16, false, true);
+    let mut samples = Vec::new();
+
+    while let Some(chunk) = audio.recv().await {
+        match chunk {
+            AudioChunk::Chunk(data) => {
+                if cfg!(target_endian = "big") {
+                    for i in data.chunks_exact(2) {
+                        let sample = i16::from_be_bytes([i[0], i[1]]);
+                        samples.push(sample as f32 / std::i16::MAX as f32);
+                    }
+                } else {
+                    let samples_16: &[i16] = unsafe {
+                        std::slice::from_raw_parts(data.as_ptr() as *const i16, data.len() / 2)
+                    };
+                    for v in samples_16 {
+                        samples.push(*v as f32 / std::i16::MAX as f32);
+                    }
+                }
+            }
+            AudioChunk::Enb => {
+                log::info!("end audio");
+                break;
+            }
+        }
+    }
+
+    if samples.is_empty() {
+        return Err(anyhow::anyhow!("no audio received"));
+    }
+
+    let wav_audio = wav_io::write_to_bytes(&head, &samples)?;
+
+    Ok(wav_audio)
+}
+
 async fn submit_to_ai(
     pool: &WsPool,
     asr: &crate::config::ASRConfig,
@@ -177,14 +249,13 @@ async fn submit_to_ai(
     tts: &crate::config::TTSConfig,
     id: &str,
     wav_audio: Vec<u8>,
-    only_asr: bool,
     sys_prompts: &[Content],
     dynamic_prompts: &mut std::collections::LinkedList<Content>,
 ) -> anyhow::Result<()> {
     // ASR
     let asr_url = &asr.url;
     let lang = asr.lang.as_str();
-    std::fs::write(format!("asr.{id}.wav"), &wav_audio).unwrap();
+
     let text = retry_asr(
         asr_url,
         lang,
@@ -204,10 +275,6 @@ async fn submit_to_ai(
     let message = hanconv::tw2sp(text.join("\n"));
     pool.send(id, WsCommand::AsrResult(vec![message.clone()]))
         .await?;
-
-    if only_asr {
-        return Ok(());
-    }
 
     // LLM
     let token = if let Some(t) = &llm.api_key {
@@ -275,6 +342,7 @@ async fn submit_to_ai(
                 if chunk_.is_empty() {
                     continue;
                 }
+                pool.send(id, WsCommand::StartAudio(chunk.clone())).await?;
                 match retry_tts(
                     tts_url,
                     speaker,
@@ -289,54 +357,17 @@ async fn submit_to_ai(
                             tokio::time::sleep_until(deadline).await;
                             log::info!("end audio");
                         }
-
-                        let mut buff = Vec::with_capacity(5 * 1600 * 2);
-                        let reader = hound::WavReader::new(wav_data.as_ref())
-                            .map_err(|e| anyhow::anyhow!("hound error:{e}"))?;
-
+                        let now = tokio::time::Instant::now();
                         let duration_sec =
-                            reader.duration() as f32 / reader.spec().sample_rate as f32;
+                            send_tts_result(pool, id, chunk.to_string(), wav_data.clone()).await?;
 
-                        deadline = Some(
-                            tokio::time::Instant::now()
-                                + tokio::time::Duration::from_secs_f32(duration_sec),
-                        );
-
-                        let in_hz = reader.spec().sample_rate;
-                        let out_hz = 16000;
-                        let samples = reader.into_samples::<i16>();
-                        let mut samples_vec = Vec::with_capacity(samples.len());
-                        for sample in samples {
-                            if let Ok(sample) = sample {
-                                samples_vec.push(sample)
-                            } else {
-                                log::warn!("sample error: {}", sample.unwrap_err());
-                            }
-                        }
-                        let mut audio_16k = resample(&samples_vec, in_hz, out_hz)
-                            .map_err(|e| anyhow::anyhow!("resample error:{e}"))?;
-
-                        log::info!("llm chunk:{:?}", chunk);
-
-                        pool.send(id, WsCommand::StartAudio(chunk)).await?;
-
-                        let samples = audio_16k.as_i16_slice();
-                        for chunk in samples.chunks(5 * out_hz as usize / 10) {
-                            for i in chunk {
-                                buff.extend_from_slice(&i.to_le_bytes());
-                            }
-                            // std::mem::swap(&mut send_data, &mut buff);
-                            pool.send(id, WsCommand::Audio(buff)).await?;
-                            buff = Vec::with_capacity(5 * 1600 * 2);
-                        }
-
-                        pool.send(id, WsCommand::EndAudio).await?;
+                        deadline = Some(now + duration_sec);
                     }
                     Err(e) => {
                         log::error!("tts error:{e}");
-                        continue;
                     }
                 }
+                pool.send(id, WsCommand::EndAudio).await?;
             }
             Ok(None) => {
                 log::info!("llm done");
@@ -363,126 +394,114 @@ async fn submit_to_gemini_and_tts(
     client: &mut gemini::LiveClient,
     tts: &crate::config::TTSConfig,
     id: &str,
-    wav_audio: Vec<u8>,
+    setup: gemini::types::Setup,
+    audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
 ) -> anyhow::Result<()> {
     // Gemini live api
-    std::fs::write(format!("asr.{id}.wav"), &wav_audio).unwrap();
 
-    let mut reader = wav_io::reader::Reader::from_vec(wav_audio)?;
-    let header = reader.read_header()?;
-    let mut samples = reader.get_samples_f32()?;
-    if header.sample_rate != 16000 {
-        samples = wav_io::resample::linear(samples, 1, header.sample_rate, 16000);
+    enum GeminiEvent {
+        AudioChunk(AudioChunk),
+        ServerEvent(gemini::types::ServerContent),
     }
-
-    let data = wav_io::convert_samples_f32_to_i16(&samples);
-    let mut submit_data = Vec::with_capacity(data.len() * 2);
-    for sample in data {
-        submit_data.extend_from_slice(&sample.to_le_bytes());
-    }
-
-    log::info!("start gemini");
-    client
-        .send_realtime_audio(RealtimeAudio {
-            data: Blob::new(submit_data),
-            mime_type: "audio/pcm;rate=16000".to_string(),
-        })
-        .await?;
 
     let mut text = String::new();
+    let mut asr_text = String::new();
+
+    let r = audio.recv().await;
+
+    let mut recv = r
+        .map(|r| GeminiEvent::AudioChunk(r))
+        .ok_or_else(|| anyhow::anyhow!("audio channel closed"))?;
+
+    client.setup(setup).await?;
+
     loop {
-        log::info!("`{id}` waiting gemini response");
-        match client.receive().await? {
-            gemini::types::ServerContent::ModelTurn(turn) => {
-                turn.parts.iter().for_each(|part| {
-                    if let gemini::types::Parts::Text(text_part) = part {
-                        text.push_str(&text_part);
+        match recv {
+            GeminiEvent::ServerEvent(server_event) => match server_event {
+                gemini::types::ServerContent::ModelTurn(turn) => {
+                    turn.parts.iter().for_each(|part| {
+                        if let gemini::types::Parts::Text(text_part) = part {
+                            text.push_str(&text_part);
+                        }
+                    });
+                }
+                gemini::types::ServerContent::GenerationComplete(_) => {}
+                gemini::types::ServerContent::Interrupted(_) => {}
+                gemini::types::ServerContent::TurnComplete(_) => {
+                    let (tts_url, speaker) = match &tts {
+                        crate::config::TTSConfig::Stable(tts) => (&tts.url, &tts.speaker),
+                        crate::config::TTSConfig::Fish(_) => {
+                            return Err(anyhow::anyhow!("Fish TTS is not implemented yet"));
+                        }
+                    };
+
+                    pool.send(id, WsCommand::StartAudio(text.clone())).await?;
+
+                    match retry_tts(
+                        tts_url,
+                        speaker,
+                        &text,
+                        3,
+                        std::time::Duration::from_secs(15),
+                    )
+                    .await
+                    {
+                        Ok(wav_data) => {
+                            send_tts_result(pool, id, text, wav_data).await?;
+                        }
+                        Err(e) => {
+                            log::error!("tts error:{e}");
+                        }
                     }
-                });
-            }
-            gemini::types::ServerContent::GenerationComplete(_) => {}
-            gemini::types::ServerContent::Interrupted(_) => {}
-            gemini::types::ServerContent::TurnComplete(_) => {
-                break;
-            }
-            gemini::types::ServerContent::InputTranscription { text } => {
-                let message = hanconv::tw2sp(text);
+                    pool.send(id, WsCommand::EndAudio).await?;
+                    asr_text.clear();
+                    text = String::new();
+                    if let Err(e) = pool.send(&id, WsCommand::EndResponse).await {
+                        log::error!("`{id}` error: {e}");
+                    }
+                }
+                gemini::types::ServerContent::InputTranscription { text } => {
+                    let message = hanconv::tw2sp(text);
+                    asr_text.push_str(&message);
 
-                log::info!("`{id}` gemini input transcription: {message}");
-                // If the input transcription is not empty, we can use it as the ASR result
-                pool.send(id, WsCommand::AsrResult(vec![message])).await?;
+                    log::info!("`{id}` gemini input transcription: {asr_text}");
+                    // If the input transcription is not empty, we can use it as the ASR result
+                    pool.send(id, WsCommand::AsrResult(vec![asr_text.clone()]))
+                        .await?;
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                }
+                gemini::types::ServerContent::Timeout => {}
+            },
+            GeminiEvent::AudioChunk(AudioChunk::Chunk(sample)) => {
+                client
+                    .send_realtime_input(gemini::types::RealtimeInput::Audio(RealtimeAudio {
+                        data: Blob::new(sample.to_vec()),
+                        mime_type: "audio/pcm;rate=16000".to_string(),
+                    }))
+                    .await?;
             }
-            gemini::types::ServerContent::Timeout => {
-                log::warn!("`{id}` gemini timeout");
-                pool.send(id, WsCommand::AsrResult(vec![])).await?;
-                return Ok(());
-            }
+            GeminiEvent::AudioChunk(AudioChunk::Enb) => {}
         }
-    }
 
-    let message = hanconv::tw2sp(text);
-    // pool.send(id, WsCommand::AsrResult(vec![message.clone()]))
-    //     .await?;
-
-    log::info!("start tts");
-
-    let (tts_url, speaker) = match &tts {
-        crate::config::TTSConfig::Stable(tts) => (&tts.url, &tts.speaker),
-        crate::config::TTSConfig::Fish(_) => {
-            return Err(anyhow::anyhow!("Fish TTS is not implemented yet"));
-        }
-    };
-
-    match retry_tts(
-        tts_url,
-        speaker,
-        &message,
-        3,
-        std::time::Duration::from_secs(15),
-    )
-    .await
-    {
-        Ok(wav_data) => {
-            let mut buff = Vec::with_capacity(5 * 1600 * 2);
-            let reader = hound::WavReader::new(wav_data.as_ref())
-                .map_err(|e| anyhow::anyhow!("hound error:{e}"))?;
-
-            let in_hz = reader.spec().sample_rate;
-            let out_hz = 16000;
-            let samples = reader.into_samples::<i16>();
-            let mut samples_vec = Vec::with_capacity(samples.len());
-            for sample in samples {
-                if let Ok(sample) = sample {
-                    samples_vec.push(sample)
-                } else {
-                    log::warn!("sample error: {}", sample.unwrap_err());
+        let recv_ = {
+            tokio::select! {
+                r = audio.recv()=>{
+                    Ok(r.map(|r|GeminiEvent::AudioChunk(r)).ok_or_else(||anyhow::anyhow!("audio channel closed"))?)
+                }
+                r = client.receive() => {
+                    r.map(|r|GeminiEvent::ServerEvent(r))
                 }
             }
-            let mut audio_16k = resample(&samples_vec, in_hz, out_hz)
-                .map_err(|e| anyhow::anyhow!("resample error:{e}"))?;
-
-            log::info!("llm response:{:?}", message);
-
-            pool.send(id, WsCommand::StartAudio(message)).await?;
-
-            let samples = audio_16k.as_i16_slice();
-            for chunk in samples.chunks(5 * out_hz as usize / 10) {
-                for i in chunk {
-                    buff.extend_from_slice(&i.to_le_bytes());
-                }
-                // std::mem::swap(&mut send_data, &mut buff);
-                pool.send(id, WsCommand::Audio(buff)).await?;
-                buff = Vec::with_capacity(5 * 1600 * 2);
+        };
+        if let Err(e) = recv_ {
+            log::error!("`{id}` gemini connect error: {e}");
+            if let Err(e) = pool.send(&id, WsCommand::AsrResult(vec![])).await {
+                log::error!("`{id}` error: {e}");
             }
-
-            pool.send(id, WsCommand::EndAudio).await?;
+            return Ok(());
         }
-        Err(e) => {
-            log::error!("tts error:{e}");
-        }
+        recv = recv_.unwrap();
     }
-
-    Ok(())
 }
 
 async fn submit_to_gemini(
@@ -574,21 +593,18 @@ async fn submit_to_gemini(
     Ok(())
 }
 
+pub enum AudioChunk {
+    /// 16000 16bit le
+    Chunk(Bytes),
+    Enb,
+}
+
 // return: wav data
 async fn process_socket_io(
     rx: &mut WsRx,
+    audio_tx: tokio::sync::mpsc::Sender<AudioChunk>,
     socket: &mut WebSocket,
-) -> anyhow::Result<(bool, Vec<u8>)> {
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate: 16000,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-
-    let mut buffer_writer = std::io::Cursor::new(Vec::new());
-    let mut wav_writer = hound::WavWriter::new(&mut buffer_writer, spec)?;
-
+) -> anyhow::Result<Vec<u8>> {
     loop {
         let r = tokio::select! {
             cmd = rx.recv() => {
@@ -597,7 +613,7 @@ async fn process_socket_io(
             message = socket.recv() => {
                 message.map(|message| match message{
                     Ok(message) => WsEvent::Message(Ok(message)),
-                    Err(e) => WsEvent::Message(Err(anyhow::anyhow!("ws error: {e}"))),
+                    Err(e) => WsEvent::Message(Err(anyhow::anyhow!("recv ws error: {e}"))),
                 })
             }
         };
@@ -605,30 +621,25 @@ async fn process_socket_io(
         match r {
             Some(WsEvent::Command(cmd)) => process_command(socket, cmd).await?,
             Some(WsEvent::Message(Ok(msg))) => match process_message(msg) {
-                ProcessMessageResult::Ok(d) => {
-                    for data in d.chunks(2) {
-                        if data.len() == 2 {
-                            let sample = i16::from_le_bytes([data[0], data[1]]);
-                            wav_writer.write_sample(sample)?;
-                        }
-                    }
-                }
+                // i16 16000
+                ProcessMessageResult::Ok(d) => audio_tx
+                    .send(AudioChunk::Chunk(d))
+                    .await
+                    .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
                 ProcessMessageResult::Skip => {}
-                ProcessMessageResult::Submit(s) => {
-                    wav_writer
-                        .finalize()
-                        .map_err(|e| anyhow::anyhow!("wav finalize error: {e}"))?;
-                    return Ok((s == 2, buffer_writer.into_inner()));
-                }
+                ProcessMessageResult::Submit => audio_tx
+                    .send(AudioChunk::Enb)
+                    .await
+                    .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
                 ProcessMessageResult::Close => {
-                    return Err(anyhow::anyhow!("ws close"));
+                    return Err(anyhow::anyhow!("ws closed"));
                 }
             },
             Some(WsEvent::Message(Err(e))) => {
-                return Err(anyhow::anyhow!("ws error: {e}"));
+                return Err(e);
             }
             None => {
-                return Err(anyhow::anyhow!("ws channel close"));
+                return Err(anyhow::anyhow!("ws channel closed"));
             }
         }
     }
@@ -637,24 +648,20 @@ async fn process_socket_io(
 async fn handle_audio(
     id: String,
     pool: Arc<WsPool>,
-    mut rx: tokio::sync::mpsc::Receiver<(bool, Vec<u8>)>,
+    mut rx: tokio::sync::mpsc::Receiver<AudioChunk>,
 ) -> anyhow::Result<()> {
-    let (mut only_asr, mut wav_audio) = rx
-        .recv()
-        .await
-        .ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
-
     match &pool.config {
         AIConfig::Stable { llm, tts, asr } => {
             let sys_prompts = &llm.sys_prompts;
             let mut dynamic_prompts = llm.dynamic_prompts.clone();
+            let mut wav_audio = recv_audio_to_wav(&mut rx).await?;
 
             loop {
-                let rx_recv = tokio::select! {
-                    r = rx.recv() =>{
-                        r
+                wav_audio = tokio::select! {
+                    r = recv_audio_to_wav(&mut rx) =>{
+                        r?
                     }
-                    r = submit_to_ai(&pool, asr, llm, tts, &id, wav_audio, only_asr,sys_prompts,&mut dynamic_prompts) => {
+                    r = submit_to_ai(&pool, asr, llm, tts, &id, wav_audio, sys_prompts, &mut dynamic_prompts) => {
                         if let Err(e) = r {
                             log::error!("`{id}` error: {e}");
                             if let Err(e) = pool.send(&id, WsCommand::AsrResult(vec![])).await{
@@ -665,15 +672,12 @@ async fn handle_audio(
                             log::error!("`{id}` error: {e}");
                         };
 
-                        rx.recv().await
+                        recv_audio_to_wav(&mut rx).await?
                     }
                 };
-                let r = rx_recv.ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
-                only_asr = r.0;
-                wav_audio = r.1;
             }
         }
-        AIConfig::GeminiAndTTS { gemini, tts } => {
+        AIConfig::GeminiAndTTS { gemini, tts } => loop {
             let mut client = gemini::LiveClient::connect(&gemini.api_key).await?;
             let model = gemini
                 .model
@@ -699,31 +703,8 @@ async fn handle_audio(
                 proactivity: None,
             };
 
-            client.setup(setup).await?;
-
-            loop {
-                let rx_recv = tokio::select! {
-                    r = rx.recv() =>{
-                        r
-                    }
-                    r = submit_to_gemini_and_tts(&pool, &mut client, tts, &id, wav_audio) => {
-                        if let Err(e) = r {
-                            log::error!("`{id}` error: {e}");
-                            if let Err(e) = pool.send(&id, WsCommand::AsrResult(vec![])).await{
-                                log::error!("`{id}` error: {e}");
-                            };
-                        }
-                        if let Err(e) = pool.send(&id, WsCommand::EndResponse).await{
-                            log::error!("`{id}` error: {e}");
-                        };
-
-                        rx.recv().await
-                    }
-                };
-                let r = rx_recv.ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
-                wav_audio = r.1;
-            }
-        }
+            submit_to_gemini_and_tts(&pool, &mut client, tts, &id, setup, &mut rx).await?;
+        },
         AIConfig::Gemini { gemini } => {
             let mut client = gemini::LiveClient::connect(&gemini.api_key).await?;
             let model = gemini
@@ -754,10 +735,12 @@ async fn handle_audio(
 
             client.setup(setup).await?;
 
+            let mut wav_audio = recv_audio_to_wav(&mut rx).await?;
+
             loop {
-                let rx_recv = tokio::select! {
-                    r = rx.recv() =>{
-                        r
+                wav_audio = tokio::select! {
+                    r = recv_audio_to_wav(&mut rx) =>{
+                        r?
                     }
                     r = submit_to_gemini(&pool, &mut client, &id, wav_audio) => {
                         if let Err(e) = r {
@@ -770,11 +753,9 @@ async fn handle_audio(
                             log::error!("`{id}` error: {e}");
                         };
 
-                        rx.recv().await
+                        recv_audio_to_wav(&mut rx).await?
                     }
                 };
-                let r = rx_recv.ok_or_else(|| anyhow::anyhow!("handle_audio rx closed"))?;
-                wav_audio = r.1;
             }
         }
     }
@@ -838,24 +819,10 @@ async fn handle_socket(
         }
     }
 
-    let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<(bool, Vec<u8>)>(1);
+    let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<AudioChunk>(1);
     tokio::spawn(handle_audio(id.to_string(), pool.clone(), audio_rx));
 
-    loop {
-        let wav_audio = process_socket_io(&mut rx, &mut socket).await;
-        match wav_audio {
-            Ok((only_asr, wav_audio)) => {
-                audio_tx
-                    .send((only_asr, wav_audio))
-                    .await
-                    .map_err(|_| anyhow::anyhow!("{id} audio_tx closed"))?;
-            }
-            Err(e) => {
-                log::error!("`{id}` process_socket_io error: {e}");
-                break;
-            }
-        }
-    }
+    process_socket_io(&mut rx, audio_tx, &mut socket).await?;
 
     Ok(())
 }
@@ -907,7 +874,7 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
 
 enum ProcessMessageResult {
     Ok(Bytes),
-    Submit(u8),
+    Submit,
     Close,
     Skip,
 }
@@ -916,9 +883,9 @@ fn process_message(msg: Message) -> ProcessMessageResult {
     match msg {
         Message::Text(t) => {
             if t.as_str() == "End:Normal" {
-                ProcessMessageResult::Submit(1)
+                ProcessMessageResult::Submit
             } else if t.as_str() == "End:Interrupt" {
-                ProcessMessageResult::Submit(2)
+                ProcessMessageResult::Submit
             } else {
                 ProcessMessageResult::Skip
             }
