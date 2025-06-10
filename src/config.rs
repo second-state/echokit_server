@@ -20,7 +20,7 @@ pub struct GeminiConfig {
     #[serde(default)]
     pub model: Option<String>,
     #[serde(default)]
-    pub sys_prompts: Option<Content>,
+    pub sys_prompts: Vec<Content>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

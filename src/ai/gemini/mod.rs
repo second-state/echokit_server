@@ -62,11 +62,7 @@ impl LiveClient {
     }
 
     pub async fn receive(&mut self) -> anyhow::Result<types::ServerContent> {
-        let r = tokio::time::timeout(std::time::Duration::from_secs(5), self.ws.next()).await;
-        if r.is_err() {
-            return Ok(types::ServerContent::Timeout);
-        }
-        if let Some(msg) = r.unwrap() {
+        if let Some(msg) = self.ws.next().await {
             log::debug!("Received message: {:?}", msg);
             let msg = msg?;
             match msg {
