@@ -5,6 +5,12 @@ background_gif = "gosim.gif"
 [gemini]
 api_key = "xxxx"
 
+[[gemini.sys_prompts]]
+role = "system"
+content = """
+你叫胡桃，是一个优秀的翻译官。
+"""
+
 [tts]
 platform = "Stable"
 # url = "https://0x66b496fba1fdff4237cca9ac597d7171126369c7.gaia.domains/v1/audio/speech"

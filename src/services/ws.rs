@@ -687,9 +687,9 @@ async fn handle_audio(
             let mut generation_config = GenerationConfig::default();
             generation_config.response_modalities = Some(vec![gemini::types::Modality::TEXT]);
 
-            let system_instruction = if let Some(sys_prompts) = gemini.sys_prompts.clone() {
+            let system_instruction = if let Some(sys_prompts) = gemini.sys_prompts.first() {
                 Some(gemini::types::Content {
-                    parts: vec![gemini::types::Parts::Text(sys_prompts.message)],
+                    parts: vec![gemini::types::Parts::Text(sys_prompts.message.clone())],
                 })
             } else {
                 None
@@ -715,9 +715,9 @@ async fn handle_audio(
             let mut generation_config = GenerationConfig::default();
             generation_config.response_modalities = Some(vec![gemini::types::Modality::AUDIO]);
 
-            let system_instruction = if let Some(sys_prompts) = gemini.sys_prompts.clone() {
+            let system_instruction = if let Some(sys_prompts) = gemini.sys_prompts.first() {
                 Some(gemini::types::Content {
-                    parts: vec![gemini::types::Parts::Text(sys_prompts.message)],
+                    parts: vec![gemini::types::Parts::Text(sys_prompts.message.clone())],
                 })
             } else {
                 None
