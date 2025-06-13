@@ -21,12 +21,6 @@ pub enum Parts {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProactivityConfig {
-    pub proactive_audio: bool,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AudioTranscriptionConfig {}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -39,8 +33,6 @@ pub struct Setup {
     pub system_instruction: Option<Content>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_audio_transcription: Option<AudioTranscriptionConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub proactivity: Option<ProactivityConfig>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -184,7 +176,6 @@ mod test {
                 )],
             }),
             input_audio_transcription: None,
-            proactivity: None,
         };
         let serialized = serde_json::to_string(&setup).unwrap();
         assert!(serialized.contains("gemini-2.0-flash-live-001"));

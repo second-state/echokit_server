@@ -700,7 +700,6 @@ async fn handle_audio(
                 generation_config: Some(generation_config),
                 system_instruction,
                 input_audio_transcription: Some(gemini::types::AudioTranscriptionConfig {}),
-                proactivity: None,
             };
 
             submit_to_gemini_and_tts(&pool, &mut client, tts, &id, setup, &mut rx).await?;
@@ -728,9 +727,6 @@ async fn handle_audio(
                 generation_config: Some(generation_config),
                 system_instruction,
                 input_audio_transcription: Some(gemini::types::AudioTranscriptionConfig {}),
-                proactivity: Some(gemini::types::ProactivityConfig {
-                    proactive_audio: true,
-                }),
             };
 
             client.setup(setup).await?;
