@@ -242,37 +242,42 @@ async fn recv_audio_to_wav(
     Ok(wav_audio)
 }
 
+async fn get_asr_text(
+    id: &str,
+    asr: &crate::config::ASRConfig,
+    audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
+) -> anyhow::Result<String> {
+    loop {
+        let wav_data = recv_audio_to_wav(audio).await?;
+        std::fs::write(format!("asr.{id}.wav"), &wav_data).expect("Failed to write ASR audio file");
+        let text = retry_asr(
+            &asr.url,
+            &asr.lang,
+            wav_data,
+            3,
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+        let text = text.join("\n");
+        log::info!("ASR result: {:?}", text);
+        if text.is_empty() || text.starts_with(" (") {
+            continue;
+        }
+        return Ok(hanconv::tw2sp(text));
+    }
+}
+
 async fn submit_to_ai(
     pool: &WsPool,
-    asr: &crate::config::ASRConfig,
     llm: &crate::config::LLMConfig,
     tts: &crate::config::TTSConfig,
     id: &str,
-    wav_audio: Vec<u8>,
+    asr_result: String,
     sys_prompts: &[Content],
     dynamic_prompts: &mut std::collections::LinkedList<Content>,
 ) -> anyhow::Result<()> {
-    // ASR
-    let asr_url = &asr.url;
-    let lang = asr.lang.as_str();
+    let message = asr_result;
 
-    let text = retry_asr(
-        asr_url,
-        lang,
-        wav_audio,
-        3,
-        std::time::Duration::from_secs(10),
-    )
-    .await;
-
-    log::info!("ASR result: {:?}", text);
-
-    if text.is_empty() {
-        pool.send(id, WsCommand::AsrResult(vec![])).await?;
-        return Ok(());
-    }
-
-    let message = hanconv::tw2sp(text.join("\n"));
     pool.send(id, WsCommand::AsrResult(vec![message.clone()]))
         .await?;
 
@@ -471,6 +476,17 @@ async fn submit_to_gemini_and_tts(
                     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                 }
                 gemini::types::ServerContent::Timeout => {}
+                gemini::types::ServerContent::GoAway {} => {
+                    log::warn!("`{id}` gemini GoAway");
+                    pool.send(
+                        id,
+                        WsCommand::Action {
+                            action: "GoAway".to_string(),
+                        },
+                    )
+                    .await?;
+                    return Err(anyhow::anyhow!("Gemini GoAway"));
+                }
             },
             GeminiEvent::AudioChunk(AudioChunk::Chunk(sample)) => {
                 client
@@ -586,6 +602,17 @@ async fn submit_to_gemini(
                 pool.send(id, WsCommand::AsrResult(vec![])).await?;
                 break;
             }
+            gemini::types::ServerContent::GoAway {} => {
+                log::warn!("`{id}` gemini GoAway");
+                pool.send(
+                    id,
+                    WsCommand::Action {
+                        action: "GoAway".to_string(),
+                    },
+                )
+                .await?;
+                break;
+            }
         }
     }
     pool.send(id, WsCommand::EndAudio).await?;
@@ -654,14 +681,14 @@ async fn handle_audio(
         AIConfig::Stable { llm, tts, asr } => {
             let sys_prompts = &llm.sys_prompts;
             let mut dynamic_prompts = llm.dynamic_prompts.clone();
-            let mut wav_audio = recv_audio_to_wav(&mut rx).await?;
+            let mut asr_result = get_asr_text(&id, asr, &mut rx).await?;
 
             loop {
-                wav_audio = tokio::select! {
-                    r = recv_audio_to_wav(&mut rx) =>{
+                asr_result = tokio::select! {
+                    r = get_asr_text(&id, asr, &mut rx) =>{
                         r?
                     }
-                    r = submit_to_ai(&pool, asr, llm, tts, &id, wav_audio, sys_prompts, &mut dynamic_prompts) => {
+                    r = submit_to_ai(&pool, llm, tts, &id, asr_result, sys_prompts, &mut dynamic_prompts) => {
                         if let Err(e) = r {
                             log::error!("`{id}` error: {e}");
                             if let Err(e) = pool.send(&id, WsCommand::AsrResult(vec![])).await{
@@ -672,7 +699,7 @@ async fn handle_audio(
                             log::error!("`{id}` error: {e}");
                         };
 
-                        recv_audio_to_wav(&mut rx).await?
+                        get_asr_text(&id, asr, &mut rx).await?
                     }
                 };
             }
@@ -700,7 +727,6 @@ async fn handle_audio(
                 generation_config: Some(generation_config),
                 system_instruction,
                 input_audio_transcription: Some(gemini::types::AudioTranscriptionConfig {}),
-                proactivity: None,
             };
 
             submit_to_gemini_and_tts(&pool, &mut client, tts, &id, setup, &mut rx).await?;
@@ -728,9 +754,6 @@ async fn handle_audio(
                 generation_config: Some(generation_config),
                 system_instruction,
                 input_audio_transcription: Some(gemini::types::AudioTranscriptionConfig {}),
-                proactivity: Some(gemini::types::ProactivityConfig {
-                    proactive_audio: true,
-                }),
             };
 
             client.setup(setup).await?;
@@ -820,7 +843,15 @@ async fn handle_socket(
     }
 
     let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<AudioChunk>(1);
-    tokio::spawn(handle_audio(id.to_string(), pool.clone(), audio_rx));
+    let pool_ = pool.clone();
+    let id = id.to_string();
+    tokio::spawn(async move {
+        let id_ = id.clone();
+        let r = handle_audio(id, pool_, audio_rx).await;
+        if let Err(e) = r {
+            log::error!("`{id_}` handle audio error: {e}");
+        }
+    });
 
     process_socket_io(&mut rx, audio_tx, &mut socket).await?;
 

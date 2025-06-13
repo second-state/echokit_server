@@ -121,7 +121,6 @@ mod test {
                 )],
             }),
             input_audio_transcription: Some(types::AudioTranscriptionConfig {}),
-            proactivity: None,
         };
         client.setup(setup).await?;
         log::info!("Setup completed");
