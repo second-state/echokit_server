@@ -134,6 +134,8 @@ pub enum ServerContent {
     Interrupted(bool),
     #[serde(rename = "timeout")]
     Timeout,
+    #[serde(rename = "goAway")]
+    GoAway {},
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

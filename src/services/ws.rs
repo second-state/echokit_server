@@ -256,6 +256,8 @@ async fn submit_to_ai(
     let asr_url = &asr.url;
     let lang = asr.lang.as_str();
 
+    let _ = std::fs::write(format!("asr.{id}.wav"), &wav_audio);
+
     let text = retry_asr(
         asr_url,
         lang,
@@ -471,6 +473,17 @@ async fn submit_to_gemini_and_tts(
                     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                 }
                 gemini::types::ServerContent::Timeout => {}
+                gemini::types::ServerContent::GoAway {} => {
+                    log::warn!("`{id}` gemini GoAway");
+                    pool.send(
+                        id,
+                        WsCommand::Action {
+                            action: "GoAway".to_string(),
+                        },
+                    )
+                    .await?;
+                    return Err(anyhow::anyhow!("Gemini GoAway"));
+                }
             },
             GeminiEvent::AudioChunk(AudioChunk::Chunk(sample)) => {
                 client
@@ -584,6 +597,17 @@ async fn submit_to_gemini(
             gemini::types::ServerContent::Timeout => {
                 log::warn!("`{id}` gemini timeout");
                 pool.send(id, WsCommand::AsrResult(vec![])).await?;
+                break;
+            }
+            gemini::types::ServerContent::GoAway {} => {
+                log::warn!("`{id}` gemini GoAway");
+                pool.send(
+                    id,
+                    WsCommand::Action {
+                        action: "GoAway".to_string(),
+                    },
+                )
+                .await?;
                 break;
             }
         }
@@ -816,7 +840,15 @@ async fn handle_socket(
     }
 
     let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<AudioChunk>(1);
-    tokio::spawn(handle_audio(id.to_string(), pool.clone(), audio_rx));
+    let pool_ = pool.clone();
+    let id = id.to_string();
+    tokio::spawn(async move {
+        let id_ = id.clone();
+        let r = handle_audio(id, pool_, audio_rx).await;
+        if let Err(e) = r {
+            log::error!("`{id_}` handle audio error: {e}");
+        }
+    });
 
     process_socket_io(&mut rx, audio_tx, &mut socket).await?;
 
