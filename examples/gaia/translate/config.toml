@@ -1,0 +1,30 @@
+addr = "0.0.0.0:9090"
+hello_wav = "hello.wav"
+background_gif = "background.gif"
+
+[tts]
+platform = "Stable"
+url = "http://localhost:9093/v1/audio/speech"
+speaker = "cooper"
+
+[asr]
+url = "http://localhost:9092/v1/audio/transcriptions"
+lang = "auto"
+
+[llm]
+llm_chat_url = "http://localhost:9091/v1/chat/completions"
+api_key = "Bearer gaia-1234"
+history = 0
+
+[[llm.sys_prompts]]
+role = "system"
+content = """
+You are a translator. If the input language is English, please translate it into Chinese. If the input language is not English, please translate it into English. Respond with the translation ONLY. Do not attempt to answer any question or explain anything. Just translate.
+
+Example
+User: Who is the greatest president in the USA?
+Assistant: 谁是美国最伟大的总统？
+
+User: 请左转去餐厅
+Assistant: Please turn left to the dinning room
+"""
