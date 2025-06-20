@@ -8,6 +8,8 @@ pub struct LLMConfig {
     #[serde(default)]
     pub api_key: Option<String>,
     #[serde(default)]
+    pub model: String,
+    #[serde(default)]
     pub sys_prompts: Vec<Content>,
     #[serde(default)]
     pub dynamic_prompts: LinkedList<Content>,
@@ -35,6 +37,23 @@ pub struct StableTTS {
     pub api_key: String,
     pub url: String,
     pub speaker: String,
+    #[serde(default)]
+    pub timeout_sec: Option<u64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GroqTTS {
+    pub api_key: String,
+    pub model: String,
+    pub voice: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StreamGSV {
+    #[serde(default)]
+    pub api_key: String,
+    pub url: String,
+    pub speaker: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -42,15 +61,19 @@ pub struct StableTTS {
 pub enum TTSConfig {
     Stable(StableTTS),
     Fish(FishTTS),
+    Groq(GroqTTS),
+    StreamGSV(StreamGSV),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ASRConfig {
     pub url: String,
     #[serde(default)]
-    pub api_key: Option<String>,
+    pub api_key: String,
     #[serde(default)]
     pub lang: String,
+    #[serde(default)]
+    pub model: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

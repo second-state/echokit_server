@@ -1,110 +1,8 @@
-use axum::body::Bytes;
 use reqwest::multipart::Part;
 
 pub mod gemini;
 pub mod store;
-
-/// return: wav_audio: 16bit,32k,single-channel.
-pub async fn tts(tts_url: &str, speaker: &str, text: &str) -> anyhow::Result<Bytes> {
-    log::debug!("speaker: {speaker}, text: {text}");
-    let client = reqwest::Client::new();
-    let res = client
-        .post(tts_url)
-        .json(&serde_json::json!({"speaker": speaker, "input": text}))
-        // .body(serde_json::json!({"speaker": speaker, "input": text}).to_string())
-        .send()
-        .await?;
-    let status = res.status();
-    if status != 200 {
-        let body = res.text().await?;
-        return Err(anyhow::anyhow!(
-            "tts failed, status:{status}, body:{}",
-            body
-        ));
-    }
-    let bytes = res.bytes().await?;
-    log::info!("TTS response: {:?}", bytes.len());
-    Ok(bytes)
-}
-
-// cargo test --package esp_assistant --bin esp_assistant -- ai::test_tts --exact --show-output
-#[tokio::test]
-async fn test_tts() {
-    let tts_url = "https://0x66b496fba1fdff4237cca9ac597d7171126369c8.gaia.domains/v1/audio/speech";
-    let speaker = "speaker2";
-    let text = "你好，我是胡桃";
-    let wav_audio = tts(tts_url, speaker, text).await.unwrap();
-    hound::WavReader::new(wav_audio.as_ref()).unwrap();
-    std::fs::write("./resources/test/out.wav", wav_audio).unwrap();
-}
-
-#[derive(Debug, serde::Serialize)]
-struct FishTTSRequest {
-    text: String,
-    chunk_length: usize,
-    format: String,
-    mp3_bitrate: usize,
-    reference_id: String,
-    normalize: bool,
-    latency: String,
-}
-
-impl FishTTSRequest {
-    fn new(speaker: String, text: String, format: String) -> Self {
-        Self {
-            text,
-            chunk_length: 200,
-            format,
-            mp3_bitrate: 128,
-            reference_id: speaker,
-            normalize: true,
-            latency: "normal".to_string(),
-        }
-    }
-}
-
-pub async fn fish_tts(token: &str, speaker: &str, text: &str) -> anyhow::Result<Bytes> {
-    let client = reqwest::Client::new();
-    let res = client
-        .post("https://api.fish.audio/v1/tts")
-        .header("content-type", "application/msgpack")
-        .header("authorization", &format!("Bearer {}", token))
-        .body(rmp_serde::to_vec_named(&FishTTSRequest::new(
-            speaker.to_string(),
-            text.to_string(),
-            "wav".to_string(),
-        ))?)
-        .send()
-        .await?;
-    let status = res.status();
-    if status != 200 {
-        let body = res.text().await?;
-        return Err(anyhow::anyhow!(
-            "tts failed, status:{}, body:{}",
-            status,
-            body
-        ));
-    }
-    let bytes = res.bytes().await?;
-    Ok(bytes)
-}
-
-#[tokio::test]
-async fn test_fish_tts() {
-    let token = std::env::var("FISH_API_KEY").unwrap();
-    let speaker = "256e1a3007a74904a91d132d1e9bf0aa";
-    let text = "hello fish";
-
-    let r = rmp_serde::to_vec_named(&FishTTSRequest::new(
-        speaker.to_string(),
-        text.to_string(),
-        "wav".to_string(),
-    ));
-    println!("{:x?}", r);
-
-    let wav_audio = fish_tts(&token, speaker, text).await.unwrap();
-    std::fs::write("./resources/test/out.wav", wav_audio).unwrap();
-}
+pub mod tts;
 
 #[derive(Debug, serde::Deserialize)]
 struct AsrResult {
@@ -118,6 +16,8 @@ impl AsrResult {
         for line in self.text.lines() {
             if let Some((_, t)) = line.split_once("] ") {
                 texts.push(t.to_string());
+            } else {
+                texts.push(line.to_string());
             }
         }
         texts
@@ -125,16 +25,42 @@ impl AsrResult {
 }
 
 /// wav_audio: 16bit,16k,single-channel.
-pub async fn asr(asr_url: &str, lang: &str, wav_audio: Vec<u8>) -> anyhow::Result<Vec<String>> {
+pub async fn asr(
+    asr_url: &str,
+    api_key: &str,
+    model: &str,
+    lang: &str,
+    wav_audio: Vec<u8>,
+) -> anyhow::Result<Vec<String>> {
     let client = reqwest::Client::new();
     let mut form =
         reqwest::multipart::Form::new().part("file", Part::bytes(wav_audio).file_name("audio.wav"));
+
     if !lang.is_empty() {
         form = form.text("language", lang.to_string());
     }
 
-    let res = client.post(asr_url).multipart(form).send().await?;
-    let asr_result: AsrResult = res.json().await?;
+    if !model.is_empty() {
+        form = form.text("model", model.to_string());
+    }
+
+    let builder = client.post(asr_url).multipart(form);
+
+    let res = if !api_key.is_empty() {
+        builder
+            .bearer_auth(api_key)
+            .header(reqwest::header::USER_AGENT, "curl/7.81.0")
+    } else {
+        builder
+    }
+    .send()
+    .await?;
+
+    let r: serde_json::Value = res.json().await?;
+    log::debug!("ASR response: {:#?}", r);
+
+    let asr_result: AsrResult = serde_json::from_value(r)
+        .map_err(|e| anyhow::anyhow!("Failed to parse ASR result: {}", e))?;
     Ok(asr_result.parse_text())
 }
 
@@ -143,7 +69,20 @@ async fn test_asr() {
     let asr_url = "https://whisper.gaia.domains/v1/audio/transcriptions";
     let lang = "zh";
     let wav_audio = std::fs::read("./resources/test/out.wav").unwrap();
-    let text = asr(asr_url, lang, wav_audio).await.unwrap();
+    let text = asr(asr_url, "", "", lang, wav_audio).await.unwrap();
+    println!("ASR result: {:?}", text);
+}
+
+#[tokio::test]
+async fn test_groq_asr() {
+    env_logger::init();
+    let groq_api_key = std::env::var("GROQ_API_KEY").unwrap_or_default();
+    let asr_url = "https://api.groq.com/openai/v1/audio/transcriptions";
+    let lang = "zh";
+    let wav_audio = std::fs::read("./resources/test/out.wav").unwrap();
+    let text = asr(asr_url, &groq_api_key, "whisper-large-v3", lang, wav_audio)
+        .await
+        .unwrap();
     println!("ASR result: {:?}", text);
 }
 
@@ -154,6 +93,8 @@ pub struct StableLlmRequest {
     #[serde(skip_serializing_if = "String::is_empty")]
     chat_id: String,
     messages: Vec<llm::Content>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    model: String,
 }
 
 pub struct StableLlmResponse {
@@ -302,6 +243,7 @@ pub mod llm {
 pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
     llm_url: &str,
     token: &str,
+    model: &str,
     chat_id: Option<String>,
     prompts: I,
 ) -> anyhow::Result<StableLlmResponse> {
@@ -314,7 +256,7 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
 
     let mut response_builder = reqwest::Client::new().post(llm_url);
     if !token.is_empty() {
-        response_builder = response_builder.header(reqwest::header::AUTHORIZATION, token);
+        response_builder = response_builder.bearer_auth(token);
     };
 
     let response = response_builder
@@ -323,6 +265,7 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
             stream: true,
             chat_id: chat_id.unwrap_or_default(),
             messages,
+            model: model.to_string(),
         })
         .send()
         .await?;
@@ -373,6 +316,7 @@ async fn test_statble_llm() {
     let mut resp = llm_stable(
         "https://cloud.fastgpt.cn/api/v1/chat/completions",
         token,
+        "",
         None,
         prompts,
     )
