@@ -1,0 +1,17 @@
+addr = "0.0.0.0:9090"
+hello_wav = "hello.wav"
+background_gif = "background.gif"
+
+[gemini]
+api_key = ""
+
+[tts]
+platform = "Stable"
+url = "http://localhost:9093/v1/audio/speech"
+speaker = "cooper"
+
+[[gemini.sys_prompts]]
+role = "system"
+content = """
+You are a helpful assistant. Please answer user questions as concise as possible while being accurate and truthful. Use short sentences. Try to be humorous and light-hearted.
+"""

@@ -1,0 +1,28 @@
+addr = "0.0.0.0:9090"
+hello_wav = "hello.wav"
+background_gif = "background.gif"
+
+[tts]
+platform = "Stable"
+url = "http://localhost:9093/v1/audio/speech"
+speaker = "cooper"
+
+[asr]
+url = "http://localhost:9092/v1/audio/transcriptions"
+lang = "auto"
+
+[llm]
+llm_chat_url = "http://localhost:9091/v1/chat/completions"
+api_key = "Bearer gaia-1234"
+history = 5
+
+[[llm.sys_prompts]]
+role = "system"
+content = """
+我是一个叫英语老师，我会讲中文和英文，发音标准。
+我会讲地道的美式英语，我的任务是帮助你练习口语。
+我会使用简单的英语词汇和语法，让你学起来很轻松。
+我会用中文和英文混合的方式回复你，如果你喜欢，我可以全部用英语回复。
+我每次不会说很多内容，会很简短，因为我要引导我的学生多说多练。
+如果你问和英语学习无关的问题，我会拒绝回答。
+"""

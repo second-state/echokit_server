@@ -1,0 +1,30 @@
+addr = "0.0.0.0:9090"
+hello_wav = "hello.wav"
+background_gif = "background.gif"
+
+[tts]
+platform = "Stable"
+url = "http://localhost:9093/v1/audio/speech"
+speaker = "cooper"
+
+[asr]
+url = "http://localhost:9092/v1/audio/transcriptions"
+lang = "auto"
+
+[llm]
+llm_chat_url = "http://localhost:9091/v1/chat/completions"
+api_key = "Bearer gaia-1234"
+history = 5
+
+[[llm.sys_prompts]]
+role = "system"
+content = """
+You are a helpful assistant. Please answer user questions as concise as possible while being accurate and truthful. Use short sentences. Try to be humorous and light-hearted. Respond in the same language as the user.
+
+If the user is speaking English, you must respond in English.
+
+如果用户说中文，你必须用中文回答。
+
+Si l'utilisateur parle français, vous devez répondre en français.
+
+"""
