@@ -111,13 +111,19 @@ enum WsEvent {
 
 async fn retry_asr(
     url: &str,
+    api_key: &str,
+    model: &str,
     lang: &str,
     wav_audio: Vec<u8>,
     retry: usize,
     timeout: std::time::Duration,
 ) -> Vec<String> {
     for i in 0..retry {
-        let r = tokio::time::timeout(timeout, crate::ai::asr(url, lang, wav_audio.clone())).await;
+        let r = tokio::time::timeout(
+            timeout,
+            crate::ai::asr(url, api_key, model, lang, wav_audio.clone()),
+        )
+        .await;
         match r {
             Ok(Ok(v)) => return v,
             Ok(Err(e)) => {
@@ -391,6 +397,8 @@ async fn get_asr_text(
         std::fs::write(format!("asr.{id}.wav"), &wav_data).expect("Failed to write ASR audio file");
         let text = retry_asr(
             &asr.url,
+            &asr.api_key,
+            &asr.model,
             &asr.lang,
             wav_data,
             3,

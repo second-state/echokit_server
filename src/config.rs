@@ -67,9 +67,11 @@ pub enum TTSConfig {
 pub struct ASRConfig {
     pub url: String,
     #[serde(default)]
-    pub api_key: Option<String>,
+    pub api_key: String,
     #[serde(default)]
     pub lang: String,
+    #[serde(default)]
+    pub model: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

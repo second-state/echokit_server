@@ -16,6 +16,8 @@ impl AsrResult {
         for line in self.text.lines() {
             if let Some((_, t)) = line.split_once("] ") {
                 texts.push(t.to_string());
+            } else {
+                texts.push(line.to_string());
             }
         }
         texts
@@ -23,16 +25,42 @@ impl AsrResult {
 }
 
 /// wav_audio: 16bit,16k,single-channel.
-pub async fn asr(asr_url: &str, lang: &str, wav_audio: Vec<u8>) -> anyhow::Result<Vec<String>> {
+pub async fn asr(
+    asr_url: &str,
+    api_key: &str,
+    model: &str,
+    lang: &str,
+    wav_audio: Vec<u8>,
+) -> anyhow::Result<Vec<String>> {
     let client = reqwest::Client::new();
     let mut form =
         reqwest::multipart::Form::new().part("file", Part::bytes(wav_audio).file_name("audio.wav"));
+
     if !lang.is_empty() {
         form = form.text("language", lang.to_string());
     }
 
-    let res = client.post(asr_url).multipart(form).send().await?;
-    let asr_result: AsrResult = res.json().await?;
+    if !model.is_empty() {
+        form = form.text("model", model.to_string());
+    }
+
+    let builder = client.post(asr_url).multipart(form);
+
+    let res = if !api_key.is_empty() {
+        builder
+            .bearer_auth(api_key)
+            .header(reqwest::header::USER_AGENT, "curl/7.81.0")
+    } else {
+        builder
+    }
+    .send()
+    .await?;
+
+    let r: serde_json::Value = res.json().await?;
+    log::debug!("ASR response: {:#?}", r);
+
+    let asr_result: AsrResult = serde_json::from_value(r)
+        .map_err(|e| anyhow::anyhow!("Failed to parse ASR result: {}", e))?;
     Ok(asr_result.parse_text())
 }
 
@@ -41,7 +69,20 @@ async fn test_asr() {
     let asr_url = "https://whisper.gaia.domains/v1/audio/transcriptions";
     let lang = "zh";
     let wav_audio = std::fs::read("./resources/test/out.wav").unwrap();
-    let text = asr(asr_url, lang, wav_audio).await.unwrap();
+    let text = asr(asr_url, "", "", lang, wav_audio).await.unwrap();
+    println!("ASR result: {:?}", text);
+}
+
+#[tokio::test]
+async fn test_groq_asr() {
+    env_logger::init();
+    let groq_api_key = std::env::var("GROQ_API_KEY").unwrap_or_default();
+    let asr_url = "https://api.groq.com/openai/v1/audio/transcriptions";
+    let lang = "zh";
+    let wav_audio = std::fs::read("./resources/test/out.wav").unwrap();
+    let text = asr(asr_url, &groq_api_key, "whisper-large-v3", lang, wav_audio)
+        .await
+        .unwrap();
     println!("ASR result: {:?}", text);
 }
 
