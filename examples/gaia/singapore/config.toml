@@ -3,8 +3,8 @@ hello_wav = "hello.wav"
 background_gif = "background.gif"
 
 [tts]
-platform = "Stable"
-url = "http://localhost:9093/v1/audio/speech"
+platform = "StreamGSV"
+url = "http://localhost:9094/v1/audio/stream_speech"
 speaker = "cooper"
 
 [asr]
