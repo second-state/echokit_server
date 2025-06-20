@@ -231,35 +231,19 @@ async fn send_stream_chunk(
         let in_hz = 32000;
         let out_hz = 16000;
 
-        if cfg!(target_endian = "big") {
-            let mut sample_32k = Vec::with_capacity(samples_32k_data.len() / 2);
-            for i in samples_32k_data.chunks_exact(2) {
-                let sample = i16::from_le_bytes([i[0], i[1]]);
-                sample_32k.push(sample);
-            }
-            let mut audio_16k = resample(&sample_32k, in_hz, out_hz).unwrap();
-            let audio_16k = audio_16k.as_i16_slice();
-            let mut audio_16k_data = Vec::with_capacity(audio_16k.len() * 2);
-            for i in audio_16k {
-                audio_16k_data.extend_from_slice(&i.to_le_bytes());
-            }
-
-            audio_16k_data
-        } else {
-            let samples_32k = unsafe {
-                std::slice::from_raw_parts(
-                    samples_32k_data.as_ptr() as *const i16,
-                    samples_32k_data.len() / 2,
-                )
-            };
-            let mut audio_16k = resample(samples_32k, in_hz, out_hz).unwrap();
-            let audio_16k = audio_16k.as_i16_slice();
-            let audio_16k_data = unsafe {
-                std::slice::from_raw_parts(audio_16k.as_ptr() as *const u8, audio_16k.len() * 2)
-            };
-
-            audio_16k_data.to_vec()
+        let mut sample_32k = Vec::with_capacity(samples_32k_data.len() / 2);
+        for i in samples_32k_data.chunks_exact(2) {
+            let sample = i16::from_le_bytes([i[0], i[1]]);
+            sample_32k.push(sample);
         }
+        let mut audio_16k = resample(&sample_32k, in_hz, out_hz).unwrap();
+        let audio_16k = audio_16k.as_i16_slice();
+        let mut audio_16k_data = Vec::with_capacity(audio_16k.len() * 2);
+        for i in audio_16k {
+            audio_16k_data.extend_from_slice(&i.to_le_bytes());
+        }
+
+        audio_16k_data
     }
 
     'next_chunk: while let Some(item) = stream.next().await {
@@ -290,6 +274,7 @@ async fn send_stream_chunk(
                 rest.extend_from_slice(&samples_32k_data);
                 continue 'next_chunk;
             }
+            log::debug!("Received audio chunk of size: {}", samples_32k_data.len());
             let audio_16k = resample_32k_to_16k(samples_32k_data);
             pool.send(id, WsCommand::Audio(audio_16k))
                 .await
@@ -357,17 +342,16 @@ async fn recv_audio_to_wav(
     while let Some(chunk) = audio.recv().await {
         match chunk {
             AudioChunk::Chunk(data) => {
-                if cfg!(target_endian = "big") {
-                    for i in data.chunks_exact(2) {
-                        let sample = i16::from_be_bytes([i[0], i[1]]);
+                if data.len() % 2 != 0 {
+                    log::warn!("Received audio chunk with odd length, skipping");
+                    for i in data[0..data.len() - 1].chunks_exact(2) {
+                        let sample = i16::from_le_bytes([i[0], i[1]]);
                         samples.push(sample as f32 / std::i16::MAX as f32);
                     }
                 } else {
-                    let samples_16: &[i16] = unsafe {
-                        std::slice::from_raw_parts(data.as_ptr() as *const i16, data.len() / 2)
-                    };
-                    for v in samples_16 {
-                        samples.push(*v as f32 / std::i16::MAX as f32);
+                    for i in data.chunks_exact(2) {
+                        let sample = i16::from_le_bytes([i[0], i[1]]);
+                        samples.push(sample as f32 / std::i16::MAX as f32);
                     }
                 }
             }
@@ -661,13 +645,21 @@ async fn submit_to_gemini(
                     if let gemini::types::Parts::InlineData { data, mime_type } = item {
                         if mime_type.starts_with("audio/pcm") {
                             let audio_data = data.into_inner();
-                            let sample = unsafe {
-                                std::slice::from_raw_parts(
-                                    audio_data.as_ptr() as *const i16,
-                                    audio_data.len() / 2,
-                                )
-                            };
-                            let mut audio_16k = resample(sample, 24000, 16000)?;
+                            let mut sample = Vec::with_capacity(audio_data.len() / 2);
+                            if audio_data.len() % 2 != 0 {
+                                log::warn!("Received audio chunk with odd length, skipping");
+                                for i in audio_data[0..audio_data.len() - 1].chunks_exact(2) {
+                                    let sample_value = i16::from_le_bytes([i[0], i[1]]);
+                                    sample.push(sample_value);
+                                }
+                            } else {
+                                for i in audio_data.chunks_exact(2) {
+                                    let sample_value = i16::from_le_bytes([i[0], i[1]]);
+                                    sample.push(sample_value);
+                                }
+                            }
+
+                            let mut audio_16k = resample(&sample, 24000, 16000)?;
                             let samples = audio_16k.as_i16_slice();
                             for chunk in samples.chunks(5 * 16000 / 10) {
                                 for i in chunk {
