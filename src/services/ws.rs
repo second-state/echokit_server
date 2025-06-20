@@ -10,7 +10,9 @@ use axum::{
     Extension,
 };
 
+use bytes::BufMut;
 use fon::{chan::Samp16, Audio};
+use futures_util::StreamExt;
 
 use crate::{
     ai::{
@@ -25,7 +27,10 @@ use crate::{
 
 pub enum WsCommand {
     AsrResult(Vec<String>),
-    Action { action: String },
+    Action {
+        action: String,
+    },
+    /// 16k, 16bit le, single-channel audio data
     Audio(Vec<u8>),
     StartAudio(String),
     EndAudio,
@@ -143,7 +148,7 @@ async fn retry_tts(
     timeout: std::time::Duration,
 ) -> anyhow::Result<Bytes> {
     for i in 0..retry {
-        let r = tokio::time::timeout(timeout, crate::ai::tts(url, speaker, text)).await;
+        let r = tokio::time::timeout(timeout, crate::ai::tts::gsv(url, speaker, text)).await;
         match r {
             Ok(Ok(v)) => return Ok(v),
             Ok(Err(e)) => {
@@ -158,7 +163,7 @@ async fn retry_tts(
     Err(anyhow::anyhow!("tts timeout"))
 }
 
-async fn send_tts_result(
+async fn send_wav(
     pool: &WsPool,
     id: &str,
     text: String,
@@ -201,6 +206,140 @@ async fn send_tts_result(
     }
 
     Ok(duration_sec)
+}
+
+async fn send_stream_chunk(
+    pool: &WsPool,
+    id: &str,
+    text: String,
+    resp: reqwest::Response,
+) -> anyhow::Result<()> {
+    let in_hz = 32000;
+    log::info!("llm chunk:{:?}", text);
+
+    let mut stream = resp.bytes_stream();
+    let mut rest = bytes::BytesMut::new();
+    let read_chunk_size = 2 * 5 * in_hz as usize / 10; // 0.5 seconds of audio at 32kHz
+
+    fn resample_32k_to_16k(samples_32k_data: &[u8]) -> Vec<u8> {
+        let in_hz = 32000;
+        let out_hz = 16000;
+
+        if cfg!(target_endian = "big") {
+            let mut sample_32k = Vec::with_capacity(samples_32k_data.len() / 2);
+            for i in samples_32k_data.chunks_exact(2) {
+                let sample = i16::from_le_bytes([i[0], i[1]]);
+                sample_32k.push(sample);
+            }
+            let mut audio_16k = resample(&sample_32k, in_hz, out_hz).unwrap();
+            let audio_16k = audio_16k.as_i16_slice();
+            let mut audio_16k_data = Vec::with_capacity(audio_16k.len() * 2);
+            for i in audio_16k {
+                audio_16k_data.extend_from_slice(&i.to_le_bytes());
+            }
+
+            audio_16k_data
+        } else {
+            let samples_32k = unsafe {
+                std::slice::from_raw_parts(
+                    samples_32k_data.as_ptr() as *const i16,
+                    samples_32k_data.len() / 2,
+                )
+            };
+            let mut audio_16k = resample(samples_32k, in_hz, out_hz).unwrap();
+            let audio_16k = audio_16k.as_i16_slice();
+            let audio_16k_data = unsafe {
+                std::slice::from_raw_parts(audio_16k.as_ptr() as *const u8, audio_16k.len() * 2)
+            };
+
+            audio_16k_data.to_vec()
+        }
+    }
+
+    'next_chunk: while let Some(item) = stream.next().await {
+        // 小端字节序
+        let mut chunk = item?;
+
+        if rest.len() > 0 {
+            log::debug!("chunk size: {}, rest size: {}", chunk.len(), rest.len());
+            if chunk.len() + rest.len() > read_chunk_size {
+                let n = read_chunk_size - rest.len();
+                rest.put(chunk.slice(..n));
+                debug_assert_eq!(rest.len(), read_chunk_size);
+                let audio_16k = resample_32k_to_16k(&rest);
+                pool.send(id, WsCommand::Audio(audio_16k))
+                    .await
+                    .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
+                rest.clear();
+                chunk = chunk.slice(n..);
+            } else {
+                rest.extend_from_slice(&chunk);
+                continue 'next_chunk;
+            }
+        }
+
+        for samples_32k_data in chunk.chunks(read_chunk_size) {
+            if samples_32k_data.len() % 2 != 0 {
+                log::warn!("Received audio chunk with odd length, skipping");
+                rest.extend_from_slice(&samples_32k_data);
+                continue 'next_chunk;
+            }
+            let audio_16k = resample_32k_to_16k(samples_32k_data);
+            pool.send(id, WsCommand::Audio(audio_16k))
+                .await
+                .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn tts_and_send(pool: &WsPool, id: &str, text: String) -> anyhow::Result<()> {
+    let tts_config = match &pool.config {
+        AIConfig::Stable { tts, .. } => tts,
+        AIConfig::GeminiAndTTS { tts, .. } => tts,
+        AIConfig::Gemini { .. } => {
+            return Err(anyhow::anyhow!("Gemini does not support TTS yet"));
+        }
+    };
+
+    match tts_config {
+        crate::config::TTSConfig::Stable(tts) => {
+            let timeout_sec = tts.timeout_sec.unwrap_or(15);
+            let wav_data = retry_tts(
+                &tts.url,
+                &tts.speaker,
+                &text,
+                3,
+                std::time::Duration::from_secs(timeout_sec),
+            )
+            .await?;
+            let duration_sec = send_wav(pool, id, text, wav_data).await?;
+            log::info!("Stable TTS duration: {:?}", duration_sec);
+            Ok(())
+        }
+        crate::config::TTSConfig::Fish(fish) => {
+            let wav_data = crate::ai::tts::fish_tts(&fish.api_key, &fish.speaker, &text).await?;
+            let duration_sec = send_wav(pool, id, text, wav_data).await?;
+            log::info!("Fish TTS duration: {:?}", duration_sec);
+            Ok(())
+        }
+        crate::config::TTSConfig::Groq(groq) => {
+            let wav_data =
+                crate::ai::tts::groq(&groq.model, &groq.api_key, &groq.voice, &text).await?;
+            let duration_sec = send_wav(pool, id, text, wav_data).await?;
+            log::info!("Fish TTS duration: {:?}", duration_sec);
+            Ok(())
+        }
+        crate::config::TTSConfig::StreamGSV(stream_tts) => {
+            let resp =
+                crate::ai::tts::stream_gsv(&stream_tts.url, &stream_tts.speaker, &text).await?;
+
+            send_stream_chunk(pool, id, text, resp).await?;
+            log::info!("Stream GSV TTS sent");
+            Ok(())
+        }
+    }
 }
 
 async fn recv_audio_to_wav(
@@ -270,7 +409,6 @@ async fn get_asr_text(
 async fn submit_to_ai(
     pool: &WsPool,
     llm: &crate::config::LLMConfig,
-    tts: &crate::config::TTSConfig,
     id: &str,
     asr_result: String,
     sys_prompts: &[Content],
@@ -316,15 +454,6 @@ async fn submit_to_ai(
     let llm_url = &llm.llm_chat_url;
     let mut resp = crate::ai::llm_stable(llm_url, token, None, prompts).await?;
 
-    let mut deadline = None;
-
-    let (tts_url, speaker) = match &tts {
-        crate::config::TTSConfig::Stable(tts) => (&tts.url, &tts.speaker),
-        crate::config::TTSConfig::Fish(_) => {
-            return Err(anyhow::anyhow!("Fish TTS is not implemented yet"));
-        }
-    };
-
     let mut llm_response = String::with_capacity(128);
 
     let mut first_chunk = true;
@@ -348,26 +477,8 @@ async fn submit_to_ai(
                     continue;
                 }
                 pool.send(id, WsCommand::StartAudio(chunk.clone())).await?;
-                match retry_tts(
-                    tts_url,
-                    speaker,
-                    &chunk,
-                    3,
-                    std::time::Duration::from_secs(15),
-                )
-                .await
-                {
-                    Ok(wav_data) => {
-                        if let Some(deadline) = deadline {
-                            tokio::time::sleep_until(deadline).await;
-                            log::info!("end audio");
-                        }
-                        let now = tokio::time::Instant::now();
-                        let duration_sec =
-                            send_tts_result(pool, id, chunk.to_string(), wav_data.clone()).await?;
-
-                        deadline = Some(now + duration_sec);
-                    }
+                match tts_and_send(pool, id, chunk).await {
+                    Ok(_) => {}
                     Err(e) => {
                         log::error!("tts error:{e}");
                     }
@@ -397,7 +508,6 @@ async fn submit_to_ai(
 async fn submit_to_gemini_and_tts(
     pool: &WsPool,
     client: &mut gemini::LiveClient,
-    tts: &crate::config::TTSConfig,
     id: &str,
     setup: gemini::types::Setup,
     audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
@@ -433,27 +543,9 @@ async fn submit_to_gemini_and_tts(
                 gemini::types::ServerContent::GenerationComplete(_) => {}
                 gemini::types::ServerContent::Interrupted(_) => {}
                 gemini::types::ServerContent::TurnComplete(_) => {
-                    let (tts_url, speaker) = match &tts {
-                        crate::config::TTSConfig::Stable(tts) => (&tts.url, &tts.speaker),
-                        crate::config::TTSConfig::Fish(_) => {
-                            return Err(anyhow::anyhow!("Fish TTS is not implemented yet"));
-                        }
-                    };
-
                     pool.send(id, WsCommand::StartAudio(text.clone())).await?;
-
-                    match retry_tts(
-                        tts_url,
-                        speaker,
-                        &text,
-                        3,
-                        std::time::Duration::from_secs(15),
-                    )
-                    .await
-                    {
-                        Ok(wav_data) => {
-                            send_tts_result(pool, id, text, wav_data).await?;
-                        }
+                    match tts_and_send(pool, id, text).await {
+                        Ok(_) => {}
                         Err(e) => {
                             log::error!("tts error:{e}");
                         }
@@ -678,7 +770,7 @@ async fn handle_audio(
     mut rx: tokio::sync::mpsc::Receiver<AudioChunk>,
 ) -> anyhow::Result<()> {
     match &pool.config {
-        AIConfig::Stable { llm, tts, asr } => {
+        AIConfig::Stable { llm, asr, .. } => {
             let sys_prompts = &llm.sys_prompts;
             let mut dynamic_prompts = llm.dynamic_prompts.clone();
             let mut asr_result = get_asr_text(&id, asr, &mut rx).await?;
@@ -688,7 +780,7 @@ async fn handle_audio(
                     r = get_asr_text(&id, asr, &mut rx) =>{
                         r?
                     }
-                    r = submit_to_ai(&pool, llm, tts, &id, asr_result, sys_prompts, &mut dynamic_prompts) => {
+                    r = submit_to_ai(&pool, llm, &id, asr_result, sys_prompts, &mut dynamic_prompts) => {
                         if let Err(e) = r {
                             log::error!("`{id}` error: {e}");
                             if let Err(e) = pool.send(&id, WsCommand::AsrResult(vec![])).await{
@@ -704,7 +796,7 @@ async fn handle_audio(
                 };
             }
         }
-        AIConfig::GeminiAndTTS { gemini, tts } => loop {
+        AIConfig::GeminiAndTTS { gemini, .. } => loop {
             let mut client = gemini::LiveClient::connect(&gemini.api_key).await?;
             let model = gemini
                 .model
@@ -729,7 +821,7 @@ async fn handle_audio(
                 input_audio_transcription: Some(gemini::types::AudioTranscriptionConfig {}),
             };
 
-            submit_to_gemini_and_tts(&pool, &mut client, tts, &id, setup, &mut rx).await?;
+            submit_to_gemini_and_tts(&pool, &mut client, &id, setup, &mut rx).await?;
         },
         AIConfig::Gemini { gemini } => {
             let mut client = gemini::LiveClient::connect(&gemini.api_key).await?;
