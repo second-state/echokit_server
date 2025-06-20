@@ -14,7 +14,7 @@ lang = "auto"
 
 [llm]
 llm_chat_url = "https://0xb2962131564bc854ece7b0f7c8c9a8345847abfb.gaia.domains/v1/chat/completions"
-api_key = "Bearer gaia-1234"
+api_key = "gaia-1234"
 history = 5
 
 [[llm.sys_prompts]]
