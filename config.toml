@@ -2,15 +2,39 @@ addr = "0.0.0.0:8080"
 hello_wav = "hello.wav"
 background_gif = "background.gif"
 
+
+# [tts]
+# platform = "Groq"
+# api_key = "gsk_xxx"
+# model = "playai-tts"
+# voice = "Aaliyah-PlayAI"
+
+# [tts]
+# platform = "StreamGSV"
+# url = "http://localhost:8000/v1/audio/speech"
+# speaker = "speaker2"
+
 [tts]
 platform = "Stable"
 url = "https://0x66b496fba1fdff4237cca9ac597d7171126369c7.gaia.domains/v1/audio/speech"
 speaker = "speaker2"
 
+
+# [asr]
+# url = "https://api.groq.com/openai/v1/audio/transcriptions"
+# lang = "zh"
+# api_key = "gsk_xxx"
+# model = "whisper-large-v3-turbo"
+
 [asr]
 url = "https://whisper.gaia.domains/v1/audio/transcriptions"
-# url = "http://34.56.147.107:9080/v1/audio/transcriptions"
 lang = "auto"
+
+# [llm]
+# llm_chat_url = "https://api.groq.com/openai/v1/chat/completions"
+# api_key = "gsk_xxx"
+# model = "gemma2-9b-it"
+# history = 1
 
 [llm]
 llm_chat_url = "https://0xb2962131564bc854ece7b0f7c8c9a8345847abfb.gaia.domains/v1/chat/completions"
