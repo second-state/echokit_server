@@ -93,6 +93,8 @@ pub struct StableLlmRequest {
     #[serde(skip_serializing_if = "String::is_empty")]
     chat_id: String,
     messages: Vec<llm::Content>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    model: String,
 }
 
 pub struct StableLlmResponse {
@@ -241,6 +243,7 @@ pub mod llm {
 pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
     llm_url: &str,
     token: &str,
+    model: &str,
     chat_id: Option<String>,
     prompts: I,
 ) -> anyhow::Result<StableLlmResponse> {
@@ -253,7 +256,7 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
 
     let mut response_builder = reqwest::Client::new().post(llm_url);
     if !token.is_empty() {
-        response_builder = response_builder.header(reqwest::header::AUTHORIZATION, token);
+        response_builder = response_builder.bearer_auth(token);
     };
 
     let response = response_builder
@@ -262,6 +265,7 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
             stream: true,
             chat_id: chat_id.unwrap_or_default(),
             messages,
+            model: model.to_string(),
         })
         .send()
         .await?;
@@ -312,6 +316,7 @@ async fn test_statble_llm() {
     let mut resp = llm_stable(
         "https://cloud.fastgpt.cn/api/v1/chat/completions",
         token,
+        "",
         None,
         prompts,
     )

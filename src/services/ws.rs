@@ -460,7 +460,7 @@ async fn submit_to_ai(
 
     log::info!("start llm");
     let llm_url = &llm.llm_chat_url;
-    let mut resp = crate::ai::llm_stable(llm_url, token, None, prompts).await?;
+    let mut resp = crate::ai::llm_stable(llm_url, token, &llm.model, None, prompts).await?;
 
     let mut llm_response = String::with_capacity(128);
 

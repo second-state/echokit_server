@@ -8,6 +8,8 @@ pub struct LLMConfig {
     #[serde(default)]
     pub api_key: Option<String>,
     #[serde(default)]
+    pub model: String,
+    #[serde(default)]
     pub sys_prompts: Vec<Content>,
     #[serde(default)]
     pub dynamic_prompts: LinkedList<Content>,
