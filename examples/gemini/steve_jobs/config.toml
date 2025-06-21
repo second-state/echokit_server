@@ -6,8 +6,8 @@ background_gif = "background.gif"
 api_key = ""
 
 [tts]
-platform = "Stable"
-url = "http://localhost:9093/v1/audio/speech"
+platform = "StreamGSV"
+url = "http://localhost:9094/v1/audio/stream_speech"
 speaker = "cooper"
 
 [[gemini.sys_prompts]]
