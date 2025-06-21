@@ -29,6 +29,7 @@ speaker = "speaker2"
 [asr]
 url = "https://whisper.gaia.domains/v1/audio/transcriptions"
 lang = "auto"
+prompt = "Hello\n你好\n(noise)\n(bgm)\n(silence)\n"
 
 # [llm]
 # llm_chat_url = "https://api.groq.com/openai/v1/chat/completions"

@@ -114,6 +114,7 @@ async fn retry_asr(
     api_key: &str,
     model: &str,
     lang: &str,
+    prompt: &str,
     wav_audio: Vec<u8>,
     retry: usize,
     timeout: std::time::Duration,
@@ -121,7 +122,7 @@ async fn retry_asr(
     for i in 0..retry {
         let r = tokio::time::timeout(
             timeout,
-            crate::ai::asr(url, api_key, model, lang, wav_audio.clone()),
+            crate::ai::asr(url, api_key, model, lang, prompt, wav_audio.clone()),
         )
         .await;
         match r {
@@ -395,6 +396,7 @@ async fn get_asr_text(
             &asr.api_key,
             &asr.model,
             &asr.lang,
+            &asr.prompt,
             wav_data,
             3,
             std::time::Duration::from_secs(10),

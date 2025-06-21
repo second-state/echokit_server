@@ -74,6 +74,8 @@ pub struct ASRConfig {
     pub lang: String,
     #[serde(default)]
     pub model: String,
+    #[serde(default)]
+    pub prompt: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

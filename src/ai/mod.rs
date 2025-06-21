@@ -30,6 +30,7 @@ pub async fn asr(
     api_key: &str,
     model: &str,
     lang: &str,
+    prompt: &str,
     wav_audio: Vec<u8>,
 ) -> anyhow::Result<Vec<String>> {
     let client = reqwest::Client::new();
@@ -42,6 +43,10 @@ pub async fn asr(
 
     if !model.is_empty() {
         form = form.text("model", model.to_string());
+    }
+
+    if !prompt.is_empty() {
+        form = form.text("prompt", prompt.to_string());
     }
 
     let builder = client.post(asr_url).multipart(form);
@@ -66,10 +71,19 @@ pub async fn asr(
 
 #[tokio::test]
 async fn test_asr() {
-    let asr_url = "https://whisper.gaia.domains/v1/audio/transcriptions";
+    let asr_url = "http://34.44.85.57:9092/v1/audio/transcriptions";
     let lang = "zh";
     let wav_audio = std::fs::read("./resources/test/out.wav").unwrap();
-    let text = asr(asr_url, "", "", lang, wav_audio).await.unwrap();
+    let text = asr(
+        asr_url,
+        "",
+        "",
+        lang,
+        "你好\n(click)\n(Music)\n(bgm)",
+        wav_audio,
+    )
+    .await
+    .unwrap();
     println!("ASR result: {:?}", text);
 }
 
@@ -80,9 +94,16 @@ async fn test_groq_asr() {
     let asr_url = "https://api.groq.com/openai/v1/audio/transcriptions";
     let lang = "zh";
     let wav_audio = std::fs::read("./resources/test/out.wav").unwrap();
-    let text = asr(asr_url, &groq_api_key, "whisper-large-v3", lang, wav_audio)
-        .await
-        .unwrap();
+    let text = asr(
+        asr_url,
+        &groq_api_key,
+        "whisper-large-v3",
+        lang,
+        "",
+        wav_audio,
+    )
+    .await
+    .unwrap();
     println!("ASR result: {:?}", text);
 }
 
