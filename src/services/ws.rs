@@ -250,13 +250,16 @@ async fn send_stream_chunk(
         // 小端字节序
         let mut chunk = item?;
 
+        log::trace!("Received audio chunk of size: {}", chunk.len());
+
         if rest.len() > 0 {
-            log::debug!("chunk size: {}, rest size: {}", chunk.len(), rest.len());
+            log::trace!("chunk size: {}, rest size: {}", chunk.len(), rest.len());
             if chunk.len() + rest.len() > read_chunk_size {
                 let n = read_chunk_size - rest.len();
                 rest.put(chunk.slice(..n));
                 debug_assert_eq!(rest.len(), read_chunk_size);
                 let audio_16k = resample_32k_to_16k(&rest);
+                log::trace!("Sending audio chunk of size: {}", audio_16k.len());
                 pool.send(id, WsCommand::Audio(audio_16k))
                     .await
                     .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
@@ -269,17 +272,25 @@ async fn send_stream_chunk(
         }
 
         for samples_32k_data in chunk.chunks(read_chunk_size) {
-            if samples_32k_data.len() % 2 != 0 {
-                log::warn!("Received audio chunk with odd length, skipping");
+            if samples_32k_data.len() < read_chunk_size {
+                log::trace!("Received audio chunk with odd length, skipping");
                 rest.extend_from_slice(&samples_32k_data);
                 continue 'next_chunk;
             }
-            log::debug!("Received audio chunk of size: {}", samples_32k_data.len());
             let audio_16k = resample_32k_to_16k(samples_32k_data);
+            log::trace!("Sending audio chunk of size: {}", audio_16k.len());
             pool.send(id, WsCommand::Audio(audio_16k))
                 .await
                 .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
         }
+    }
+
+    if rest.len() > 0 {
+        let audio_16k = resample_32k_to_16k(&rest);
+        log::trace!("Sending audio chunk of size: {}", audio_16k.len());
+        pool.send(id, WsCommand::Audio(audio_16k))
+            .await
+            .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
     }
 
     Ok(())
@@ -391,7 +402,7 @@ async fn get_asr_text(
         .await;
         let text = text.join("\n");
         log::info!("ASR result: {:?}", text);
-        if text.is_empty() || text.starts_with(" (") {
+        if text.is_empty() || text.trim().starts_with("(") {
             continue;
         }
         return Ok(hanconv::tw2sp(text));
