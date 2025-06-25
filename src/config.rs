@@ -14,6 +14,8 @@ pub struct LLMConfig {
     #[serde(default)]
     pub dynamic_prompts: LinkedList<Content>,
     pub history: usize,
+    #[serde(default)]
+    pub mcp_server: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

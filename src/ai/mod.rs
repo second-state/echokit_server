@@ -1,6 +1,15 @@
+use std::collections::LinkedList;
+
+use openai::tool::{McpToolAdapter, ToolSet};
 use reqwest::multipart::Part;
+use rmcp::{
+    model::{ClientCapabilities, ClientInfo, Implementation},
+    transport::SseTransport,
+    ServiceExt,
+};
 
 pub mod gemini;
+pub mod openai;
 pub mod store;
 pub mod tts;
 
@@ -107,7 +116,7 @@ async fn test_groq_asr() {
     println!("ASR result: {:?}", text);
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct StableLlmRequest {
     stream: bool,
     #[serde(rename = "chatId")]
@@ -116,6 +125,16 @@ pub struct StableLlmRequest {
     messages: Vec<llm::Content>,
     #[serde(skip_serializing_if = "String::is_empty")]
     model: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tools: Vec<llm::Tool>,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    tool_choice: &'static str,
+}
+
+pub enum StableLLMResponseChunk {
+    Functions(Vec<llm::ToolCall>),
+    Text(String),
+    Stop,
 }
 
 pub struct StableLlmResponse {
@@ -124,28 +143,17 @@ pub struct StableLlmResponse {
     string_buffer: String,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
-struct StableStreamChunkChoices {
-    delta: llm::Content,
-    finish_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-struct StableStreamChunk {
-    choices: Vec<StableStreamChunkChoices>,
-}
-
 impl StableLlmResponse {
     const CHUNK_SIZE: usize = 50;
 
-    fn return_string_buffer(&mut self) -> anyhow::Result<Option<String>> {
+    fn return_string_buffer(&mut self) -> anyhow::Result<StableLLMResponseChunk> {
         self.stopped = true;
         if !self.string_buffer.is_empty() {
             let mut new_str = String::new();
             std::mem::swap(&mut new_str, &mut self.string_buffer);
-            return Ok(Some(new_str));
+            return Ok(StableLLMResponseChunk::Text(new_str));
         } else {
-            return Ok(None);
+            return Ok(StableLLMResponseChunk::Stop);
         }
     }
 
@@ -175,10 +183,11 @@ impl StableLlmResponse {
         }
     }
 
-    pub async fn next_chunk(&mut self) -> anyhow::Result<Option<String>> {
+    pub async fn next_chunk(&mut self) -> anyhow::Result<StableLLMResponseChunk> {
+        let mut chunk_ret = String::new();
         loop {
             if self.stopped {
-                return Ok(None);
+                return Ok(StableLLMResponseChunk::Stop);
             }
 
             let body = self.response.chunk().await?;
@@ -186,23 +195,53 @@ impl StableLlmResponse {
                 return self.return_string_buffer();
             }
             let body = body.unwrap();
-            let body = String::from_utf8_lossy(&body);
+            let body = if chunk_ret.is_empty() {
+                String::from_utf8_lossy(&body).to_string()
+            } else {
+                chunk_ret.push_str(&String::from_utf8_lossy(&body));
+                let new_body = chunk_ret;
+                chunk_ret = String::new();
+                new_body
+            };
+
+            log::trace!("llm response chunk body: {body}");
 
             let mut chunks = String::new();
+            let mut tools = Vec::new();
             body.split("data: ").for_each(|s| {
                 if s.is_empty() || s.starts_with("[DONE]") {
                     return;
                 }
+                log::trace!("llm response body.split: {s}");
 
-                if let Ok(chunk) = serde_json::from_str::<StableStreamChunk>(s.trim()) {
-                    if !chunk.choices[0].finish_reason.is_some() {
-                        chunks.push_str(&chunk.choices[0].delta.message);
+                if let Ok(mut chunk) = serde_json::from_str::<llm::StableStreamChunk>(s.trim()) {
+                    log::trace!("llm response chunk: {:#?}", chunk);
+                    if chunk.choices.is_empty() {
+                        return;
                     }
+                    if let Some(content) = &chunk.choices[0].delta.content {
+                        log::trace!("llm response content: {content}");
+                        chunks.push_str(&content);
+                    }
+                    if !chunk.choices[0].delta.tool_calls.is_empty() {
+                        std::mem::swap(&mut chunk.choices[0].delta.tool_calls, &mut tools);
+                    }
+                } else {
+                    chunk_ret.push_str(s);
                 }
             });
 
-            if let Some(new_str) = self.push_str(&chunks) {
-                return Ok(Some(new_str));
+            log::trace!("llm response chunks: {chunks}");
+            log::trace!("llm response tools: {:#?}", tools);
+
+            if tools.is_empty() {
+                if let Some(new_str) = self.push_str(&chunks) {
+                    log::trace!("llm response text: {new_str}");
+                    return Ok(StableLLMResponseChunk::Text(new_str));
+                }
+            } else {
+                log::trace!("llm response tools: {:#?}", tools);
+                return Ok(StableLLMResponseChunk::Functions(tools));
             }
         }
     }
@@ -210,6 +249,29 @@ impl StableLlmResponse {
 
 pub mod llm {
     use std::fmt::Display;
+
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct Function {
+        pub name: String,
+        pub description: String,
+        pub parameters: serde_json::Value,
+    }
+
+    #[derive(Debug, Clone, serde::Serialize)]
+    pub struct Tool {
+        #[serde(rename = "type")]
+        pub type_: &'static str,
+        pub function: Function,
+    }
+
+    impl Into<Tool> for Function {
+        fn into(self) -> Tool {
+            Tool {
+                type_: "function",
+                function: self,
+            }
+        }
+    }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     pub enum Role {
@@ -252,12 +314,56 @@ pub mod llm {
         #[serde(rename = "content")]
         #[serde(default)]
         pub message: String,
+
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub tool_calls: Option<Vec<ToolCall>>,
     }
 
     impl AsRef<Content> for Content {
         fn as_ref(&self) -> &Content {
             self
         }
+    }
+
+    #[derive(Debug, Clone, serde::Deserialize)]
+    pub struct Delta {
+        #[serde(default)]
+        pub content: Option<String>,
+        #[serde(default)]
+        pub role: Option<Role>,
+        #[serde(default)]
+        pub tool_calls: Vec<ToolCall>,
+    }
+
+    #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+    pub struct ToolCall {
+        pub id: String,
+        #[serde(rename = "type")]
+        pub type_: String,
+        pub function: ToolFunction,
+    }
+    #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+    pub struct ToolFunction {
+        pub name: String,
+        pub arguments: String,
+    }
+
+    #[derive(Debug, Clone, serde::Deserialize)]
+    pub struct StableStreamChunkChoices {
+        pub delta: Delta,
+        pub finish_reason: Option<String>,
+    }
+
+    #[derive(Debug, Clone, serde::Deserialize)]
+    pub struct StableStreamChunk {
+        pub choices: Vec<StableStreamChunkChoices>,
+    }
+
+    #[test]
+    fn test_json() {
+        let json_str = r#"{"role":"user","content":null}"#;
+        let content = serde_json::from_str::<Content>(json_str);
+        println!("content: {:#?}", content);
     }
 }
 
@@ -267,6 +373,7 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
     model: &str,
     chat_id: Option<String>,
     prompts: I,
+    tools: Vec<llm::Tool>,
 ) -> anyhow::Result<StableLlmResponse> {
     let messages = prompts
         .into_iter()
@@ -280,6 +387,8 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
         response_builder = response_builder.bearer_auth(token);
     };
 
+    let tool_choice = if tools.is_empty() { "" } else { "auto" };
+
     let response = response_builder
         .header(reqwest::header::USER_AGENT, "curl/7.81.0")
         .json(&StableLlmRequest {
@@ -287,6 +396,8 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
             chat_id: chat_id.unwrap_or_default(),
             messages,
             model: model.to_string(),
+            tools,
+            tool_choice,
         })
         .send()
         .await?;
@@ -310,9 +421,9 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
     })
 }
 
-// cargo test --package esp_assistant --bin esp_assistant -- ai::test_statble_llm --exact --show-output
+// cargo test --package esp_assistant --bin esp_assistant -- ai::test_stable_llm --exact --show-output
 #[tokio::test]
-async fn test_statble_llm() {
+async fn test_stable_llm() {
     env_logger::init();
     let token = std::env::var("API_KEY").ok().map(|k| format!("Bearer {k}"));
 
@@ -320,10 +431,12 @@ async fn test_statble_llm() {
         llm::Content {
             role: llm::Role::System,
             message: "你是一个聪明的AI助手，你叫做胡桃".to_string(),
+            tool_calls: None,
         },
         llm::Content {
             role: llm::Role::User,
             message: "给我介绍一下妲己".to_string(),
+            tool_calls: None,
         },
     ];
 
@@ -340,16 +453,263 @@ async fn test_statble_llm() {
         "",
         None,
         prompts,
+        vec![],
     )
     .await
     .unwrap();
 
     loop {
         match resp.next_chunk().await {
-            Ok(Some(chunk)) => {
+            Ok(StableLLMResponseChunk::Text(chunk)) => {
                 println!("{}", chunk);
             }
-            Ok(None) => {
+            Ok(StableLLMResponseChunk::Functions(functions)) => {
+                for function in functions {
+                    println!("Tool call: {:#?}", function);
+                }
+            }
+            Ok(StableLLMResponseChunk::Stop) => {
+                break;
+            }
+            Err(e) => {
+                println!("error: {:#?}", e);
+                break;
+            }
+        }
+    }
+}
+
+pub struct ChatSession {
+    pub api_key: String,
+    pub model: String,
+    pub chat_id: Option<String>,
+    pub url: String,
+
+    pub history: usize,
+
+    pub system_prompts: Vec<llm::Content>,
+    pub messages: LinkedList<llm::Content>,
+    pub tools: ToolSet<McpToolAdapter>,
+}
+
+impl ChatSession {
+    pub fn new(
+        url: String,
+        api_key: String,
+        model: String,
+        chat_id: Option<String>,
+        history: usize,
+        tools: ToolSet<McpToolAdapter>,
+    ) -> Self {
+        Self {
+            api_key,
+            model,
+            url,
+            chat_id,
+            history,
+            system_prompts: Vec::new(),
+            messages: LinkedList::new(),
+            tools,
+        }
+    }
+
+    pub fn add_user_message(&mut self, message: String) {
+        self.messages.push_back(llm::Content {
+            role: llm::Role::User,
+            message,
+            tool_calls: None,
+        });
+        if self.messages.len() > self.history * 2 {
+            self.messages.pop_front();
+        }
+    }
+
+    pub fn add_assistant_message(&mut self, message: String) {
+        self.messages.push_back(llm::Content {
+            role: llm::Role::Assistant,
+            message,
+            tool_calls: None,
+        });
+    }
+
+    pub fn add_assistant_tool_call(&mut self, tool_call: Vec<llm::ToolCall>) {
+        self.messages.push_back(llm::Content {
+            role: llm::Role::Assistant,
+            message: String::new(),
+            tool_calls: Some(tool_call),
+        });
+    }
+
+    pub async fn complete(&mut self) -> anyhow::Result<StableLlmResponse> {
+        use crate::ai::openai::tool::Tool;
+
+        let prompts = self.system_prompts.iter().chain(self.messages.iter());
+
+        let tools = self
+            .tools
+            .tools()
+            .iter()
+            .map(|tool| {
+                llm::Function {
+                    name: tool.name().to_string(),
+                    description: tool.description().to_string(),
+                    parameters: tool.parameters().clone(),
+                }
+                .into()
+            })
+            .collect::<Vec<llm::Tool>>();
+
+        let response = llm_stable(
+            self.url.as_str(),
+            &self.api_key,
+            &self.model,
+            self.chat_id.clone(),
+            prompts,
+            tools,
+        )
+        .await?;
+
+        Ok(response)
+    }
+
+    pub async fn execute_tool(&mut self, tool_call: &llm::ToolCall) -> anyhow::Result<()> {
+        use crate::ai::openai::tool::Tool;
+
+        let tool = self.tools.get_tool(tool_call.function.name.as_str());
+        if let Some(tool) = tool {
+            let args: serde_json::Value =
+                serde_json::from_str(&tool_call.function.arguments).unwrap_or_default();
+            let result = tool.call(args).await?;
+            if result.is_error.is_some_and(|b| b) {
+                log::error!("Tool call {} failed", tool_call.function.name,);
+                self.messages.push_back(llm::Content {
+                    role: llm::Role::User,
+                    message: format!(
+                        "Tool call {} failed, mcp call error",
+                        tool_call.function.name
+                    ),
+                    tool_calls: None,
+                });
+            } else {
+                result.content.iter().for_each(|content| {
+                    if let Some(content_text) = content.as_text() {
+                        if let Ok(json_result) =
+                            serde_json::from_str::<serde_json::Value>(&content_text.text)
+                        {
+                            let pretty_result = serde_json::to_string_pretty(&json_result).unwrap();
+                            log::info!(
+                                "call tool {} result: {}",
+                                tool_call.function.name,
+                                pretty_result
+                            );
+                            self.messages.push_back(llm::Content {
+                                role: llm::Role::User,
+                                message: format!("call tool result: {}", pretty_result),
+                                tool_calls: None,
+                            });
+                        }
+                    }
+                });
+            }
+            Ok(())
+        } else {
+            log::error!(
+                "Tool call {} failed, tool not found",
+                tool_call.function.name
+            );
+            self.messages.push_back(llm::Content {
+                role: llm::Role::User,
+                message: format!(
+                    "Tool call {} failed, tool not found",
+                    tool_call.function.name
+                ),
+                tool_calls: None,
+            });
+            Ok(())
+        }
+    }
+}
+
+pub async fn load_tools(
+    tool_set: &mut ToolSet<McpToolAdapter>,
+    mcp_servers_url: &str,
+) -> anyhow::Result<()> {
+    // load MCP
+    let transport = SseTransport::start(mcp_servers_url).await?;
+    let client_info = ClientInfo {
+        protocol_version: Default::default(),
+        capabilities: ClientCapabilities::default(),
+        client_info: Implementation {
+            name: "test sse client".to_string(),
+            version: "0.0.1".to_string(),
+        },
+    };
+    let client = client_info.serve(transport).await.inspect_err(|e| {
+        log::error!("client error: {:?}", e);
+    })?;
+
+    let tools = client.list_all_tools().await?;
+    for tool in tools {
+        let server = client.peer().clone();
+        log::info!("add tool: {}", tool.name);
+        tool_set.add_tool(McpToolAdapter::new(tool, server));
+    }
+    Ok(())
+}
+
+// cargo test --package esp_assistant --bin esp_assistant -- ai::test_chat_session --exact --show-output
+#[tokio::test]
+async fn test_chat_session() {
+    env_logger::init();
+    let token = std::env::var("API_KEY").ok();
+
+    let prompts = vec![
+        llm::Content {
+            role: llm::Role::System,
+            message: "你是一个聪明的AI助手，你叫做胡桃".to_string(),
+            tool_calls: None,
+        },
+        llm::Content {
+            role: llm::Role::User,
+            message: "体重60公斤,身高1米7".to_string(),
+            tool_calls: None,
+        },
+    ];
+
+    let mut tools = ToolSet::default();
+    load_tools(&mut tools, "http://localhost:8000/sse")
+        .await
+        .unwrap();
+
+    log::info!("token: {:#?}", token);
+
+    let mut chat_session = ChatSession::new(
+        "https://api.groq.com/openai/v1/chat/completions".to_string(),
+        token.unwrap_or_default(),
+        "gemma2-9b-it".to_string(),
+        None,
+        10,
+        tools,
+    );
+
+    chat_session.system_prompts = prompts;
+
+    let mut resp = chat_session
+        .complete()
+        .await
+        .expect("Failed to complete chat session");
+
+    loop {
+        match resp.next_chunk().await {
+            Ok(StableLLMResponseChunk::Text(chunk)) => {
+                println!("{}", chunk);
+            }
+            Ok(StableLLMResponseChunk::Functions(functions)) => {
+                for function in functions {
+                    println!("Tool call: {:#?}", function);
+                }
+            }
+            Ok(StableLLMResponseChunk::Stop) => {
                 break;
             }
             Err(e) => {

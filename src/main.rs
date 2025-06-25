@@ -15,14 +15,14 @@ async fn main() {
     let config = config::Config::load(&config_path).unwrap();
 
     let listener = tokio::net::TcpListener::bind(&config.addr).await.unwrap();
-    if let Err(e) = axum::serve(listener, routes(config)).await {
+    if let Err(e) = axum::serve(listener, routes(config).await).await {
         log::error!("Server error: {}", e);
     } else {
         log::warn!("Server exit");
     }
 }
 
-fn routes(config: Config) -> Router {
+async fn routes(config: Config) -> Router {
     log::info!("Start with: {:#?}", config);
     let bg_gif = config.background_gif.as_ref().and_then(|gif| {
         log::info!("Background GIF: {}", gif);
@@ -33,6 +33,18 @@ fn routes(config: Config) -> Router {
         std::fs::read(wav).ok()
     });
 
+    let mut tool_set = ai::openai::tool::ToolSet::default();
+    match &config.config {
+        config::AIConfig::Stable { llm, .. } => {
+            for url in &llm.mcp_server {
+                if let Err(e) = ai::load_tools(&mut tool_set, url).await {
+                    log::error!("Failed to load tools from {}: {}", url, e);
+                }
+            }
+        }
+        _ => {}
+    }
+
     Router::new()
         // .route("/", get(handler))
         .route("/ws/{id}", any(services::ws::ws_handler))
@@ -40,5 +52,6 @@ fn routes(config: Config) -> Router {
             hello_wav,
             bg_gif,
             config.config,
+            tool_set,
         ))))
 }

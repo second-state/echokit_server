@@ -21,6 +21,8 @@ use crate::{
             types::{Blob, GenerationConfig, RealtimeAudio},
         },
         llm::Content,
+        openai::tool::{McpToolAdapter, ToolSet},
+        ChatSession, StableLLMResponseChunk,
     },
     config::AIConfig,
 };
@@ -46,15 +48,22 @@ pub struct WsPool {
     pub connections: tokio::sync::RwLock<HashMap<String, (u128, WsTx)>>,
     pub hello_wav: Option<Vec<u8>>,
     pub bg_gif: Option<Vec<u8>>,
+    pub tool_set: ToolSet<McpToolAdapter>,
 }
 
 impl WsPool {
-    pub fn new(hello_wav: Option<Vec<u8>>, bg_gif: Option<Vec<u8>>, config: AIConfig) -> Self {
+    pub fn new(
+        hello_wav: Option<Vec<u8>>,
+        bg_gif: Option<Vec<u8>>,
+        config: AIConfig,
+        tool_set: ToolSet<McpToolAdapter>,
+    ) -> Self {
         Self {
             config,
             connections: tokio::sync::RwLock::new(HashMap::new()),
             hello_wav,
             bg_gif,
+            tool_set,
         }
     }
 }
@@ -413,51 +422,29 @@ async fn get_asr_text(
 
 async fn submit_to_ai(
     pool: &WsPool,
-    llm: &crate::config::LLMConfig,
     id: &str,
+    chat_session: &mut ChatSession,
     asr_result: String,
-    sys_prompts: &[Content],
-    dynamic_prompts: &mut std::collections::LinkedList<Content>,
 ) -> anyhow::Result<()> {
     let message = asr_result;
 
     pool.send(id, WsCommand::AsrResult(vec![message.clone()]))
         .await?;
 
-    // LLM
-    let token = if let Some(t) = &llm.api_key {
-        t.as_str()
-    } else {
-        ""
-    };
-
     if matches!(
-        dynamic_prompts.back(),
+        chat_session.messages.back(),
         Some(Content {
             role: crate::ai::llm::Role::User,
             ..
         })
     ) {
-        dynamic_prompts.pop_back();
+        chat_session.messages.pop_back();
     }
 
-    while dynamic_prompts.len() > llm.history * 2 {
-        dynamic_prompts.pop_front();
-    }
-
-    dynamic_prompts.push_back(Content {
-        role: crate::ai::llm::Role::User,
-        message,
-    });
-
-    let prompts = sys_prompts
-        .iter()
-        .chain(dynamic_prompts.iter())
-        .collect::<Vec<_>>();
+    chat_session.add_user_message(message);
 
     log::info!("start llm");
-    let llm_url = &llm.llm_chat_url;
-    let mut resp = crate::ai::llm_stable(llm_url, token, &llm.model, None, prompts).await?;
+    let mut resp = chat_session.complete().await?;
 
     let mut llm_response = String::with_capacity(128);
 
@@ -465,7 +452,7 @@ async fn submit_to_ai(
 
     loop {
         match resp.next_chunk().await {
-            Ok(Some(chunk)) => {
+            Ok(StableLLMResponseChunk::Text(chunk)) => {
                 log::info!("start tts: {chunk:?}");
 
                 let chunk_ = chunk.trim();
@@ -490,13 +477,20 @@ async fn submit_to_ai(
                 }
                 pool.send(id, WsCommand::EndAudio).await?;
             }
-            Ok(None) => {
+            Ok(StableLLMResponseChunk::Functions(functions)) => {
+                log::info!("llm functions: {:#?}", functions);
+                chat_session.add_assistant_tool_call(functions.clone());
+                for function in functions {
+                    chat_session.execute_tool(&function).await?
+                }
+                resp = chat_session.complete().await?;
+                continue;
+            }
+            Ok(StableLLMResponseChunk::Stop) => {
                 log::info!("llm done");
+
                 if !llm_response.is_empty() {
-                    dynamic_prompts.push_back(Content {
-                        role: crate::ai::llm::Role::Assistant,
-                        message: llm_response,
-                    });
+                    chat_session.add_assistant_message(llm_response);
                 }
 
                 break;
@@ -784,8 +778,18 @@ async fn handle_audio(
 ) -> anyhow::Result<()> {
     match &pool.config {
         AIConfig::Stable { llm, asr, .. } => {
-            let sys_prompts = &llm.sys_prompts;
-            let mut dynamic_prompts = llm.dynamic_prompts.clone();
+            let mut chat_session = ChatSession::new(
+                llm.llm_chat_url.to_string(),
+                llm.api_key.clone().unwrap_or_default(),
+                llm.model.clone(),
+                None,
+                llm.history,
+                pool.tool_set.clone(),
+            );
+
+            chat_session.system_prompts = llm.sys_prompts.clone();
+            chat_session.messages = llm.dynamic_prompts.clone();
+
             let mut asr_result = get_asr_text(&id, asr, &mut rx).await?;
 
             loop {
@@ -793,7 +797,7 @@ async fn handle_audio(
                     r = get_asr_text(&id, asr, &mut rx) =>{
                         r?
                     }
-                    r = submit_to_ai(&pool, llm, &id, asr_result, sys_prompts, &mut dynamic_prompts) => {
+                    r = submit_to_ai(&pool, &id,&mut chat_session, asr_result) => {
                         if let Err(e) = r {
                             log::error!("`{id}` error: {e}");
                             if let Err(e) = pool.send(&id, WsCommand::AsrResult(vec![])).await{
