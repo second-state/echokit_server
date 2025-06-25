@@ -281,6 +281,8 @@ pub mod llm {
         User,
         #[serde(rename = "assistant")]
         Assistant,
+        #[serde(rename = "tool")]
+        Tool,
     }
 
     impl Display for Role {
@@ -296,6 +298,7 @@ pub mod llm {
                 Role::System => "system",
                 Role::User => "user",
                 Role::Assistant => "assistant",
+                Role::Tool => "tool",
             }
         }
     }
@@ -317,6 +320,8 @@ pub mod llm {
 
         #[serde(skip_serializing_if = "Option::is_none")]
         pub tool_calls: Option<Vec<ToolCall>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub tool_call_id: Option<String>,
     }
 
     impl AsRef<Content> for Content {
@@ -432,11 +437,13 @@ async fn test_stable_llm() {
             role: llm::Role::System,
             message: "你是一个聪明的AI助手，你叫做胡桃".to_string(),
             tool_calls: None,
+            tool_call_id: None,
         },
         llm::Content {
             role: llm::Role::User,
             message: "给我介绍一下妲己".to_string(),
             tool_calls: None,
+            tool_call_id: None,
         },
     ];
 
@@ -518,6 +525,7 @@ impl ChatSession {
             role: llm::Role::User,
             message,
             tool_calls: None,
+            tool_call_id: None,
         });
         if self.messages.len() > self.history * 2 {
             self.messages.pop_front();
@@ -529,6 +537,7 @@ impl ChatSession {
             role: llm::Role::Assistant,
             message,
             tool_calls: None,
+            tool_call_id: None,
         });
     }
 
@@ -537,6 +546,7 @@ impl ChatSession {
             role: llm::Role::Assistant,
             message: String::new(),
             tool_calls: Some(tool_call),
+            tool_call_id: None,
         });
     }
 
@@ -583,12 +593,13 @@ impl ChatSession {
             if result.is_error.is_some_and(|b| b) {
                 log::error!("Tool call {} failed", tool_call.function.name,);
                 self.messages.push_back(llm::Content {
-                    role: llm::Role::User,
+                    role: llm::Role::Tool,
                     message: format!(
                         "Tool call {} failed, mcp call error",
                         tool_call.function.name
                     ),
                     tool_calls: None,
+                    tool_call_id: Some(tool_call.id.clone()),
                 });
             } else {
                 result.content.iter().for_each(|content| {
@@ -603,9 +614,10 @@ impl ChatSession {
                                 pretty_result
                             );
                             self.messages.push_back(llm::Content {
-                                role: llm::Role::User,
-                                message: format!("call tool result: {}", pretty_result),
+                                role: llm::Role::Tool,
+                                message: pretty_result,
                                 tool_calls: None,
+                                tool_call_id: Some(tool_call.id.clone()),
                             });
                         }
                     }
@@ -618,12 +630,13 @@ impl ChatSession {
                 tool_call.function.name
             );
             self.messages.push_back(llm::Content {
-                role: llm::Role::User,
+                role: llm::Role::Tool,
                 message: format!(
                     "Tool call {} failed, tool not found",
                     tool_call.function.name
                 ),
                 tool_calls: None,
+                tool_call_id: Some(tool_call.id.clone()),
             });
             Ok(())
         }
@@ -668,11 +681,13 @@ async fn test_chat_session() {
             role: llm::Role::System,
             message: "你是一个聪明的AI助手，你叫做胡桃".to_string(),
             tool_calls: None,
+            tool_call_id: None,
         },
         llm::Content {
             role: llm::Role::User,
             message: "体重60公斤,身高1米7".to_string(),
             tool_calls: None,
+            tool_call_id: None,
         },
     ];
 
