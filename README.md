@@ -1,29 +1,30 @@
-## The ESP32 device and firmware
+# Setup the EchoKit device and server
 
-### Build espflash
+## Build espflash
 
-Assumed you installed Rust on your computer
+Assume that you [installed the Rust compiler](https://www.rust-lang.org/tools/install) on your computer.
 
 ```
 cargo install cargo-espflash espflash ldproxy
 ```
 
-### Upload firmware
+## Get firmware
+
+Get a pre-compiled binary version of the firmware.
+
+```
+curl -LO https://echokit.dev/firmware/esp32-s3-box-hello
+```
+
+## Upload firmware
 
 You MUST connect the computer to the SLAVE USB port on the device. Allow the computer to accept connection from the device. The detected USB serial port must be `JTAG`. IT CANNOT be `USB Single`.
 
-
 ```
-# For the round device
-$ espflash flash --monitor --flash-size 16mb esp32-s3-hello
-
-# for the box device
 $ espflash flash --monitor --flash-size 16mb esp32-s3-box-hello
 ```
 
-
 The response is as follows.
-
 
 ```
 [2025-04-28T16:51:43Z INFO ] Detected 2 serial ports
@@ -81,77 +82,63 @@ I (705) boot: Disabling RNG early entropy source...
 I (716) cpu_start: Multicore app
 ```
 
-
-
-### Reset the device
-
+## Reset the device
 
 Reset the device (simulate the RST button or power up).
-
 
 ```
 $ espflash reset
 ```
 
-
 Delete the existing firmware if needed.
-
 
 ```
 $ espflash erase-flash
 ```
 
+## Set up the EchoKit server
 
-
-### Configure the device
-
-* Get on network
-    * SSID: GaiaAI
-* Load web page: [http://192.168.71.1](http://192.168.71.1/)
-    * Backend URL
-        * DM me for a backend URL
-
-
-### Use the device
-
-To start listening
-
-
-* The round device -- say trigger word `gaia`
-* The box device — Press the `K0` button
-
-
-To reset wifi connection
-
-
-* The round device — Press the tiny button on the board
-* The box device — Press the `K2` button
-
-
-
-## Customize the backend server
-
-### Build abnd start
+### Build
 
 ```
-git clone https://github.com/second-state/esp_assistant
+$ git clone https://github.com/second-state/esp_assistant
 ```
 
-
-Edit and customize `config.toml`, which use three models: STT, LLM, and TTS.
-
+Edit and customize `config.toml`
 
 ```
-export RUST_LOG=info
-cargo run -- config.toml
+$ cargo build --release
 ```
 
-You can also edit and customize the `config.gemini.toml`, which will use Gemini Live and TTS. This way should answer quickly.
+### Start
 
 ```
-export RUST_LOG=info
-cargo run -- config.gemini.toml
+$ export RUST_LOG=debug
+$ nohup target/release/esp_assistant &
 ```
+
+## Configure the device
+
+Go to web page: https://echokit.dev/setup/  and use Bluetooth to connect to the `GAIA ESP332` device.
+
+![Bluetooth connection](https://hackmd.io/_uploads/HkcXIqVmxe.png)
+
+Configure WiFi and server
+
+* WiFi SSID (e.g., `WasmEdge.org`)
+* WiFi password (e.g., `SecondState23`)
+* Server URL (e.g., `ws://34.44.85.57:9090/ws/`) -- that IP address and port are for the server running `esp_assistant`
+
+![Configure Wifi](https://hackmd.io/_uploads/HkOqLq4Qge.png)
+
+## Use the device
+
+To start listening, press the `K0` button.
+
+> Some devices do not have buttons, you should say trigger word `gaia` to start listening.
+
+To reset wifi connection, press the `K2` button.
+
 
 
 
