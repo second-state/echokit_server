@@ -83,7 +83,7 @@ $ nohup target/release/esp_assistant &
 
 Go to web page: https://echokit.dev/setup/  and use Bluetooth to connect to the `GAIA ESP332` device.
 
-![Bluetooth connection](https://hackmd.io/_uploads/HkcXIqVmxe.png)
+![Bluetooth connection](https://hackmd.io/_uploads/Hyjc9ZjEee.png)
 
 Configure WiFi and server
 
@@ -91,7 +91,7 @@ Configure WiFi and server
 * WiFi password (e.g., `MyPassword`)
 * Server URL (e.g., `ws://34.44.85.57:9090/ws/`) -- that IP address and port are for the server running `esp_assistant`
 
-![Configure Wifi](https://hackmd.io/_uploads/HkOqLq4Qge.png)
+![Configure Wifi](https://hackmd.io/_uploads/HJkh5ZjVee.png)
 
 ## Use the device
 
