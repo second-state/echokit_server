@@ -125,8 +125,8 @@ Go to web page: https://echokit.dev/setup/  and use Bluetooth to connect to the 
 
 Configure WiFi and server
 
-* WiFi SSID (e.g., `WasmEdge.org`)
-* WiFi password (e.g., `SecondState23`)
+* WiFi SSID (e.g., `MyHome`)
+* WiFi password (e.g., `MyPassword`)
 * Server URL (e.g., `ws://34.44.85.57:9090/ws/`) -- that IP address and port are for the server running `esp_assistant`
 
 ![Configure Wifi](https://hackmd.io/_uploads/HkOqLq4Qge.png)
