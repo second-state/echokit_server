@@ -104,7 +104,7 @@ $ espflash erase-flash
 $ git clone https://github.com/second-state/esp_assistant
 ```
 
-Edit and customize `config.toml`
+Edit `config.toml` to customize the ASR, LLM, TTS services, as well as prompts and MCP servers. You can [see many examples](examples/).
 
 ```
 $ cargo build --release
