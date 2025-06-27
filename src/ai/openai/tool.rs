@@ -32,7 +32,11 @@ impl Tool for McpToolAdapter {
     }
 
     fn description(&self) -> String {
-        self.tool.description.clone().to_string()
+        self.tool
+            .description
+            .to_owned()
+            .unwrap_or_default()
+            .to_string()
     }
 
     fn parameters(&self) -> Value {

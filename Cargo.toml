@@ -37,9 +37,11 @@ fon = { git = "https://github.com/ardaku/fon.git", branch = "v1" }
 rmcp = { version = "0.1.5", features = [
     "base64",
     "client",
-    "transport-sse",
     "macros",
-], default-features = false }
+    "transport-sse-client",
+    "transport-streamable-http-client",
+    "reqwest",
+], default-features = false, git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "b9d7d61" } # branch = "main"
 base64 = "0.22.1"
 reqwest-websocket = "0.5.0"
 futures-util = "0.3.31"

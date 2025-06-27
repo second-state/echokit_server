@@ -3,6 +3,28 @@ use std::collections::LinkedList;
 use crate::ai::llm::Content;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum MCPType {
+    #[serde(rename = "sse")]
+    SSE,
+    #[serde(rename = "http_streamable")]
+    HttpStreamable,
+}
+impl Default for MCPType {
+    fn default() -> Self {
+        MCPType::HttpStreamable
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MCPServerConfig {
+    pub server: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(rename = "type", default)]
+    pub type_: MCPType,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LLMConfig {
     pub llm_chat_url: String,
     #[serde(default)]
@@ -15,7 +37,7 @@ pub struct LLMConfig {
     pub dynamic_prompts: LinkedList<Content>,
     pub history: usize,
     #[serde(default)]
-    pub mcp_server: Vec<String>,
+    pub mcp_server: Vec<MCPServerConfig>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

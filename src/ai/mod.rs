@@ -4,7 +4,7 @@ use openai::tool::{McpToolAdapter, ToolSet};
 use reqwest::multipart::Part;
 use rmcp::{
     model::{ClientCapabilities, ClientInfo, Implementation},
-    transport::SseTransport,
+    transport::{SseClientTransport, StreamableHttpClientTransport},
     ServiceExt,
 };
 
@@ -646,12 +646,15 @@ impl ChatSession {
     }
 }
 
-pub async fn load_tools(
+pub async fn load_sse_tools(
     tool_set: &mut ToolSet<McpToolAdapter>,
+    clients: &mut Vec<
+        rmcp::service::RunningService<rmcp::RoleClient, rmcp::model::InitializeRequestParam>,
+    >,
     mcp_servers_url: &str,
 ) -> anyhow::Result<()> {
     // load MCP
-    let transport = SseTransport::start(mcp_servers_url).await?;
+    let transport = SseClientTransport::start(mcp_servers_url).await?;
     let client_info = ClientInfo {
         protocol_version: Default::default(),
         capabilities: ClientCapabilities::default(),
@@ -670,6 +673,40 @@ pub async fn load_tools(
         log::info!("add tool: {}", tool.name);
         tool_set.add_tool(McpToolAdapter::new(tool, server));
     }
+    clients.push(client);
+    Ok(())
+}
+
+pub async fn load_http_streamable_tools(
+    tool_set: &mut ToolSet<McpToolAdapter>,
+    clients: &mut Vec<
+        rmcp::service::RunningService<rmcp::RoleClient, rmcp::model::InitializeRequestParam>,
+    >,
+    mcp_servers_url: &str,
+) -> anyhow::Result<()> {
+    // load MCP
+    let transport = StreamableHttpClientTransport::from_uri(mcp_servers_url);
+    let client_info = ClientInfo {
+        protocol_version: Default::default(),
+        capabilities: ClientCapabilities::default(),
+        client_info: Implementation {
+            name: "test http_streamable client".to_string(),
+            version: "0.0.1".to_string(),
+        },
+    };
+    let client = client_info.serve(transport).await.inspect_err(|e| {
+        log::error!("client error: {:?}", e);
+    })?;
+
+    let tools = client.list_all_tools().await?;
+    for tool in tools {
+        let server = client.peer().clone();
+        log::info!("add tool: {}", tool.name);
+        tool_set.add_tool(McpToolAdapter::new(tool, server));
+    }
+
+    clients.push(client);
+
     Ok(())
 }
 
@@ -694,8 +731,10 @@ async fn test_chat_session() {
         },
     ];
 
+    let mut clients = vec![];
+
     let mut tools = ToolSet::default();
-    load_tools(&mut tools, "http://localhost:8000/sse")
+    load_http_streamable_tools(&mut tools, &mut clients, "http://localhost:8000/mcp")
         .await
         .unwrap();
 

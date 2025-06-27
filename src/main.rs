@@ -15,14 +15,20 @@ async fn main() {
     let config = config::Config::load(&config_path).unwrap();
 
     let listener = tokio::net::TcpListener::bind(&config.addr).await.unwrap();
-    if let Err(e) = axum::serve(listener, routes(config).await).await {
+    let mut mcp_clients = vec![];
+    if let Err(e) = axum::serve(listener, routes(config, &mut mcp_clients).await).await {
         log::error!("Server error: {}", e);
     } else {
         log::warn!("Server exit");
     }
 }
 
-async fn routes(config: Config) -> Router {
+async fn routes(
+    config: Config,
+    clients: &mut Vec<
+        rmcp::service::RunningService<rmcp::RoleClient, rmcp::model::InitializeRequestParam>,
+    >,
+) -> Router {
     log::info!("Start with: {:#?}", config);
     let bg_gif = config.background_gif.as_ref().and_then(|gif| {
         log::info!("Background GIF: {}", gif);
@@ -36,9 +42,23 @@ async fn routes(config: Config) -> Router {
     let mut tool_set = ai::openai::tool::ToolSet::default();
     match &config.config {
         config::AIConfig::Stable { llm, .. } => {
-            for url in &llm.mcp_server {
-                if let Err(e) = ai::load_tools(&mut tool_set, url).await {
-                    log::error!("Failed to load tools from {}: {}", url, e);
+            for server in &llm.mcp_server {
+                match server.type_ {
+                    config::MCPType::SSE => {
+                        if let Err(e) =
+                            ai::load_sse_tools(&mut tool_set, clients, &server.server).await
+                        {
+                            log::error!("Failed to load tools from {}: {}", &server.server, e);
+                        }
+                    }
+                    config::MCPType::HttpStreamable => {
+                        if let Err(e) =
+                            ai::load_http_streamable_tools(&mut tool_set, clients, &server.server)
+                                .await
+                        {
+                            log::error!("Failed to load tools from {}: {}", &server.server, e);
+                        }
+                    }
                 }
             }
         }
