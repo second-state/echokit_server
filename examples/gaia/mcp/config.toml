@@ -15,7 +15,10 @@ lang = "auto"
 llm_chat_url = "http://localhost:9091/v1/chat/completions"
 api_key = "Bearer gaia-1234"
 history = 5
-mcp_server = ["http://localhost:8000/sse"]
+
+[[llm.mcp_server]]
+server = "http://localhost:8000/mcp"
+type = "http_streamable"
 
 [[llm.sys_prompts]]
 role = "system"
