@@ -170,6 +170,9 @@ impl StableLlmResponse {
 
                 self.string_buffer.push_str(chunk);
                 ret = ret_;
+                if ret.chars().next().is_some_and(|c| c.is_numeric()) {
+                    continue;
+                }
                 if self.string_buffer.len() > Self::CHUNK_SIZE || self.string_buffer.ends_with("\n")
                 {
                     let mut new_str = ret.to_string();
@@ -685,7 +688,7 @@ async fn test_chat_session() {
         },
         llm::Content {
             role: llm::Role::User,
-            message: "体重60公斤,身高1米7".to_string(),
+            message: "身高1米6体重180".to_string(),
             tool_calls: None,
             tool_call_id: None,
         },
@@ -701,7 +704,7 @@ async fn test_chat_session() {
     let mut chat_session = ChatSession::new(
         "https://api.groq.com/openai/v1/chat/completions".to_string(),
         token.unwrap_or_default(),
-        "gemma2-9b-it".to_string(),
+        "qwen/qwen3-32b".to_string(),
         None,
         10,
         tools,
@@ -717,18 +720,26 @@ async fn test_chat_session() {
     loop {
         match resp.next_chunk().await {
             Ok(StableLLMResponseChunk::Text(chunk)) => {
-                println!("{}", chunk);
+                log::info!("{}", chunk);
             }
             Ok(StableLLMResponseChunk::Functions(functions)) => {
                 for function in functions {
-                    println!("Tool call: {:#?}", function);
+                    log::info!("Tool call: {:#?}", function);
+                    chat_session
+                        .execute_tool(&function)
+                        .await
+                        .expect("Failed to execute tool");
                 }
+                resp = chat_session
+                    .complete()
+                    .await
+                    .expect("Failed to complete chat session after tool call");
             }
             Ok(StableLLMResponseChunk::Stop) => {
                 break;
             }
             Err(e) => {
-                println!("error: {:#?}", e);
+                log::info!("error: {:#?}", e);
                 break;
             }
         }
