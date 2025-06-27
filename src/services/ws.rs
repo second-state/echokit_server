@@ -399,6 +399,7 @@ async fn get_asr_text(
 ) -> anyhow::Result<String> {
     loop {
         let wav_data = recv_audio_to_wav(audio).await?;
+        let st = std::time::Instant::now();
         std::fs::write(format!("asr.{id}.wav"), &wav_data).expect("Failed to write ASR audio file");
         let text = retry_asr(
             &asr.url,
@@ -411,6 +412,7 @@ async fn get_asr_text(
             std::time::Duration::from_secs(10),
         )
         .await;
+        log::info!("`{id}` ASR took: {:?}", st.elapsed());
         let text = text.join("\n");
         log::info!("ASR result: {:?}", text);
         if text.is_empty() || text.trim().starts_with("(") {
@@ -469,12 +471,14 @@ async fn submit_to_ai(
                     continue;
                 }
                 pool.send(id, WsCommand::StartAudio(chunk.clone())).await?;
+                let st = std::time::Instant::now();
                 match tts_and_send(pool, id, chunk).await {
                     Ok(_) => {}
                     Err(e) => {
                         log::error!("tts error:{e}");
                     }
                 }
+                log::info!("tts took: {:?}", st.elapsed());
                 pool.send(id, WsCommand::EndAudio).await?;
             }
             Ok(StableLLMResponseChunk::Functions(functions)) => {
