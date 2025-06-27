@@ -44,7 +44,7 @@ impl Tool for McpToolAdapter {
             Value::Object(map) => Some(map),
             _ => None,
         };
-        println!("arguments: {:?}", arguments);
+        log::debug!("arguments: {:?}", arguments);
         let call_result = self
             .server
             .call_tool(CallToolRequestParam {
