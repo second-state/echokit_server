@@ -160,11 +160,16 @@ async fn retry_tts(
     url: &str,
     speaker: &str,
     text: &str,
+    sample_rate: Option<usize>,
     retry: usize,
     timeout: std::time::Duration,
 ) -> anyhow::Result<Bytes> {
     for i in 0..retry {
-        let r = tokio::time::timeout(timeout, crate::ai::tts::gsv(url, speaker, text)).await;
+        let r = tokio::time::timeout(
+            timeout,
+            crate::ai::tts::gsv(url, speaker, text, sample_rate),
+        )
+        .await;
         match r {
             Ok(Ok(v)) => return Ok(v),
             Ok(Err(e)) => {
@@ -230,31 +235,12 @@ async fn send_stream_chunk(
     text: String,
     resp: reqwest::Response,
 ) -> anyhow::Result<()> {
-    let in_hz = 32000;
     log::info!("llm chunk:{:?}", text);
 
+    let in_hz = 16000;
     let mut stream = resp.bytes_stream();
     let mut rest = bytes::BytesMut::new();
     let read_chunk_size = 2 * 5 * in_hz as usize / 10; // 0.5 seconds of audio at 32kHz
-
-    fn resample_32k_to_16k(samples_32k_data: &[u8]) -> Vec<u8> {
-        let in_hz = 32000;
-        let out_hz = 16000;
-
-        let mut sample_32k = Vec::with_capacity(samples_32k_data.len() / 2);
-        for i in samples_32k_data.chunks_exact(2) {
-            let sample = i16::from_le_bytes([i[0], i[1]]);
-            sample_32k.push(sample);
-        }
-        let mut audio_16k = resample(&sample_32k, in_hz, out_hz).unwrap();
-        let audio_16k = audio_16k.as_i16_slice();
-        let mut audio_16k_data = Vec::with_capacity(audio_16k.len() * 2);
-        for i in audio_16k {
-            audio_16k_data.extend_from_slice(&i.to_le_bytes());
-        }
-
-        audio_16k_data
-    }
 
     'next_chunk: while let Some(item) = stream.next().await {
         // 小端字节序
@@ -268,7 +254,7 @@ async fn send_stream_chunk(
                 let n = read_chunk_size - rest.len();
                 rest.put(chunk.slice(..n));
                 debug_assert_eq!(rest.len(), read_chunk_size);
-                let audio_16k = resample_32k_to_16k(&rest);
+                let audio_16k = rest.to_vec();
                 log::trace!("Sending audio chunk of size: {}", audio_16k.len());
                 pool.send(id, WsCommand::Audio(audio_16k))
                     .await
@@ -281,13 +267,13 @@ async fn send_stream_chunk(
             }
         }
 
-        for samples_32k_data in chunk.chunks(read_chunk_size) {
-            if samples_32k_data.len() < read_chunk_size {
+        for samples_16k_data in chunk.chunks(read_chunk_size) {
+            if samples_16k_data.len() < read_chunk_size {
                 log::trace!("Received audio chunk with odd length, skipping");
-                rest.extend_from_slice(&samples_32k_data);
+                rest.extend_from_slice(&samples_16k_data);
                 continue 'next_chunk;
             }
-            let audio_16k = resample_32k_to_16k(samples_32k_data);
+            let audio_16k = samples_16k_data.to_vec();
             log::trace!("Sending audio chunk of size: {}", audio_16k.len());
             pool.send(id, WsCommand::Audio(audio_16k))
                 .await
@@ -296,7 +282,7 @@ async fn send_stream_chunk(
     }
 
     if rest.len() > 0 {
-        let audio_16k = resample_32k_to_16k(&rest);
+        let audio_16k = rest.to_vec();
         log::trace!("Sending audio chunk of size: {}", audio_16k.len());
         pool.send(id, WsCommand::Audio(audio_16k))
             .await
@@ -322,6 +308,7 @@ async fn tts_and_send(pool: &WsPool, id: &str, text: String) -> anyhow::Result<(
                 &tts.url,
                 &tts.speaker,
                 &text,
+                Some(16000),
                 3,
                 std::time::Duration::from_secs(timeout_sec),
             )
@@ -344,8 +331,13 @@ async fn tts_and_send(pool: &WsPool, id: &str, text: String) -> anyhow::Result<(
             Ok(())
         }
         crate::config::TTSConfig::StreamGSV(stream_tts) => {
-            let resp =
-                crate::ai::tts::stream_gsv(&stream_tts.url, &stream_tts.speaker, &text).await?;
+            let resp = crate::ai::tts::stream_gsv(
+                &stream_tts.url,
+                &stream_tts.speaker,
+                &text,
+                Some(16000),
+            )
+            .await?;
 
             send_stream_chunk(pool, id, text, resp).await?;
             log::info!("Stream GSV TTS sent");

@@ -1,12 +1,17 @@
 use bytes::Bytes;
 
 /// return: wav_audio: 16bit,32k,single-channel.
-pub async fn gsv(tts_url: &str, speaker: &str, text: &str) -> anyhow::Result<Bytes> {
+pub async fn gsv(
+    tts_url: &str,
+    speaker: &str,
+    text: &str,
+    sample_rate: Option<usize>,
+) -> anyhow::Result<Bytes> {
     log::debug!("speaker: {speaker}, text: {text}");
     let client = reqwest::Client::new();
     let res = client
         .post(tts_url)
-        .json(&serde_json::json!({"speaker": speaker, "input": text}))
+        .json(&serde_json::json!({"speaker": speaker, "input": text, "sample_rate": sample_rate}))
         // .body(serde_json::json!({"speaker": speaker, "input": text}).to_string())
         .send()
         .await?;
@@ -23,14 +28,17 @@ pub async fn gsv(tts_url: &str, speaker: &str, text: &str) -> anyhow::Result<Byt
     Ok(bytes)
 }
 
-// cargo test --package esp_assistant --bin esp_assistant -- ai::tts:test_gsv --exact --show-output
+// cargo test --package esp_assistant --bin esp_assistant -- ai::tts::test_gsv --exact --show-output
 #[tokio::test]
 async fn test_gsv() {
-    let tts_url = "https://0x66b496fba1fdff4237cca9ac597d7171126369c8.gaia.domains/v1/audio/speech";
-    let speaker = "speaker2";
+    let tts_url = "http://localhost:8000/v1/audio/speech";
+    let speaker = "ad";
     let text = "你好，我是胡桃";
-    let wav_audio = gsv(tts_url, speaker, text).await.unwrap();
-    hound::WavReader::new(wav_audio.as_ref()).unwrap();
+    let wav_audio = gsv(tts_url, speaker, text, Some(16000)).await.unwrap();
+    let header = hound::WavReader::new(wav_audio.as_ref()).unwrap();
+    let spec = header.spec();
+    println!("wav header: {:?}", spec);
+    assert_eq!(spec.sample_rate, 16000);
     std::fs::write("./resources/test/out.wav", wav_audio).unwrap();
 }
 
@@ -39,12 +47,13 @@ pub async fn stream_gsv(
     tts_url: &str,
     speaker: &str,
     text: &str,
+    sample_rate: Option<usize>,
 ) -> anyhow::Result<reqwest::Response> {
     log::debug!("speaker: {speaker}, text: {text}");
     let client = reqwest::Client::new();
     let res = client
         .post(tts_url)
-        .json(&serde_json::json!({"speaker": speaker, "input": text}))
+        .json(&serde_json::json!({"speaker": speaker, "input": text, "sample_rate": sample_rate}))
         // .body(serde_json::json!({"speaker": speaker, "input": text}).to_string())
         .send()
         .await?;
