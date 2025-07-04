@@ -63,7 +63,7 @@ $ espflash erase-flash
 ### Build
 
 ```
-$ git clone https://github.com/second-state/esp_assistant
+$ git clone https://github.com/second-state/echokit_server
 ```
 
 Edit `config.toml` to customize the ASR, LLM, TTS services, as well as prompts and MCP servers. You can [see many examples](examples/).
@@ -76,7 +76,7 @@ $ cargo build --release
 
 ```
 $ export RUST_LOG=debug
-$ nohup target/release/esp_assistant &
+$ nohup target/release/echokit_server &
 ```
 
 ## Configure the device
