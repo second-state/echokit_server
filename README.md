@@ -13,15 +13,17 @@ cargo install cargo-espflash espflash ldproxy
 Get a pre-compiled binary version of the firmware.
 
 ```
-curl -LO https://echokit.dev/firmware/esp32-s3-box-hello
+curl -LO https://echokit.dev/firmware/echokit-box
 ```
+
+> If you have the dev boards, get `https://echokit.dev/firmware/echokit-boards`
 
 ## Upload firmware
 
 You MUST connect the computer to the SLAVE USB port on the device. Allow the computer to accept connection from the device. The detected USB serial port must be `JTAG`. IT CANNOT be `USB Single`.
 
 ```
-$ espflash flash --monitor --flash-size 16mb esp32-s3-box-hello
+$ espflash flash --monitor --flash-size 16mb echokit-box
 ```
 
 The response is as follows.
