@@ -23,7 +23,7 @@ curl -LO https://echokit.dev/firmware/echokit-box
 You MUST connect the computer to the SLAVE USB port on the device. Allow the computer to accept connection from the device. The detected USB serial port must be `JTAG`. IT CANNOT be `USB Single`.
 
 ```
-$ espflash flash --monitor --flash-size 16mb echokit-box
+espflash flash --monitor --flash-size 16mb echokit-box
 ```
 
 The response is as follows.
@@ -51,13 +51,13 @@ I (716) cpu_start: Multicore app
 Reset the device (simulate the RST button or power up).
 
 ```
-$ espflash reset
+espflash reset
 ```
 
 Delete the existing firmware if needed.
 
 ```
-$ espflash erase-flash
+espflash erase-flash
 ```
 
 ## Set up the EchoKit server
@@ -65,20 +65,20 @@ $ espflash erase-flash
 ### Build
 
 ```
-$ git clone https://github.com/second-state/echokit_server
+git clone https://github.com/second-state/echokit_server
 ```
 
 Edit `config.toml` to customize the ASR, LLM, TTS services, as well as prompts and MCP servers. You can [see many examples](examples/).
 
 ```
-$ cargo build --release
+cargo build --release
 ```
 
 ### Start
 
 ```
-$ export RUST_LOG=debug
-$ nohup target/release/echokit_server &
+export RUST_LOG=debug
+nohup target/release/echokit_server &
 ```
 
 ## Configure the device
