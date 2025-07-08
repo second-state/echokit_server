@@ -18,13 +18,10 @@ cargo build --release
 
 The `config.toml` can use any combination of open-source or proprietary AI services, as long as they offer OpenAI-compatible API endpoints. Here are instructions to start open source AI servers for the EchoKit server.
 
-VAD: https://github.com/second-state/silero_vad_server
-
-ASR: https://llamaedge.com/docs/user-guide/speech-to-text/quick-start-whisper/
-
-LLM: https://llamaedge.com/docs/user-guide/llm/get-started-with-llamaedge
-
-Streaming TTS: https://github.com/second-state/gsv_tts
+* VAD: https://github.com/second-state/silero_vad_server
+* ASR: https://llamaedge.com/docs/user-guide/speech-to-text/quick-start-whisper/
+* LLM: https://llamaedge.com/docs/user-guide/llm/get-started-with-llamaedge
+* Streaming TTS: https://github.com/second-state/gsv_tts
 
 Alternatively, you could use Google Gemini Live services for VAD + ASR + LLM, and even optionally, TTS. See [config.toml exampoles](examples/gemini).
 
