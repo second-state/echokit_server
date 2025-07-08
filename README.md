@@ -1,80 +1,43 @@
-# Setup the EchoKit device and server
+# Setup the EchoKit server
 
-## Build espflash
+You will need an EchoKit device, or create your own ESP32 device with the [EchoKit firmware](https://github.com/second-state/echokit_box).
 
-Assume that you [installed the Rust compiler](https://www.rust-lang.org/tools/install) on your computer.
-
-```
-cargo install cargo-espflash espflash ldproxy
-```
-
-## Get firmware
-
-Get a pre-compiled binary version of the firmware.
-
-```
-curl -LO https://echokit.dev/firmware/echokit-box
-```
-
-> If you have the dev boards, get `https://echokit.dev/firmware/echokit-boards`
-
-## Upload firmware
-
-You MUST connect the computer to the SLAVE USB port on the device. Allow the computer to accept connection from the device. The detected USB serial port must be `JTAG`. IT CANNOT be `USB Single`.
-
-```
-espflash flash --monitor --flash-size 16mb echokit-box
-```
-
-The response is as follows.
-
-```
-[2025-04-28T16:51:43Z INFO ] Detected 2 serial ports
-[2025-04-28T16:51:43Z INFO ] Ports which match a known common dev board are highlighted
-[2025-04-28T16:51:43Z INFO ] Please select a port
-✔ Remember this serial port for future use? · no
-[2025-04-28T16:52:00Z INFO ] Serial port: '/dev/cu.usbmodem2101'
-[2025-04-28T16:52:00Z INFO ] Connecting...
-[2025-04-28T16:52:00Z INFO ] Using flash stub
-Chip type:         esp32s3 (revision v0.2)
-Crystal frequency: 40 MHz
-Flash size:        8MB
-Features:          WiFi, BLE
-... ...
-I (705) boot: Loaded app from partition at offset 0x10000
-I (705) boot: Disabling RNG early entropy source...
-I (716) cpu_start: Multicore app
-```
-
-## Reset the device
-
-Reset the device (simulate the RST button or power up).
-
-```
-espflash reset
-```
-
-Delete the existing firmware if needed.
-
-```
-espflash erase-flash
-```
-
-## Set up the EchoKit server
-
-### Build
+## Build
 
 ```
 git clone https://github.com/second-state/echokit_server
 ```
 
-Edit `config.toml` to customize the ASR, LLM, TTS services, as well as prompts and MCP servers. You can [see many examples](examples/).
+Edit `config.toml` to customize the VAD, ASR, LLM, TTS services, as well as prompts and MCP servers. You can [see many examples](examples/).
 
 ```
 cargo build --release
 ```
 
-### Start
+## Configure AI services
+
+The `config.toml` can use any combination of open-source or proprietary AI services, as long as they offer OpenAI-compatible API endpoints. Here are instructions to start open source AI servers for the EchoKit server.
+
+VAD: https://github.com/second-state/silero_vad_server
+
+ASR: https://llamaedge.com/docs/user-guide/speech-to-text/quick-start-whisper/
+
+LLM: https://llamaedge.com/docs/user-guide/llm/get-started-with-llamaedge
+
+Streaming TTS: https://github.com/second-state/gsv_tts
+
+Alternatively, you could use Google Gemini Live services for VAD + ASR + LLM, and even optionally, TTS. See [config.toml exampoles](examples/gemini).
+
+You can also [configure MCP servers](examples/gaia/mcp/config.toml) to give the EchoKit server tool use capabilities. 
+
+## Configure the device "skin"
+
+The following two files in the server's current directory will be sent to the EchoKit device when it connects to the server.
+
+* `background.gif` is the background image displayed on the device's screen.
+* `hello.wav` is the greeting the device will say to prompt the user to speak.
+
+## Run the EchoKit server
 
 ```
 export RUST_LOG=debug
@@ -91,7 +54,7 @@ Configure WiFi and server
 
 * WiFi SSID (e.g., `MyHome`)
 * WiFi password (e.g., `MyPassword`)
-* Server URL (e.g., `ws://34.44.85.57:9090/ws/`) -- that IP address and port are for the server running `esp_assistant`
+* Server URL (e.g., `ws://34.44.85.57:9090/ws/`) -- that IP address and port are for the server running `echokit_server`
 
 ![Configure Wifi](https://hackmd.io/_uploads/HJkh5ZjVee.png)
 
