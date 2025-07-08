@@ -391,8 +391,29 @@ async fn get_asr_text(
 ) -> anyhow::Result<String> {
     loop {
         let wav_data = recv_audio_to_wav(audio).await?;
-        let st = std::time::Instant::now();
         std::fs::write(format!("asr.{id}.wav"), &wav_data).expect("Failed to write ASR audio file");
+
+        if let Some(vad_url) = &asr.vad_url {
+            match crate::ai::vad_detect(vad_url, wav_data.clone()).await {
+                Ok(r) => {
+                    if let Some(err) = r.error {
+                        log::error!("`{id}` vad error: {err}, skipping ASR");
+                        continue;
+                    }
+
+                    if r.timestamps.is_empty() {
+                        log::warn!("`{id}` vad returned empty timestamps, skipping ASR");
+                        continue;
+                    }
+                }
+
+                Err(e) => {
+                    log::error!("`{id}` vad error: {e}, skipping ASR");
+                    continue;
+                }
+            }
+        }
+        let st = std::time::Instant::now();
         let text = retry_asr(
             &asr.url,
             &asr.api_key,

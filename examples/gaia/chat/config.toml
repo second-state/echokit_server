@@ -10,6 +10,8 @@ speaker = "cooper"
 [asr]
 url = "http://localhost:9092/v1/audio/transcriptions"
 lang = "auto"
+# vad_url = "http://localhost:8000/v1/audio/vad"
+
 
 [llm]
 llm_chat_url = "http://localhost:9091/v1/chat/completions"
