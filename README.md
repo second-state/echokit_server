@@ -23,7 +23,7 @@ The `config.toml` can use any combination of open-source or proprietary AI servi
 * LLM: https://llamaedge.com/docs/user-guide/llm/get-started-with-llamaedge
 * Streaming TTS: https://github.com/second-state/gsv_tts
 
-Alternatively, you could use Google Gemini Live services for VAD + ASR + LLM, and even optionally, TTS. See [config.toml exampoles](examples/gemini).
+Alternatively, you could use Google Gemini Live services for VAD + ASR + LLM, and even optionally, TTS. See [config.toml examples](examples/gemini).
 
 You can also [configure MCP servers](examples/gaia/mcp/config.toml) to give the EchoKit server tool use capabilities. 
 
