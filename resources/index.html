@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audio Recording Chat</title>
+    <title>Voice Chat</title>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
@@ -40,12 +40,12 @@
 <body>
     <div class="card shadow-xl">
         <div class="card-body">
-            <h1 class="card-title text-2xl justify-center mb-6">Audio Recording Chat</h1>
+            <h1 class="card-title text-2xl justify-center mb-6">Voice Chat</h1>
 
             <!-- WebSocket Connection Section -->
             <div class="flex gap-2 mb-6">
-                <input type="text" id="wsUrl" placeholder="WebSocket URL (ws://localhost:8080)"
-                    value="ws://localhost:8080" class="input input-bordered flex-1" />
+                <input type="text" id="wsUrl" placeholder="WebSocket URL (e.g., ws://localhost:8080/ws/)"
+                    value="ws://34.44.85.57:9090/ws/" class="input input-bordered flex-1" />
                 <button id="connectBtn" class="btn btn-primary">Connect</button>
             </div>
 
@@ -72,11 +72,11 @@
                 <div class="space-y-4" id="chatMessages">
                     <!-- Sample messages -->
                     <div class="chat chat-start">
-                        <div class="chat-bubble">Welcome to the Audio Recording Chat!</div>
+                        <div class="chat-bubble">Welcome to the Voice Chat!</div>
                     </div>
 
                     <div class="chat chat-end">
-                        <div class="chat-bubble">Hello! I'd like to test the recording feature.</div>
+                        <div class="chat-bubble">Hello! Who are you?</div>
                     </div>
                 </div>
             </div>
@@ -94,7 +94,7 @@
                             d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z">
                         </path>
                     </svg>
-                    <span id="recordText">Start Recording</span>
+                    <span id="recordText">Start talking</span>
                     <kbd class="kbd kbd-sm ml-2 bg-white text-black">Space</kbd>
                 </button>
             </div>
@@ -175,11 +175,13 @@
             }
 
             connectWebSocket() {
-                const url = this.wsUrlInput.value.trim();
+                let url = this.wsUrlInput.value.trim();
                 if (!url) {
                     this.addServerMessage('Please enter WebSocket URL');
                     return;
                 }
+                url = url.endsWith('/') ? url : url + '/';
+                url = url + crypto.randomUUID();
 
                 try {
                     this.websocket = new WebSocket(url);
@@ -700,7 +702,7 @@
                 if (this.isRecording) {
                     this.recordBtn.classList.add('btn-error', 'recording-pulse');
                     this.recordBtn.classList.remove('btn-primary');
-                    this.recordText.textContent = 'Stop Recording';
+                    this.recordText.textContent = 'Done talking';
                     this.recordingStatus.classList.remove('hidden');
 
                     // Update microphone icon to stop icon
@@ -710,7 +712,7 @@
                 } else {
                     this.recordBtn.classList.remove('btn-error', 'recording-pulse');
                     this.recordBtn.classList.add('btn-primary');
-                    this.recordText.textContent = 'Start Recording';
+                    this.recordText.textContent = 'Start talking';
                     this.recordingStatus.classList.add('hidden');
 
                     // Restore microphone icon
