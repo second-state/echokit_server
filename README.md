@@ -41,6 +41,14 @@ export RUST_LOG=debug
 nohup target/release/echokit_server &
 ```
 
+## Test on a web page
+
+Save this web page to your local hard disk.
+
+http://echokit.dev/chat/index.html
+
+Open the local `index.html` file with your browser. Set the URL to your own EchoKit server address, and start chatting!
+
 ## Configure the device
 
 Go to web page: https://echokit.dev/setup/  and use Bluetooth to connect to the `GAIA ESP332` device.
