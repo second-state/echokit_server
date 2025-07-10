@@ -44,8 +44,8 @@
 
             <!-- WebSocket 连接区域 -->
             <div class="flex gap-2 mb-6">
-                <input type="text" id="wsUrl" placeholder="WebSocket 地址 (ws://localhost:8080)"
-                    value="ws://localhost:8080" class="input input-bordered flex-1" />
+                <input type="text" id="wsUrl" placeholder="WebSocket 地址 (例如, ws://localhost:8080/ws/)"
+                    value="ws://34.44.85.57:9090/ws/" class="input input-bordered flex-1" />
                 <button id="connectBtn" class="btn btn-primary">连接</button>
             </div>
 
@@ -172,11 +172,13 @@
             }
 
             connectWebSocket() {
-                const url = this.wsUrlInput.value.trim();
+                let url = this.wsUrlInput.value.trim();
                 if (!url) {
                     this.addServerMessage('请输入 WebSocket 地址');
                     return;
                 }
+                url = url.endsWith('/') ? url : url + '/';
+                url = url + crypto.randomUUID();
 
                 try {
                     this.websocket = new WebSocket(url);
