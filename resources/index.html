@@ -325,7 +325,7 @@
                             // Start receiving audio data
                             this.isReceivingAudio = true;
                             this.audioChunks = [];
-                            this.addServerMessage(`🔊 Audio reply started: ${eventData[0] || 'No text'}`, debugInfo);
+                            this.addServerMessage(`🔊 : ${eventData[0] || 'No text'}`, debugInfo);
                             break;
                         case 'AudioChunk':
                             // Cache audio data, do not add message display
@@ -732,9 +732,6 @@
                         <div class="chat-bubble">
                             <div class="flex items-center gap-2">
                                 <button class="btn btn-xs btn-ghost" onclick="this.nextElementSibling.play()">
-                                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 715 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clip-rule="evenodd"></path>
-                                    </svg>
                                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path>
                                     </svg>

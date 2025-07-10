@@ -322,7 +322,7 @@
                             // 开始接收音频数据
                             this.isReceivingAudio = true;
                             this.audioChunks = [];
-                            this.addServerMessage(`🔊 开始音频回复: ${eventData[0] || '无文本'}`, debugInfo);
+                            this.addServerMessage(`🔊 : ${eventData[0] || '无文本'}`, debugInfo);
                             break;
                         case 'AudioChunk':
                             // 缓存音频数据，不添加消息显示
