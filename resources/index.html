@@ -10,6 +10,9 @@
     <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
     <!-- Add MessagePack dependency -->
     <script crossorigin src="https://unpkg.com/@msgpack/msgpack"></script>
+    <!-- Add VAD-Web dependency -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
     <style>
         .recording-pulse {
             animation: pulse 1s ease-in-out infinite alternate;
@@ -75,9 +78,6 @@
                         <div class="chat-bubble">Welcome to the Voice Chat!</div>
                     </div>
 
-                    <div class="chat chat-end">
-                        <div class="chat-bubble">Hello! Who are you?</div>
-                    </div>
                 </div>
             </div>
 
@@ -94,7 +94,7 @@
                             d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z">
                         </path>
                     </svg>
-                    <span id="recordText">Start talking</span>
+                    <span id="recordText">Start Recording</span>
                     <kbd class="kbd kbd-sm ml-2 bg-white text-black">Space</kbd>
                 </button>
             </div>
@@ -121,7 +121,7 @@
                 this.isConnected = false;
                 this.debugMode = false;
 
-                // Audio caching related
+                // Audio cache related
                 this.isReceivingAudio = false;
                 this.audioChunks = [];
 
@@ -130,8 +130,13 @@
                 this.currentAudio = null;
                 this.isPlaying = false;
 
+                // VAD related
+                this.myvad = null;
+                this.isVadActive = false;
+
                 this.initializeElements();
                 this.bindEvents();
+                this.initializeVAD();
             }
 
             initializeElements() {
@@ -164,6 +169,49 @@
                         this.toggleRecording();
                     }
                 });
+            }
+
+            async initializeVAD() {
+                try {
+                    this.addServerMessage('Initializing VAD...');
+
+                    this.myvad = await vad.MicVAD.new({
+                        onSpeechStart: () => {
+                            this.addUserMessage('🎤 Speech detected');
+                            this.recordingStatus.classList.remove('hidden');
+                            this.recordBtn.classList.add('recording-pulse');
+                        },
+                        onSpeechEnd: (audio) => {
+                            if (this.debugMode) {
+                                this.addServerMessage(`🔇 Speech ended - samples: ${audio.length}`);
+                            }
+                            this.recordingStatus.classList.add('hidden');
+                            this.recordBtn.classList.remove('recording-pulse');
+
+                            // Create audio player and send to server
+                            this.createAudioPlayer(audio, true);
+                            this.sendAudioToServer(audio);
+                        },
+                        onVADMisfire: () => {
+                            if (this.debugMode) {
+                                this.addServerMessage('⚠️ VAD false trigger');
+                            }
+                        },
+                    });
+
+                    this.addServerMessage('✅ VAD initialization complete');
+                    this.recordText.textContent = 'Start Listening';
+
+                } catch (error) {
+                    this.addServerMessage(`❌ VAD initialization failed: ${error.message}`);
+                    console.error('VAD initialization failed:', error);
+                }
+            }
+
+            createAudioPlayer(audioData, isUser = false) {
+                const wavBlob = this.createWavFile(audioData, 16000);
+                const audioUrl = URL.createObjectURL(wavBlob);
+                this.addAudioMessage(audioUrl, isUser);
             }
 
             toggleConnection() {
@@ -403,81 +451,40 @@
                 }
             }
 
-            sendAudioToServer(pcmData) {
+            async toggleRecording() {
+                if (!this.myvad) return;
+
+                if (this.isVadActive) {
+                    this.myvad.pause();
+                    this.isVadActive = false;
+                    this.addServerMessage('⏹️ VAD stopped');
+                } else {
+                    try {
+                        await this.myvad.start();
+                        this.isVadActive = true;
+                        this.addServerMessage('🎧 VAD started listening');
+                    } catch (error) {
+                        this.addServerMessage(`❌ VAD start failed: ${error.message}`);
+                        console.error('VAD start failed:', error);
+                    }
+                }
+
+                this.updateRecordingUI();
+            }
+
+            sendAudioToServer(audioData) {
                 if (this.websocket && this.isConnected) {
                     // Convert Float32Array to Int16Array (16-bit PCM)
-                    const int16Array = new Int16Array(pcmData.length);
-                    for (let i = 0; i < pcmData.length; i++) {
-                        // Convert -1.0 to 1.0 float to -32768 to 32767 integer
-                        int16Array[i] = Math.max(-32768, Math.min(32767, pcmData[i] * 32767));
+                    const int16Array = new Int16Array(audioData.length);
+                    for (let i = 0; i < audioData.length; i++) {
+                        int16Array[i] = Math.max(-32768, Math.min(32767, audioData[i] * 32767));
                     }
 
-                    // 1. Send raw PCM data
                     this.websocket.send(int16Array.buffer);
-                    console.log('Sent raw PCM data to server, length:', int16Array.length);
+                    console.log('Sent VAD audio data to server, length:', int16Array.length);
 
-                    // 2. Send end marker
                     this.websocket.send("End:Normal");
                     console.log('Sent end marker: End:Normal');
-                }
-            }
-
-            async toggleRecording() {
-                if (!this.isRecording) {
-                    await this.startRecording();
-                } else {
-                    this.stopRecording();
-                }
-            }
-
-            async startRecording() {
-                try {
-                    // Get audio stream
-                    this.stream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            sampleRate: 16000,
-                            channelCount: 1,
-                            echoCancellation: true,
-                            noiseSuppression: true
-                        }
-                    });
-
-                    // Create AudioContext, set sample rate to 16000
-                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                        sampleRate: 16000
-                    });
-
-                    // Create audio source
-                    this.mediaStreamSource = this.audioContext.createMediaStreamSource(this.stream);
-
-                    // Create processor node
-                    this.scriptProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
-
-                    this.pcmData = [];
-
-                    // Process audio data
-                    this.scriptProcessor.onaudioprocess = (event) => {
-                        if (!this.isRecording) return;
-
-                        const inputBuffer = event.inputBuffer.getChannelData(0);
-
-                        // Resample to 16000Hz if needed (most browsers handle this already)
-                        const downsampledData = this.resampleTo16000(inputBuffer, this.audioContext.sampleRate);
-
-                        // Collect PCM data
-                        this.pcmData.push(...downsampledData);
-                    };
-
-                    // Connect audio nodes
-                    this.mediaStreamSource.connect(this.scriptProcessor);
-                    this.scriptProcessor.connect(this.audioContext.destination);
-
-                    this.isRecording = true;
-                    this.updateRecordingUI();
-
-                } catch (error) {
-                    console.error('Recording failed:', error);
-                    this.addServerMessage('Recording failed, please check microphone permissions');
                 }
             }
 
@@ -506,49 +513,7 @@
             }
 
             stopRecording() {
-                if (this.scriptProcessor) {
-                    this.scriptProcessor.disconnect();
-                    this.scriptProcessor = null;
-                }
-
-                if (this.mediaStreamSource) {
-                    this.mediaStreamSource.disconnect();
-                    this.mediaStreamSource = null;
-                }
-
-                if (this.audioContext) {
-                    this.audioContext.close();
-                    this.audioContext = null;
-                }
-
-                if (this.stream) {
-                    this.stream.getTracks().forEach(track => track.stop());
-                    this.stream = null;
-                }
-
-                this.isRecording = false;
-                this.updateRecordingUI();
-
-                // Process completed PCM data
-                if (this.pcmData.length > 0) {
-                    console.log('Recording completed, PCM data length:', this.pcmData.length);
-                    console.log('Recording duration:', this.pcmData.length / 16000, 'seconds');
-
-                    // Create WAV file for playback
-                    const wavBlob = this.createWavFile(this.pcmData, 16000);
-                    const audioUrl = URL.createObjectURL(wavBlob);
-                    this.addAudioMessage(audioUrl, true); // true means user message (right side)
-
-                    // Send PCM data to server
-                    this.sendAudioToServer(this.pcmData);
-
-                    // If not connected to WebSocket, simulate server response
-                    if (!this.isConnected) {
-                        setTimeout(() => {
-                            this.addServerMessage('I received your voice message!');
-                        }, 1000);
-                    }
-                }
+                // Replaced by VAD, keep empty function to prevent references
             }
 
             processCompletedAudio() {
@@ -699,21 +664,19 @@
             }
 
             updateRecordingUI() {
-                if (this.isRecording) {
-                    this.recordBtn.classList.add('btn-error', 'recording-pulse');
+                if (this.isVadActive) {
+                    this.recordBtn.classList.add('btn-error');
                     this.recordBtn.classList.remove('btn-primary');
-                    this.recordText.textContent = 'Done talking';
-                    this.recordingStatus.classList.remove('hidden');
+                    this.recordText.textContent = 'Stop Listening';
 
                     // Update microphone icon to stop icon
                     this.micIcon.innerHTML = `
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6h12v12H6z"></path>
                     `;
                 } else {
-                    this.recordBtn.classList.remove('btn-error', 'recording-pulse');
+                    this.recordBtn.classList.remove('btn-error');
                     this.recordBtn.classList.add('btn-primary');
-                    this.recordText.textContent = 'Start talking';
-                    this.recordingStatus.classList.add('hidden');
+                    this.recordText.textContent = 'Start Listening';
 
                     // Restore microphone icon
                     this.micIcon.innerHTML = `

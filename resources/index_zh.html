@@ -10,6 +10,9 @@
     <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
     <!-- 添加 MessagePack 依赖 -->
     <script crossorigin src="https://unpkg.com/@msgpack/msgpack"></script>
+    <!-- 添加 VAD-Web 依赖 -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
     <style>
         .recording-pulse {
             animation: pulse 1s ease-in-out infinite alternate;
@@ -127,8 +130,13 @@
                 this.currentAudio = null;
                 this.isPlaying = false;
 
+                // VAD 相关
+                this.myvad = null;
+                this.isVadActive = false;
+
                 this.initializeElements();
                 this.bindEvents();
+                this.initializeVAD();
             }
 
             initializeElements() {
@@ -161,6 +169,49 @@
                         this.toggleRecording();
                     }
                 });
+            }
+
+            async initializeVAD() {
+                try {
+                    this.addServerMessage('正在初始化 VAD...');
+
+                    this.myvad = await vad.MicVAD.new({
+                        onSpeechStart: () => {
+                            this.addUserMessage('🎤 检测到语音开始');
+                            this.recordingStatus.classList.remove('hidden');
+                            this.recordBtn.classList.add('recording-pulse');
+                        },
+                        onSpeechEnd: (audio) => {
+                            if (this.debugMode) {
+                                this.addServerMessage(`🔇 语音结束 - 采样点: ${audio.length}`);
+                            }
+                            this.recordingStatus.classList.add('hidden');
+                            this.recordBtn.classList.remove('recording-pulse');
+
+                            // 创建音频播放器并发送到服务器
+                            this.createAudioPlayer(audio, true);
+                            this.sendAudioToServer(audio);
+                        },
+                        onVADMisfire: () => {
+                            if (this.debugMode) {
+                                this.addServerMessage('⚠️ VAD 误触发');
+                            }
+                        },
+                    });
+
+                    this.addServerMessage('✅ VAD 初始化完成');
+                    this.recordText.textContent = '开始监听';
+
+                } catch (error) {
+                    this.addServerMessage(`❌ VAD 初始化失败: ${error.message}`);
+                    console.error('VAD 初始化失败:', error);
+                }
+            }
+
+            createAudioPlayer(audioData, isUser = false) {
+                const wavBlob = this.createWavFile(audioData, 16000);
+                const audioUrl = URL.createObjectURL(wavBlob);
+                this.addAudioMessage(audioUrl, isUser);
             }
 
             toggleConnection() {
@@ -400,81 +451,40 @@
                 }
             }
 
-            sendAudioToServer(pcmData) {
+            async toggleRecording() {
+                if (!this.myvad) return;
+
+                if (this.isVadActive) {
+                    this.myvad.pause();
+                    this.isVadActive = false;
+                    this.addServerMessage('⏹️ VAD 已停止');
+                } else {
+                    try {
+                        await this.myvad.start();
+                        this.isVadActive = true;
+                        this.addServerMessage('🎧 VAD 开始监听');
+                    } catch (error) {
+                        this.addServerMessage(`❌ VAD 启动失败: ${error.message}`);
+                        console.error('VAD 启动失败:', error);
+                    }
+                }
+
+                this.updateRecordingUI();
+            }
+
+            sendAudioToServer(audioData) {
                 if (this.websocket && this.isConnected) {
                     // 将 Float32Array 转换为 Int16Array (16-bit PCM)
-                    const int16Array = new Int16Array(pcmData.length);
-                    for (let i = 0; i < pcmData.length; i++) {
-                        // 将 -1.0 到 1.0 的浮点数转换为 -32768 到 32767 的整数
-                        int16Array[i] = Math.max(-32768, Math.min(32767, pcmData[i] * 32767));
+                    const int16Array = new Int16Array(audioData.length);
+                    for (let i = 0; i < audioData.length; i++) {
+                        int16Array[i] = Math.max(-32768, Math.min(32767, audioData[i] * 32767));
                     }
 
-                    // 1. 发送原始 PCM 数据
                     this.websocket.send(int16Array.buffer);
-                    console.log('发送原始 PCM 数据到服务器，长度:', int16Array.length);
+                    console.log('发送 VAD 音频数据到服务器，长度:', int16Array.length);
 
-                    // 2. 发送结束标识
                     this.websocket.send("End:Normal");
                     console.log('发送结束标识: End:Normal');
-                }
-            }
-
-            async toggleRecording() {
-                if (!this.isRecording) {
-                    await this.startRecording();
-                } else {
-                    this.stopRecording();
-                }
-            }
-
-            async startRecording() {
-                try {
-                    // 获取音频流
-                    this.stream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            sampleRate: 16000,
-                            channelCount: 1,
-                            echoCancellation: true,
-                            noiseSuppression: true
-                        }
-                    });
-
-                    // 创建 AudioContext，采样率设置为 16000
-                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                        sampleRate: 16000
-                    });
-
-                    // 创建音频源
-                    this.mediaStreamSource = this.audioContext.createMediaStreamSource(this.stream);
-
-                    // 创建处理器节点
-                    this.scriptProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
-
-                    this.pcmData = [];
-
-                    // 处理音频数据
-                    this.scriptProcessor.onaudioprocess = (event) => {
-                        if (!this.isRecording) return;
-
-                        const inputBuffer = event.inputBuffer.getChannelData(0);
-
-                        // 如果需要重新采样到 16000Hz（大多数浏览器已经会处理）
-                        const downsampledData = this.resampleTo16000(inputBuffer, this.audioContext.sampleRate);
-
-                        // 收集 PCM 数据
-                        this.pcmData.push(...downsampledData);
-                    };
-
-                    // 连接音频节点
-                    this.mediaStreamSource.connect(this.scriptProcessor);
-                    this.scriptProcessor.connect(this.audioContext.destination);
-
-                    this.isRecording = true;
-                    this.updateRecordingUI();
-
-                } catch (error) {
-                    console.error('录制失败:', error);
-                    this.addServerMessage('录制失败，请检查麦克风权限');
                 }
             }
 
@@ -503,49 +513,7 @@
             }
 
             stopRecording() {
-                if (this.scriptProcessor) {
-                    this.scriptProcessor.disconnect();
-                    this.scriptProcessor = null;
-                }
-
-                if (this.mediaStreamSource) {
-                    this.mediaStreamSource.disconnect();
-                    this.mediaStreamSource = null;
-                }
-
-                if (this.audioContext) {
-                    this.audioContext.close();
-                    this.audioContext = null;
-                }
-
-                if (this.stream) {
-                    this.stream.getTracks().forEach(track => track.stop());
-                    this.stream = null;
-                }
-
-                this.isRecording = false;
-                this.updateRecordingUI();
-
-                // 处理录制完成的 PCM 数据
-                if (this.pcmData.length > 0) {
-                    console.log('录制完成，PCM 数据长度:', this.pcmData.length);
-                    console.log('录制时长:', this.pcmData.length / 16000, '秒');
-
-                    // 创建用于播放的 WAV 文件
-                    const wavBlob = this.createWavFile(this.pcmData, 16000);
-                    const audioUrl = URL.createObjectURL(wavBlob);
-                    this.addAudioMessage(audioUrl, true); // true 表示用户消息（右边）
-
-                    // 发送 PCM 数据到服务器
-                    this.sendAudioToServer(this.pcmData);
-
-                    // 如果没有连接WebSocket，模拟服务器响应
-                    if (!this.isConnected) {
-                        setTimeout(() => {
-                            this.addServerMessage('我收到了你的语音消息！');
-                        }, 1000);
-                    }
-                }
+                // 已被 VAD 替换，保留空函数以防引用
             }
 
             processCompletedAudio() {
@@ -696,21 +664,19 @@
             }
 
             updateRecordingUI() {
-                if (this.isRecording) {
-                    this.recordBtn.classList.add('btn-error', 'recording-pulse');
+                if (this.isVadActive) {
+                    this.recordBtn.classList.add('btn-error');
                     this.recordBtn.classList.remove('btn-primary');
-                    this.recordText.textContent = '停止录制';
-                    this.recordingStatus.classList.remove('hidden');
+                    this.recordText.textContent = '停止监听';
 
                     // 更新麦克风图标为停止图标
                     this.micIcon.innerHTML = `
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6h12v12H6z"></path>
                     `;
                 } else {
-                    this.recordBtn.classList.remove('btn-error', 'recording-pulse');
+                    this.recordBtn.classList.remove('btn-error');
                     this.recordBtn.classList.add('btn-primary');
-                    this.recordText.textContent = '开始录制';
-                    this.recordingStatus.classList.add('hidden');
+                    this.recordText.textContent = '开始监听';
 
                     // 恢复麦克风图标
                     this.micIcon.innerHTML = `
