@@ -61,12 +61,20 @@
                 <span id="connectionStatusText">Not connected</span>
             </div>
 
-            <!-- Debug Options -->
-            <div class="form-control mb-4">
-                <label class="label cursor-pointer">
-                    <span class="label-text">Show debug information</span>
-                    <input type="checkbox" id="debugMode" class="checkbox" />
-                </label>
+            <!-- Control Options -->
+            <div class="mb-4 space-y-2">
+                <div class="form-control">
+                    <label class="label cursor-pointer">
+                        <span class="label-text">Show debug information</span>
+                        <input type="checkbox" id="debugMode" class="checkbox" />
+                    </label>
+                </div>
+                <div class="form-control">
+                    <label class="label cursor-pointer">
+                        <span class="label-text">Recording mode</span>
+                        <input type="checkbox" id="recordingMode" class="checkbox" />
+                    </label>
+                </div>
             </div>
 
             <!-- Chat Display Area -->
@@ -120,6 +128,7 @@
                 this.websocket = null;
                 this.isConnected = false;
                 this.debugMode = false;
+                this.recordingMode = false; // New: Recording mode state
 
                 // Audio cache related
                 this.isReceivingAudio = false;
@@ -152,6 +161,7 @@
                 this.connectionStatus = document.getElementById('connectionStatus');
                 this.connectionStatusText = document.getElementById('connectionStatusText');
                 this.debugModeCheckbox = document.getElementById('debugMode');
+                this.recordingModeCheckbox = document.getElementById('recordingMode'); // New: Recording mode checkbox
             }
 
             bindEvents() {
@@ -160,6 +170,12 @@
                 this.connectBtn.addEventListener('click', () => this.toggleConnection());
                 this.debugModeCheckbox.addEventListener('change', (e) => {
                     this.debugMode = e.target.checked;
+                });
+                // New: Recording mode toggle event
+                this.recordingModeCheckbox.addEventListener('change', (e) => {
+                    this.recordingMode = e.target.checked;
+                    const modeText = this.recordingMode ? 'Recording mode' : 'Chat mode';
+                    this.addServerMessage(`🔄 Switched to ${modeText}`);
                 });
 
                 // Add spacebar shortcut
@@ -229,7 +245,9 @@
                     return;
                 }
                 url = url.endsWith('/') ? url : url + '/';
-                url = url + crypto.randomUUID();
+                let uuid = crypto.randomUUID();
+
+                url = url + uuid;
 
                 try {
                     this.websocket = new WebSocket(url);
@@ -237,7 +255,7 @@
 
                     this.websocket.onopen = () => {
                         this.isConnected = true;
-                        this.updateConnectionStatus('connected', 'Connected');
+                        this.updateConnectionStatus('connected', 'Connected: ' + uuid);
                         this.connectBtn.textContent = 'Disconnect';
                         this.connectBtn.classList.remove('btn-primary');
                         this.connectBtn.classList.add('btn-error');
@@ -462,7 +480,8 @@
                     try {
                         await this.myvad.start();
                         this.isVadActive = true;
-                        this.addServerMessage('🎧 VAD started listening');
+                        const modeText = this.recordingMode ? 'Recording mode' : 'Chat mode';
+                        this.addServerMessage(`🎧 VAD started listening (${modeText})`);
                     } catch (error) {
                         this.addServerMessage(`❌ VAD start failed: ${error.message}`);
                         console.error('VAD start failed:', error);
@@ -483,8 +502,15 @@
                     this.websocket.send(int16Array.buffer);
                     console.log('Sent VAD audio data to server, length:', int16Array.length);
 
-                    this.websocket.send("End:Normal");
-                    console.log('Sent end marker: End:Normal');
+                    // Send different end markers based on recording mode
+                    const endMarker = this.recordingMode ? "End:Recording" : "End:Normal";
+                    this.websocket.send(endMarker);
+                    console.log('Sent end marker:', endMarker);
+
+                    // Show sent end marker in debug mode
+                    if (this.debugMode) {
+                        this.addServerMessage(`📤 Sent end marker: ${endMarker}`);
+                    }
                 }
             }
 

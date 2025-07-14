@@ -61,12 +61,20 @@
                 <span id="connectionStatusText">未连接</span>
             </div>
 
-            <!-- 调试选项 -->
-            <div class="form-control mb-4">
-                <label class="label cursor-pointer">
-                    <span class="label-text">显示调试信息</span>
-                    <input type="checkbox" id="debugMode" class="checkbox" />
-                </label>
+            <!-- 控制选项 -->
+            <div class="mb-4 space-y-2">
+                <div class="form-control">
+                    <label class="label cursor-pointer">
+                        <span class="label-text">显示调试信息</span>
+                        <input type="checkbox" id="debugMode" class="checkbox" />
+                    </label>
+                </div>
+                <div class="form-control">
+                    <label class="label cursor-pointer">
+                        <span class="label-text">录制模式</span>
+                        <input type="checkbox" id="recordingMode" class="checkbox" />
+                    </label>
+                </div>
             </div>
 
             <!-- 聊天显示区域 -->
@@ -120,6 +128,7 @@
                 this.websocket = null;
                 this.isConnected = false;
                 this.debugMode = false;
+                this.recordingMode = false; // 录制模式状态
 
                 // 音频缓存相关
                 this.isReceivingAudio = false;
@@ -152,6 +161,7 @@
                 this.connectionStatus = document.getElementById('connectionStatus');
                 this.connectionStatusText = document.getElementById('connectionStatusText');
                 this.debugModeCheckbox = document.getElementById('debugMode');
+                this.recordingModeCheckbox = document.getElementById('recordingMode'); // 录制模式勾选框
             }
 
             bindEvents() {
@@ -160,6 +170,12 @@
                 this.connectBtn.addEventListener('click', () => this.toggleConnection());
                 this.debugModeCheckbox.addEventListener('change', (e) => {
                     this.debugMode = e.target.checked;
+                });
+                // 新增：录制模式切换事件
+                this.recordingModeCheckbox.addEventListener('change', (e) => {
+                    this.recordingMode = e.target.checked;
+                    const modeText = this.recordingMode ? '录制模式' : '对话模式';
+                    this.addServerMessage(`🔄 切换到${modeText}`);
                 });
 
                 // 添加空格键快捷键
@@ -229,7 +245,8 @@
                     return;
                 }
                 url = url.endsWith('/') ? url : url + '/';
-                url = url + crypto.randomUUID();
+                let uuid = crypto.randomUUID();
+                url = url + uuid;
 
                 try {
                     this.websocket = new WebSocket(url);
@@ -237,7 +254,7 @@
 
                     this.websocket.onopen = () => {
                         this.isConnected = true;
-                        this.updateConnectionStatus('connected', '已连接');
+                        this.updateConnectionStatus('connected', '已连接: ' + uuid);
                         this.connectBtn.textContent = '断开';
                         this.connectBtn.classList.remove('btn-primary');
                         this.connectBtn.classList.add('btn-error');
@@ -462,7 +479,8 @@
                     try {
                         await this.myvad.start();
                         this.isVadActive = true;
-                        this.addServerMessage('🎧 VAD 开始监听');
+                        const modeText = this.recordingMode ? '录制模式' : '对话模式';
+                        this.addServerMessage(`🎧 VAD 开始监听 (${modeText})`);
                     } catch (error) {
                         this.addServerMessage(`❌ VAD 启动失败: ${error.message}`);
                         console.error('VAD 启动失败:', error);
@@ -483,8 +501,15 @@
                     this.websocket.send(int16Array.buffer);
                     console.log('发送 VAD 音频数据到服务器，长度:', int16Array.length);
 
-                    this.websocket.send("End:Normal");
-                    console.log('发送结束标识: End:Normal');
+                    // 根据录制模式发送不同的结束标识
+                    const endMarker = this.recordingMode ? "End:Recording" : "End:Normal";
+                    this.websocket.send(endMarker);
+                    console.log('发送结束标识:', endMarker);
+
+                    // 在调试模式下显示发送的结束标识
+                    if (this.debugMode) {
+                        this.addServerMessage(`📤 发送结束标识: ${endMarker}`);
+                    }
                 }
             }
 

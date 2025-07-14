@@ -346,11 +346,13 @@ async fn tts_and_send(pool: &WsPool, id: &str, text: String) -> anyhow::Result<(
     }
 }
 
+/// return: (wav_data,is_recording)
 async fn recv_audio_to_wav(
     audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
-) -> anyhow::Result<Vec<u8>> {
+) -> anyhow::Result<(Vec<u8>, bool)> {
     let head = wav_io::new_header(16000, 16, false, true);
     let mut samples = Vec::new();
+    let mut is_recording = false;
 
     while let Some(chunk) = audio.recv().await {
         match chunk {
@@ -372,6 +374,10 @@ async fn recv_audio_to_wav(
                 log::info!("end audio");
                 break;
             }
+            AudioChunk::Recording => {
+                is_recording = true;
+                break;
+            }
         }
     }
 
@@ -381,7 +387,7 @@ async fn recv_audio_to_wav(
 
     let wav_audio = wav_io::write_to_bytes(&head, &samples)?;
 
-    Ok(wav_audio)
+    Ok((wav_audio, is_recording))
 }
 
 async fn get_asr_text(
@@ -389,9 +395,11 @@ async fn get_asr_text(
     asr: &crate::config::ASRConfig,
     audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
 ) -> anyhow::Result<String> {
+    std::fs::create_dir_all(format!("./record/{id}"))?;
     loop {
-        let wav_data = recv_audio_to_wav(audio).await?;
-        std::fs::write(format!("asr.{id}.wav"), &wav_data).expect("Failed to write ASR audio file");
+        let (wav_data, is_recording) = recv_audio_to_wav(audio).await?;
+
+        std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data)?;
 
         if let Some(vad_url) = &asr.vad_url {
             match crate::ai::vad_detect(vad_url, wav_data.clone()).await {
@@ -413,6 +421,17 @@ async fn get_asr_text(
                 }
             }
         }
+
+        if is_recording {
+            let now = chrono::Local::now().to_rfc3339();
+
+            if let Err(e) = std::fs::write(format!("./record/{id}/recording_{now}.wav"), &wav_data)
+            {
+                log::error!("`{id}` error writing recording file {now}: {e}");
+            };
+            continue;
+        }
+
         let st = std::time::Instant::now();
         let text = retry_asr(
             &asr.url,
@@ -605,6 +624,7 @@ async fn submit_to_gemini_and_tts(
                     .await?;
             }
             GeminiEvent::AudioChunk(AudioChunk::Enb) => {}
+            GeminiEvent::AudioChunk(AudioChunk::Recording) => {}
         }
 
         let recv_ = {
@@ -740,6 +760,7 @@ pub enum AudioChunk {
     /// 16000 16bit le
     Chunk(Bytes),
     Enb,
+    Recording,
 }
 
 // return: wav data
@@ -772,6 +793,10 @@ async fn process_socket_io(
                 ProcessMessageResult::Skip => {}
                 ProcessMessageResult::Submit => audio_tx
                     .send(AudioChunk::Enb)
+                    .await
+                    .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
+                ProcessMessageResult::Recording => audio_tx
+                    .send(AudioChunk::Recording)
                     .await
                     .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
                 ProcessMessageResult::Close => {
@@ -884,12 +909,12 @@ async fn handle_audio(
 
             client.setup(setup).await?;
 
-            let mut wav_audio = recv_audio_to_wav(&mut rx).await?;
+            let mut wav_audio = recv_audio_to_wav(&mut rx).await?.0;
 
             loop {
                 wav_audio = tokio::select! {
                     r = recv_audio_to_wav(&mut rx) =>{
-                        r?
+                        r?.0
                     }
                     r = submit_to_gemini(&pool, &mut client, &id, wav_audio) => {
                         if let Err(e) = r {
@@ -902,7 +927,7 @@ async fn handle_audio(
                             log::error!("`{id}` error: {e}");
                         };
 
-                        recv_audio_to_wav(&mut rx).await?
+                        recv_audio_to_wav(&mut rx).await?.0
                     }
                 };
             }
@@ -1032,6 +1057,7 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
 enum ProcessMessageResult {
     Ok(Bytes),
     Submit,
+    Recording,
     Close,
     Skip,
 }
@@ -1041,8 +1067,8 @@ fn process_message(msg: Message) -> ProcessMessageResult {
         Message::Text(t) => {
             if t.as_str() == "End:Normal" {
                 ProcessMessageResult::Submit
-            } else if t.as_str() == "End:Interrupt" {
-                ProcessMessageResult::Submit
+            } else if t.as_str() == "End:Recording" {
+                ProcessMessageResult::Recording
             } else {
                 ProcessMessageResult::Skip
             }

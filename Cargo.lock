@@ -477,6 +477,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "echokit_server"
+version = "0.1.0"
+dependencies = [
+ "aho-corasick",
+ "anyhow",
+ "axum",
+ "axum-extra",
+ "base64",
+ "bytes",
+ "chrono",
+ "env_logger",
+ "fon",
+ "futures-util",
+ "hanconv",
+ "hound",
+ "http",
+ "log",
+ "rand",
+ "reqwest",
+ "reqwest-websocket",
+ "rmcp",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "uuid",
+ "wav_io",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -528,36 +559,6 @@ checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
  "windows-sys 0.60.2",
-]
-
-[[package]]
-name = "esp_assistant"
-version = "0.1.0"
-dependencies = [
- "aho-corasick",
- "anyhow",
- "axum",
- "axum-extra",
- "base64",
- "bytes",
- "env_logger",
- "fon",
- "futures-util",
- "hanconv",
- "hound",
- "http",
- "log",
- "rand",
- "reqwest",
- "reqwest-websocket",
- "rmcp",
- "rmp-serde",
- "serde",
- "serde_json",
- "tokio",
- "toml",
- "uuid",
- "wav_io",
 ]
 
 [[package]]
