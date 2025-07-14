@@ -68,6 +68,7 @@ async fn routes(
     Router::new()
         // .route("/", get(handler))
         .route("/ws/{id}", any(services::ws::ws_handler))
+        .nest("/record", services::file::new_file_service("./record"))
         .layer(axum::Extension(Arc::new(services::ws::WsPool::new(
             hello_wav,
             bg_gif,
