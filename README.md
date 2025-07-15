@@ -43,11 +43,13 @@ nohup target/release/echokit_server &
 
 ## Test on a web page
 
-Save this web page to your local hard disk.
+Go here: https://echokit.dev/chat/
 
-http://echokit.dev/chat/index.html
+Click on the link to save the `index.html` file to your local hard disk.
 
-Open the local `index.html` file with your browser. Set the URL to your own EchoKit server address, and start chatting!
+Double click the local `index.html` file and open it in your browser. 
+
+In the web page, set the URL to your own EchoKit server address, and start chatting!
 
 ## Configure the device
 
