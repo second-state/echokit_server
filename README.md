@@ -51,7 +51,7 @@ Double click the local `index.html` file and open it in your browser.
 
 In the web page, set the URL to your own EchoKit server address, and start chatting!
 
-## Configure the device
+## Configure a new device
 
 Go to web page: https://echokit.dev/setup/  and use Bluetooth to connect to the `GAIA ESP332` device.
 
@@ -67,11 +67,11 @@ Configure WiFi and server
 
 ## Use the device
 
-To start listening, press the `K0` button.
+**Chat mode:** press the `K0` button once or multiple times util the screen shows "Listening ...". You can now speak and it will answer.
 
-> Some devices do not have buttons, you should say trigger word `gaia` to start listening.
+**Record mode:** long press the `K0` until the screen shows "Recording ...". You can now speak and the audio will be recorded on the server.
 
-To reset wifi connection, press the `K2` button.
+**Config mode:** Turn on BlueTooth and then [load the configuration UI](https://echokit.dev/setup/) to connect to the device. 
 
 
 
