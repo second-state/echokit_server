@@ -47,8 +47,11 @@ pub struct VadResponse {
     pub error: Option<String>,
 }
 
-pub async fn vad_detect(vad_url: &str, wav_audio: Vec<u8>) -> anyhow::Result<VadResponse> {
-    let client = reqwest::Client::new();
+pub async fn vad_detect(
+    client: &reqwest::Client,
+    vad_url: &str,
+    wav_audio: Vec<u8>,
+) -> anyhow::Result<VadResponse> {
     let form = reqwest::multipart::Form::new()
         .part("audio", Part::bytes(wav_audio).file_name("audio.wav"));
 
@@ -64,6 +67,7 @@ pub async fn vad_detect(vad_url: &str, wav_audio: Vec<u8>) -> anyhow::Result<Vad
 
 /// wav_audio: 16bit,16k,single-channel.
 pub async fn asr(
+    client: &reqwest::Client,
     asr_url: &str,
     api_key: &str,
     model: &str,
@@ -71,7 +75,6 @@ pub async fn asr(
     prompt: &str,
     wav_audio: Vec<u8>,
 ) -> anyhow::Result<Vec<String>> {
-    let client = reqwest::Client::new();
     let mut form =
         reqwest::multipart::Form::new().part("file", Part::bytes(wav_audio).file_name("audio.wav"));
 
@@ -112,7 +115,9 @@ async fn test_asr() {
     let asr_url = "http://34.44.85.57:9092/v1/audio/transcriptions";
     let lang = "zh";
     let wav_audio = std::fs::read("./resources/test/out.wav").unwrap();
+    let client = reqwest::Client::new();
     let text = asr(
+        &client,
         asr_url,
         "",
         "",
@@ -132,7 +137,10 @@ async fn test_groq_asr() {
     let asr_url = "https://api.groq.com/openai/v1/audio/transcriptions";
     let lang = "zh";
     let wav_audio = std::fs::read("./resources/test/out.wav").unwrap();
+    let client = reqwest::Client::new();
+
     let text = asr(
+        &client,
         asr_url,
         &groq_api_key,
         "whisper-large-v3",

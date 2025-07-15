@@ -119,6 +119,7 @@ enum WsEvent {
 }
 
 async fn retry_asr(
+    client: &reqwest::Client,
     url: &str,
     api_key: &str,
     model: &str,
@@ -131,7 +132,7 @@ async fn retry_asr(
     for i in 0..retry {
         let r = tokio::time::timeout(
             timeout,
-            crate::ai::asr(url, api_key, model, lang, prompt, wav_audio.clone()),
+            crate::ai::asr(client, url, api_key, model, lang, prompt, wav_audio.clone()),
         )
         .await;
         match r {
@@ -391,6 +392,7 @@ async fn recv_audio_to_wav(
 }
 
 async fn get_asr_text(
+    client: &reqwest::Client,
     id: &str,
     asr: &crate::config::ASRConfig,
     audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
@@ -402,7 +404,7 @@ async fn get_asr_text(
         std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data)?;
 
         if let Some(vad_url) = &asr.vad_url {
-            match crate::ai::vad_detect(vad_url, wav_data.clone()).await {
+            match crate::ai::vad_detect(client, vad_url, wav_data.clone()).await {
                 Ok(r) => {
                     if let Some(err) = r.error {
                         log::error!("`{id}` vad error: {err}, skipping ASR");
@@ -434,6 +436,7 @@ async fn get_asr_text(
 
         let st = std::time::Instant::now();
         let text = retry_asr(
+            client,
             &asr.url,
             &asr.api_key,
             &asr.model,
@@ -820,6 +823,7 @@ async fn handle_audio(
 ) -> anyhow::Result<()> {
     match &pool.config {
         AIConfig::Stable { llm, asr, .. } => {
+            let client = reqwest::Client::new();
             let mut chat_session = ChatSession::new(
                 llm.llm_chat_url.to_string(),
                 llm.api_key.clone().unwrap_or_default(),
@@ -832,11 +836,11 @@ async fn handle_audio(
             chat_session.system_prompts = llm.sys_prompts.clone();
             chat_session.messages = llm.dynamic_prompts.clone();
 
-            let mut asr_result = get_asr_text(&id, asr, &mut rx).await?;
+            let mut asr_result = get_asr_text(&client, &id, asr, &mut rx).await?;
 
             loop {
                 asr_result = tokio::select! {
-                    r = get_asr_text(&id, asr, &mut rx) =>{
+                    r = get_asr_text(&client, &id, asr, &mut rx) =>{
                         r?
                     }
                     r = submit_to_ai(&pool, &id,&mut chat_session, asr_result) => {
@@ -850,7 +854,7 @@ async fn handle_audio(
                             log::error!("`{id}` error: {e}");
                         };
 
-                        get_asr_text(&id, asr, &mut rx).await?
+                        get_asr_text(&client, &id, asr, &mut rx).await?
                     }
                 };
             }
