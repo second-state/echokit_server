@@ -67,13 +67,8 @@ Configure WiFi and server
 
 ## Use the device
 
-**Chat mode:** press the `K0` button once or multiple times util the screen shows "Listening ...". You can now speak and it will answer.
+**Chat:** press the `K0` button once or multiple times util the screen shows "Listening ...". You can now speak and it will answer.
 
-**Record mode:** long press the `K0` until the screen shows "Recording ...". You can now speak and the audio will be recorded on the server.
+**Record:** long press the `K0` until the screen shows "Recording ...". You can now speak and the audio will be recorded on the server.
 
-**Config mode:** Turn on BlueTooth and then [load the configuration UI](https://echokit.dev/setup/) to connect to the device. 
-
-
-
-
-
+**Config:** press `RST` and, at the same time, press and hold `K0` to enter the configuration mode. Then [open the configuration UI](https://echokit.dev/setup/) to connect to the device via BT.
