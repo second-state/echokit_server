@@ -425,8 +425,6 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
         .map(|c| c.as_ref().clone())
         .collect::<Vec<_>>();
 
-    log::debug!("##### llm_stable prompts:\n {:#?}\n#####", messages);
-
     let mut response_builder = reqwest::Client::new().post(llm_url);
     if !token.is_empty() {
         response_builder = response_builder.bearer_auth(token);
@@ -434,16 +432,23 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
 
     let tool_choice = if tools.is_empty() { "" } else { "auto" };
 
+    let request = StableLlmRequest {
+        stream: true,
+        chat_id: chat_id.unwrap_or_default(),
+        messages,
+        model: model.to_string(),
+        tools,
+        tool_choice,
+    };
+
+    log::debug!(
+        "#### send to llm:\n{:#?}\n#####",
+        serde_json::to_string_pretty(&request)?
+    );
+
     let response = response_builder
         .header(reqwest::header::USER_AGENT, "curl/7.81.0")
-        .json(&StableLlmRequest {
-            stream: true,
-            chat_id: chat_id.unwrap_or_default(),
-            messages,
-            model: model.to_string(),
-            tools,
-            tool_choice,
-        })
+        .json(&request)
         .send()
         .await?;
 
