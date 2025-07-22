@@ -442,7 +442,7 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
     };
 
     log::debug!(
-        "#### send to llm:\n{:#?}\n#####",
+        "#### send to llm:\n{}\n#####",
         serde_json::to_string_pretty(&request)?
     );
 
@@ -665,6 +665,11 @@ impl ChatSession {
                                 tool_call_id: Some(tool_call.id.clone()),
                             });
                         }
+                    } else {
+                        log::warn!(
+                            "Tool call {} returned non-text content",
+                            tool_call.function.name,
+                        );
                     }
                 });
             }
