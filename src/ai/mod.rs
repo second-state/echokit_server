@@ -635,6 +635,7 @@ impl ChatSession {
             let args: serde_json::Value =
                 serde_json::from_str(&tool_call.function.arguments).unwrap_or_default();
             let result = tool.call(args).await?;
+            log::debug!("Tool call {} result: {:?}", tool_call.function.name, result);
             if result.is_error.is_some_and(|b| b) {
                 log::error!("Tool call {} failed", tool_call.function.name,);
                 self.messages.push_back(llm::Content {
@@ -661,6 +662,18 @@ impl ChatSession {
                             self.messages.push_back(llm::Content {
                                 role: llm::Role::Tool,
                                 message: pretty_result,
+                                tool_calls: None,
+                                tool_call_id: Some(tool_call.id.clone()),
+                            });
+                        } else {
+                            log::info!(
+                                "call tool {} result: {}",
+                                tool_call.function.name,
+                                &content_text.text
+                            );
+                            self.messages.push_back(llm::Content {
+                                role: llm::Role::Tool,
+                                message: content_text.text.to_string(),
                                 tool_calls: None,
                                 tool_call_id: Some(tool_call.id.clone()),
                             });
