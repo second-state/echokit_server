@@ -666,10 +666,18 @@ impl ChatSession {
                             });
                         }
                     } else {
-                        log::warn!(
-                            "Tool call {} returned non-text content",
-                            tool_call.function.name,
-                        );
+                        if content.as_image().is_some() {
+                            log::warn!(
+                                "Tool call {} returned an image, which is not supported yet",
+                                tool_call.function.name
+                            );
+                        }
+                        if content.as_resource().is_some() {
+                            log::warn!(
+                                "Tool call {} returned a resource, which is not supported yet",
+                                tool_call.function.name
+                            );
+                        }
                     }
                 });
             }
