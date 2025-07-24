@@ -3,10 +3,13 @@ use std::sync::Arc;
 use axum::{routing::any, Router};
 use config::Config;
 
+use crate::services::realtime_ws::StableRealtimeConfig;
+
 pub mod ai;
 pub mod config;
 pub mod protocol;
 pub mod services;
+pub mod util;
 
 #[tokio::main]
 async fn main() {
@@ -40,8 +43,14 @@ async fn routes(
     });
 
     let mut tool_set = ai::openai::tool::ToolSet::default();
+    let mut real_config: Option<StableRealtimeConfig> = None;
     match &config.config {
-        config::AIConfig::Stable { llm, .. } => {
+        config::AIConfig::Stable { llm, tts, asr } => {
+            real_config = Some(StableRealtimeConfig {
+                llm: llm.clone(),
+                tts: tts.clone(),
+                asr: asr.clone(),
+            });
             for server in &llm.mcp_server {
                 match server.type_ {
                     config::MCPType::SSE => {
@@ -65,7 +74,7 @@ async fn routes(
         _ => {}
     }
 
-    Router::new()
+    let mut router = Router::new()
         // .route("/", get(handler))
         .route("/ws/{id}", any(services::ws::ws_handler))
         .nest("/record", services::file::new_file_service("./record"))
@@ -74,5 +83,17 @@ async fn routes(
             bg_gif,
             config.config,
             tool_set,
-        ))))
+        ))));
+
+    if let Some(real_config) = real_config {
+        log::info!(
+            "Adding realtime WebSocket handler with config: {:?}",
+            real_config
+        );
+        router = router
+            .route("/v1/realtime", any(services::realtime_ws::ws_handler))
+            .layer(axum::Extension(Arc::new(real_config)));
+    }
+
+    router
 }
