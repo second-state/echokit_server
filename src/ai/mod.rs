@@ -12,6 +12,7 @@ pub mod gemini;
 pub mod openai;
 pub mod store;
 pub mod tts;
+pub mod vad;
 
 #[derive(Debug, serde::Deserialize)]
 struct AsrResult {
@@ -31,38 +32,6 @@ impl AsrResult {
         }
         texts
     }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct SpeechSampleIndex {
-    pub start: i64,
-    pub end: i64,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct VadResponse {
-    #[serde(default)]
-    pub timestamps: Vec<SpeechSampleIndex>,
-    #[serde(default)]
-    pub error: Option<String>,
-}
-
-pub async fn vad_detect(
-    client: &reqwest::Client,
-    vad_url: &str,
-    wav_audio: Vec<u8>,
-) -> anyhow::Result<VadResponse> {
-    let form = reqwest::multipart::Form::new()
-        .part("audio", Part::bytes(wav_audio).file_name("audio.wav"));
-
-    let res = client.post(vad_url).multipart(form).send().await?;
-
-    let r: serde_json::Value = res.json().await?;
-    log::debug!("VAD response: {:#?}", r);
-
-    let vad_result: VadResponse = serde_json::from_value(r)
-        .map_err(|e| anyhow::anyhow!("Failed to parse ASR result: {}", e))?;
-    Ok(vad_result)
 }
 
 /// wav_audio: 16bit,16k,single-channel.

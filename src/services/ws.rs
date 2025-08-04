@@ -404,7 +404,7 @@ async fn get_asr_text(
         std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data)?;
 
         if let Some(vad_url) = &asr.vad_url {
-            match crate::ai::vad_detect(client, vad_url, wav_data.clone()).await {
+            match crate::ai::vad::vad_detect(client, vad_url, wav_data.clone()).await {
                 Ok(r) => {
                     if let Some(err) = r.error {
                         log::error!("`{id}` vad error: {err}, skipping ASR");

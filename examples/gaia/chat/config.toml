@@ -12,6 +12,9 @@ url = "http://localhost:9092/v1/audio/transcriptions"
 lang = "auto"
 # vad_url = "http://localhost:8000/v1/audio/vad"
 
+# if you want to open server_vad in realtime mode, you can uncomment the following line
+# vad_realtime_url = "ws://localhost:8000/v1/audio/realtime_vad"
+
 
 [llm]
 llm_chat_url = "http://localhost:9091/v1/chat/completions"

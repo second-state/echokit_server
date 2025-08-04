@@ -18,7 +18,7 @@ impl Default for WavConfig {
     }
 }
 
-pub fn pcm_to_wav(pcm_data: Vec<u8>, config: WavConfig) -> Vec<u8> {
+pub fn pcm_to_wav(pcm_data: &[u8], config: WavConfig) -> Vec<u8> {
     let mut wav_data = Vec::new();
     let mut cursor = Cursor::new(&mut wav_data);
 
@@ -49,7 +49,16 @@ pub fn pcm_to_wav(pcm_data: Vec<u8>, config: WavConfig) -> Vec<u8> {
     cursor.write_all(&data_size.to_le_bytes()).unwrap(); // Subchunk2Size
 
     // 写入 PCM 数据
-    cursor.write_all(&pcm_data).unwrap();
+    cursor.write_all(pcm_data).unwrap();
 
     wav_data
+}
+
+pub fn convert_samples_f32_to_i16_bytes(samples: &[f32]) -> Vec<u8> {
+    let mut samples_i16 = vec![];
+    for v in samples {
+        let sample = (*v * std::i16::MAX as f32) as i16;
+        samples_i16.extend_from_slice(&sample.to_le_bytes());
+    }
+    samples_i16
 }

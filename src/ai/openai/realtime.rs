@@ -319,6 +319,32 @@ pub struct SessionConfig {
     pub max_output_tokens: Option<u32>,
 }
 
+impl SessionConfig {
+    pub fn merge(&mut self, other: SessionConfig) {
+        if let Some(modalities) = other.modalities {
+            self.modalities = Some(modalities);
+        }
+        if let Some(instructions) = other.instructions {
+            self.instructions = Some(instructions);
+        }
+        if let Some(voice) = other.voice {
+            self.voice = Some(voice);
+        }
+        if let Some(input_audio_format) = other.input_audio_format {
+            self.input_audio_format = Some(input_audio_format);
+        }
+        if let Some(output_audio_format) = other.output_audio_format {
+            self.output_audio_format = Some(output_audio_format);
+        }
+        if let Some(input_audio_transcription) = other.input_audio_transcription {
+            self.input_audio_transcription = Some(input_audio_transcription);
+        }
+        if let Some(turn_detection) = other.turn_detection {
+            self.turn_detection = Some(turn_detection);
+        }
+    }
+}
+
 // ============================================================================
 // 枚举定义
 // ============================================================================

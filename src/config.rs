@@ -102,6 +102,8 @@ pub struct ASRConfig {
     pub prompt: String,
     #[serde(default)]
     pub vad_url: Option<String>,
+    #[serde(default)]
+    pub vad_realtime_url: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
