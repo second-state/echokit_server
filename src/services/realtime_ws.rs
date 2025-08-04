@@ -1075,10 +1075,10 @@ async fn send_stream_chunk(
 ) -> anyhow::Result<()> {
     log::info!("llm chunk:{:?}", text);
 
-    let in_hz = 16000;
+    let in_hz = 24000;
     let mut stream = resp.bytes_stream();
     let mut rest = bytes::BytesMut::new();
-    let read_chunk_size = 2 * 5 * in_hz as usize / 10; // 0.5 seconds of audio at 16kHz
+    let read_chunk_size = 2 * 5 * in_hz as usize / 10; // 0.5 seconds of audio at 24kHz
 
     'next_chunk: while let Some(item) = stream.next().await {
         // 小端字节序
@@ -1115,14 +1115,14 @@ async fn send_stream_chunk(
             }
         }
 
-        for samples_16k_data in chunk.chunks(read_chunk_size) {
-            if samples_16k_data.len() < read_chunk_size {
+        for samples_24k_data in chunk.chunks(read_chunk_size) {
+            if samples_24k_data.len() < read_chunk_size {
                 log::trace!("Received audio chunk with odd length, skipping");
-                rest.extend_from_slice(&samples_16k_data);
+                rest.extend_from_slice(&samples_24k_data);
                 continue 'next_chunk;
             }
-            let audio_16k = samples_16k_data.to_vec();
-            log::trace!("Sending audio chunk of size: {}", audio_16k.len());
+            let audio_24k = samples_24k_data.to_vec();
+            log::trace!("Sending audio chunk of size: {}", audio_24k.len());
             // send server audio delta
             tx.send(ServerEvent::ResponseAudioDelta {
                 event_id: Uuid::new_v4().to_string(),
@@ -1130,7 +1130,7 @@ async fn send_stream_chunk(
                 item_id: item_id.clone().unwrap_or_default(),
                 output_index: 0,
                 content_index: 1,
-                delta: encode_base64(&audio_16k),
+                delta: encode_base64(&audio_24k),
             })
             .await
             .map_err(|_| anyhow::anyhow!("send audio error"))?;
@@ -1138,8 +1138,8 @@ async fn send_stream_chunk(
     }
 
     if rest.len() > 0 {
-        let audio_16k = rest.to_vec();
-        log::trace!("Sending audio chunk of size: {}", audio_16k.len());
+        let audio_24k = rest.to_vec();
+        log::trace!("Sending audio chunk of size: {}", audio_24k.len());
         // send server audio delta
         tx.send(ServerEvent::ResponseAudioDelta {
             event_id: Uuid::new_v4().to_string(),
@@ -1147,7 +1147,7 @@ async fn send_stream_chunk(
             item_id: item_id.clone().unwrap_or_default(),
             output_index: 0,
             content_index: 1,
-            delta: encode_base64(&audio_16k),
+            delta: encode_base64(&audio_24k),
         })
         .await
         .map_err(|_| anyhow::anyhow!("send audio error"))?;
@@ -1165,7 +1165,7 @@ async fn tts_and_send(
 ) -> anyhow::Result<()> {
     match tts_config {
         crate::config::TTSConfig::Stable(tts) => {
-            let wav_data = crate::ai::tts::gsv(&tts.url, &tts.speaker, &text, Some(32000)).await?;
+            let wav_data = crate::ai::tts::gsv(&tts.url, &tts.speaker, &text, Some(24000)).await?;
             let duration_sec = send_wav(tx, response_id, item_id, text, wav_data).await?;
             log::info!("Stable TTS duration: {:?}", duration_sec);
             Ok(())
@@ -1188,7 +1188,7 @@ async fn tts_and_send(
                 &stream_tts.url,
                 &stream_tts.speaker,
                 &text,
-                Some(16000),
+                Some(24000),
             )
             .await?;
 
