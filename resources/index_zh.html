@@ -5,14 +5,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>音频聊天</title>
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+    <link href="./daisyui@5.css" rel="stylesheet" type="text/css" />
+    <script src="./browser@4.js"></script>
+    <link href="./themes.css" rel="stylesheet" type="text/css" />
     <!-- 添加 MessagePack 依赖 -->
-    <script crossorigin src="https://unpkg.com/@msgpack/msgpack"></script>
+    <script src="./msgpack.min.js"></script>
     <!-- 添加 VAD-Web 依赖 -->
-    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
+    <script src="./ort.js"></script>
+    <script src="./bundle.min.js"></script>
     <style>
         .recording-pulse {
             animation: pulse 1s ease-in-out infinite alternate;
