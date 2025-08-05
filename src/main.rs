@@ -18,6 +18,7 @@ async fn main() {
     let config = config::Config::load(&config_path).unwrap();
 
     let listener = tokio::net::TcpListener::bind(&config.addr).await.unwrap();
+    log::info!("Server listening on {}", config.addr);
     let mut mcp_clients = vec![];
     if let Err(e) = axum::serve(listener, routes(config, &mut mcp_clients).await).await {
         log::error!("Server error: {}", e);
