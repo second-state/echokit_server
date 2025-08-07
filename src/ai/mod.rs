@@ -163,30 +163,33 @@ impl StableLlmResponse {
         }
     }
 
-    fn push_str(&mut self, s: &str) -> Option<String> {
+    fn push_str(string_buffer: &mut String, s: &str) -> Option<String> {
         let mut ret = s;
 
         loop {
             if let Some(i) = ret.find(&['.', '!', '?', ';', '。', '！', '？', '；', '\n']) {
-                let (chunk, ret_) = if ret.is_char_boundary(i + 1) {
-                    ret.split_at(i + 1)
+                let ((chunk, ret_), char_len) = if ret.is_char_boundary(i + 1) {
+                    (ret.split_at(i + 1), 1)
                 } else {
-                    ret.split_at(i + 3)
+                    (ret.split_at(i + 3), 3)
                 };
 
-                self.string_buffer.push_str(chunk);
+                string_buffer.push_str(chunk);
                 ret = ret_;
                 if ret.chars().next().is_some_and(|c| c.is_numeric()) {
                     continue;
                 }
-                if self.string_buffer.len() > Self::CHUNK_SIZE || self.string_buffer.ends_with("\n")
-                {
+                if char_len == 1 && ret.len() > 0 && !ret.starts_with(&[' ', '\n']) {
+                    continue;
+                }
+
+                if string_buffer.len() > Self::CHUNK_SIZE || string_buffer.ends_with("\n") {
                     let mut new_str = ret.to_string();
-                    std::mem::swap(&mut new_str, &mut self.string_buffer);
+                    std::mem::swap(&mut new_str, string_buffer);
                     return Some(new_str);
                 }
             } else {
-                self.string_buffer.push_str(ret);
+                string_buffer.push_str(ret);
                 return None;
             }
         }
@@ -244,7 +247,7 @@ impl StableLlmResponse {
             log::trace!("llm response tools: {:#?}", tools);
 
             if tools.is_empty() {
-                if let Some(new_str) = self.push_str(&chunks) {
+                if let Some(new_str) = Self::push_str(&mut self.string_buffer, &chunks) {
                     log::trace!("llm response text: {new_str}");
                     return Ok(StableLLMResponseChunk::Text(new_str));
                 }
@@ -254,6 +257,32 @@ impl StableLlmResponse {
             }
         }
     }
+}
+
+#[test]
+fn test_push_str() {
+    let mut string_buffer = String::new();
+    let s = StableLlmResponse::push_str(&mut string_buffer, "Hello world!");
+    println!("string_buffer: {string_buffer}");
+    println!("s: {s:?}");
+    let s = StableLlmResponse::push_str(&mut string_buffer, " This is a test.");
+    println!("string_buffer: {string_buffer}");
+    println!("s: {s:?}");
+    let s = StableLlmResponse::push_str(
+        &mut string_buffer,
+        " This is a long test string that my email is example@gmail.com .",
+    );
+    println!("string_buffer: {string_buffer}");
+    println!("s: {s:?}");
+    let s = StableLlmResponse::push_str(&mut string_buffer, "This is a long test string that should be split into multiple chunks. It contains several sentences, and it should be able to handle punctuation marks like periods, exclamation points, and question marks. Let's see how it works with different types of sentences!");
+    println!("string_buffer: {string_buffer}");
+    println!("s: {s:?}");
+    let s = StableLlmResponse::push_str(
+        &mut string_buffer,
+        "One thousand is 1,000, and two thousand is 2,000. This should be handled correctly.",
+    );
+    println!("string_buffer: {string_buffer}");
+    println!("s: {s:?}");
 }
 
 pub mod llm {
