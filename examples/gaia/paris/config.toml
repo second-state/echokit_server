@@ -1,6 +1,5 @@
 addr = "0.0.0.0:9090"
 hello_wav = "hello.wav"
-background_gif = "background.gif"
 
 [tts]
 platform = "StreamGSV"
@@ -10,6 +9,8 @@ speaker = "cooper"
 [asr]
 url = "http://localhost:9092/v1/audio/transcriptions"
 lang = "auto"
+# vad_url = "http://localhost:9093/v1/audio/vad"
+vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [llm]
 llm_chat_url = "http://localhost:9091/v1/chat/completions"

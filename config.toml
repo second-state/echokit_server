@@ -1,7 +1,5 @@
 addr = "0.0.0.0:8080"
 hello_wav = "hello.wav"
-background_gif = "background.gif"
-
 
 # [tts]
 # platform = "Groq"
@@ -25,11 +23,14 @@ speaker = "speaker2"
 # lang = "zh"
 # api_key = "gsk_xxx"
 # model = "whisper-large-v3-turbo"
+# vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [asr]
 url = "https://whisper.gaia.domains/v1/audio/transcriptions"
 lang = "auto"
 prompt = "Hello\n你好\n(noise)\n(bgm)\n(silence)\n"
+# vad_url = "http://localhost:9093/v1/audio/vad"
+vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 # [llm]
 # llm_chat_url = "https://api.groq.com/openai/v1/chat/completions"
