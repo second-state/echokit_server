@@ -47,14 +47,12 @@ pub struct WsPool {
     pub config: AIConfig,
     pub connections: tokio::sync::RwLock<HashMap<String, (u128, WsTx)>>,
     pub hello_wav: Option<Vec<u8>>,
-    pub bg_gif: Option<Vec<u8>>,
     pub tool_set: ToolSet<McpToolAdapter>,
 }
 
 impl WsPool {
     pub fn new(
         hello_wav: Option<Vec<u8>>,
-        bg_gif: Option<Vec<u8>>,
         config: AIConfig,
         tool_set: ToolSet<McpToolAdapter>,
     ) -> Self {
@@ -62,7 +60,6 @@ impl WsPool {
             config,
             connections: tokio::sync::RwLock::new(HashMap::new()),
             hello_wav,
-            bg_gif,
             tool_set,
         }
     }
@@ -939,26 +936,6 @@ async fn handle_audio(
     }
 }
 
-async fn send_bg_gif(socket: &mut WebSocket, bg_gif: &[u8]) -> anyhow::Result<()> {
-    let bg_start = rmp_serde::to_vec(&crate::protocol::ServerEvent::BGStart)
-        .expect("Failed to serialize BgStart ServerEvent");
-    socket.send(Message::binary(bg_start)).await?;
-
-    for chunk in bg_gif.chunks(1024 * 2) {
-        let bg_chunk = rmp_serde::to_vec(&crate::protocol::ServerEvent::BGChunk {
-            data: chunk.to_vec(),
-        })
-        .expect("Failed to serialize BgChunk ServerEvent");
-        socket.send(Message::binary(bg_chunk)).await?;
-    }
-
-    let bg_end = rmp_serde::to_vec(&crate::protocol::ServerEvent::BGEnd)
-        .expect("Failed to serialize BgEnd ServerEvent");
-    socket.send(Message::binary(bg_end)).await?;
-
-    Ok(())
-}
-
 async fn send_hello_wav(socket: &mut WebSocket, hello: &[u8]) -> anyhow::Result<()> {
     let hello_start = rmp_serde::to_vec(&crate::protocol::ServerEvent::HelloStart)
         .expect("Failed to serialize HelloStart ServerEvent");
@@ -988,12 +965,6 @@ async fn handle_socket(
     if let Some(hello_wav) = &pool.hello_wav {
         if !hello_wav.is_empty() {
             send_hello_wav(&mut socket, hello_wav).await?;
-        }
-    }
-
-    if let Some(bg_gif) = &pool.bg_gif {
-        if !bg_gif.is_empty() {
-            send_bg_gif(&mut socket, bg_gif).await?;
         }
     }
 

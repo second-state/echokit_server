@@ -33,10 +33,7 @@ async fn routes(
     >,
 ) -> Router {
     log::info!("Start with: {:#?}", config);
-    let bg_gif = config.background_gif.as_ref().and_then(|gif| {
-        log::info!("Background GIF: {}", gif);
-        std::fs::read(gif).ok()
-    });
+
     let hello_wav = config.hello_wav.as_ref().and_then(|wav| {
         log::info!("Hello WAV: {}", wav);
         std::fs::read(wav).ok()
@@ -80,7 +77,6 @@ async fn routes(
         .nest("/record", services::file::new_file_service("./record"))
         .layer(axum::Extension(Arc::new(services::ws::WsPool::new(
             hello_wav,
-            bg_gif,
             config.config,
             tool_set,
         ))));
