@@ -27,12 +27,9 @@ Alternatively, you could use Google Gemini Live services for VAD + ASR + LLM, an
 
 You can also [configure MCP servers](examples/gaia/mcp/config.toml) to give the EchoKit server tool use capabilities. 
 
-## Configure the device "skin"
+## Configure the voice prompt
 
-The following two files in the server's current directory will be sent to the EchoKit device when it connects to the server.
-
-* `background.gif` is the background image displayed on the device's screen.
-* `hello.wav` is the greeting the device will say to prompt the user to speak.
+The `hello.wav` file on the server is sent to the EchoKit device when it connects. It is the voice prompt the device will say to tell the user that it is ready.
 
 ## Run the EchoKit server
 
@@ -71,4 +68,4 @@ Configure WiFi and server
 
 **Record:** long press the `K0` until the screen shows "Recording ...". You can now speak and the audio will be recorded on the server.
 
-**Config:** press `RST` and, at the same time, press and hold `K0` to enter the configuration mode. Then [open the configuration UI](https://echokit.dev/setup/) to connect to the device via BT.
+**Config:** press `RST`. While it is restarting, press and hold `K0` to enter the configuration mode. Then [open the configuration UI](https://echokit.dev/setup/) to connect to the device via BT.
