@@ -341,6 +341,22 @@ async fn tts_and_send(pool: &WsPool, id: &str, text: String) -> anyhow::Result<(
             log::info!("Stream GSV TTS sent");
             Ok(())
         }
+        crate::config::TTSConfig::CosyVoice(cosyvoice) => {
+            let mut tts = crate::ai::tts::cosyvoice::synthesize(
+                &cosyvoice.appkey,
+                &cosyvoice.token,
+                &text,
+                cosyvoice.speaker.as_deref(),
+                Some(16000),
+            )
+            .await?;
+            while let Ok(Some(chunk)) = tts.next_audio_chunk().await {
+                pool.send(id, WsCommand::Audio(chunk.into()))
+                    .await
+                    .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
+            }
+            Ok(())
+        }
     }
 }
 

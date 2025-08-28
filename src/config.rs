@@ -81,12 +81,21 @@ pub struct StreamGSV {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CosyVoiceTTS {
+    pub appkey: String,
+    pub token: String,
+    #[serde(default)]
+    pub speaker: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "platform")]
 pub enum TTSConfig {
     Stable(StableTTS),
     Fish(FishTTS),
     Groq(GroqTTS),
     StreamGSV(StreamGSV),
+    CosyVoice(CosyVoiceTTS),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

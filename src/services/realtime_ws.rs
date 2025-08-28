@@ -129,6 +129,9 @@ async fn handle_socket(config: Arc<StableRealtimeConfig>, socket: WebSocket) {
         TTSConfig::Fish(fish) => fish.speaker.clone(),
         TTSConfig::Groq(groq) => groq.voice.clone(),
         TTSConfig::StreamGSV(stream_tts) => stream_tts.speaker.clone(),
+        TTSConfig::CosyVoice(cosyvoice) => {
+            cosyvoice.speaker.clone().unwrap_or("default".to_string())
+        }
     };
 
     session.config.turn_detection = Some(turn_detection.clone());
@@ -1194,6 +1197,29 @@ async fn tts_and_send(
 
             send_stream_chunk(tx, response_id, item_id, text, resp).await?;
             log::info!("Stream GSV TTS sent");
+            Ok(())
+        }
+        crate::config::TTSConfig::CosyVoice(cosyvoice) => {
+            let mut cosyvoice = crate::ai::tts::cosyvoice::synthesize(
+                &cosyvoice.appkey,
+                &cosyvoice.token,
+                &text,
+                cosyvoice.speaker.as_deref(),
+                Some(24000),
+            )
+            .await?;
+            while let Ok(Some(chunk)) = cosyvoice.next_audio_chunk().await {
+                tx.send(ServerEvent::ResponseAudioDelta {
+                    event_id: Uuid::new_v4().to_string(),
+                    response_id: response_id.clone(),
+                    item_id: item_id.clone().unwrap_or_default(),
+                    output_index: 0,
+                    content_index: 1,
+                    delta: encode_base64(&chunk),
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
+            }
             Ok(())
         }
     }
