@@ -1205,7 +1205,7 @@ async fn tts_and_send(
                 crate::ai::tts::cosyvoice::CosyVoiceTTS::connect(cosyvoice.token.clone()).await?;
 
             tts.start_synthesis(
-                cosyvoice::CosyVoiceVersion::V2,
+                cosyvoice.version,
                 cosyvoice.speaker.as_deref(),
                 Some(24000),
                 &text,

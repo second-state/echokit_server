@@ -346,7 +346,7 @@ async fn tts_and_send(pool: &WsPool, id: &str, text: String) -> anyhow::Result<(
                 crate::ai::tts::cosyvoice::CosyVoiceTTS::connect(cosyvoice.token.clone()).await?;
 
             tts.start_synthesis(
-                crate::ai::tts::cosyvoice::CosyVoiceVersion::V2,
+                cosyvoice.version,
                 cosyvoice.speaker.as_deref(),
                 Some(16000),
                 &text,
