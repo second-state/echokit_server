@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{routing::any, Router};
 use config::Config;
 
-use crate::services::realtime_ws::StableRealtimeConfig;
+use crate::{config::ASRConfig, services::realtime_ws::StableRealtimeConfig};
 
 pub mod ai;
 pub mod config;
@@ -42,7 +42,11 @@ async fn routes(
     let mut tool_set = ai::openai::tool::ToolSet::default();
     let mut real_config: Option<StableRealtimeConfig> = None;
     match &config.config {
-        config::AIConfig::Stable { llm, tts, asr } => {
+        config::AIConfig::Stable {
+            llm,
+            tts,
+            asr: ASRConfig::Whisper(asr),
+        } => {
             real_config = Some(StableRealtimeConfig {
                 llm: llm.clone(),
                 tts: tts.clone(),

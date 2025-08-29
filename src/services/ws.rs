@@ -16,6 +16,7 @@ use futures_util::StreamExt;
 
 use crate::{
     ai::{
+        bailian::cosyvoice,
         gemini::{
             self,
             types::{Blob, GenerationConfig, RealtimeAudio},
@@ -342,8 +343,7 @@ async fn tts_and_send(pool: &WsPool, id: &str, text: String) -> anyhow::Result<(
             Ok(())
         }
         crate::config::TTSConfig::CosyVoice(cosyvoice) => {
-            let mut tts =
-                crate::ai::tts::cosyvoice::CosyVoiceTTS::connect(cosyvoice.token.clone()).await?;
+            let mut tts = cosyvoice::CosyVoiceTTS::connect(cosyvoice.token.clone()).await?;
 
             tts.start_synthesis(
                 cosyvoice.version,
@@ -411,7 +411,7 @@ async fn recv_audio_to_wav(
 async fn get_asr_text(
     client: &reqwest::Client,
     id: &str,
-    asr: &crate::config::ASRConfig,
+    asr: &crate::config::WhisperASRConfig,
     audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
 ) -> anyhow::Result<String> {
     std::fs::create_dir_all(format!("./record/{id}"))?;
@@ -471,6 +471,77 @@ async fn get_asr_text(
             continue;
         }
         return Ok(hanconv::tw2sp(text));
+    }
+}
+
+async fn get_paraformer_v2_text(
+    id: &str,
+    asr: &crate::config::ParaformerV2AsrConfig,
+    audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
+) -> anyhow::Result<String> {
+    std::fs::create_dir_all(format!("./record/{id}"))?;
+
+    let mut samples = bytes::BytesMut::new();
+    let mut is_recording = false;
+    loop {
+        while let Some(chunk) = audio.recv().await {
+            match chunk {
+                AudioChunk::Chunk(data) => {
+                    samples.extend_from_slice(&data);
+                }
+                AudioChunk::Enb => {
+                    log::info!("end audio");
+                    break;
+                }
+                AudioChunk::Recording => {
+                    is_recording = true;
+                    break;
+                }
+            }
+        }
+
+        if is_recording {
+            let wav_data = crate::util::pcm_to_wav(
+                &samples,
+                crate::util::WavConfig {
+                    channels: 1,
+                    sample_rate: 16000,
+                    bits_per_sample: 16,
+                },
+            );
+            let now = chrono::Local::now().to_rfc3339();
+
+            if let Err(e) = std::fs::write(format!("./record/{id}/recording_{now}.wav"), &wav_data)
+            {
+                log::error!("`{id}` error writing recording file {now}: {e}");
+            };
+            continue;
+        }
+
+        let mut text = String::new();
+
+        let mut asr = crate::ai::bailian::realtime_asr::ParaformerRealtimeV2Asr::connect(
+            asr.paraformer_token.clone(),
+            16000,
+        )
+        .await?;
+
+        asr.start_pcm_recognition().await?;
+        asr.send_audio(samples.freeze()).await?;
+        samples = bytes::BytesMut::new();
+        asr.finish_task().await?;
+        while let Some(sentence) = asr.next_result().await? {
+            if sentence.sentence_end {
+                log::info!("ASR final result: {:?}", text);
+                text = sentence.text;
+                break;
+            }
+        }
+        if text.is_empty() {
+            continue;
+        } else {
+            return Ok(text);
+        }
     }
 }
 
@@ -853,11 +924,28 @@ async fn handle_audio(
             chat_session.system_prompts = llm.sys_prompts.clone();
             chat_session.messages = llm.dynamic_prompts.clone();
 
-            let mut asr_result = get_asr_text(&client, &id, asr, &mut rx).await?;
+            let mut asr_result = match asr {
+                crate::config::ASRConfig::Whisper(asr) => {
+                    get_asr_text(&client, &id, asr, &mut rx).await?
+                }
+                crate::config::ASRConfig::ParaformerV2(asr) => {
+                    get_paraformer_v2_text(&id, asr, &mut rx).await?
+                }
+            };
 
             loop {
+                let get_asr_result = async {
+                    match asr {
+                        crate::config::ASRConfig::Whisper(asr) => {
+                            get_asr_text(&client, &id, asr, &mut rx).await
+                        }
+                        crate::config::ASRConfig::ParaformerV2(asr) => {
+                            get_paraformer_v2_text(&id, asr, &mut rx).await
+                        }
+                    }
+                };
                 asr_result = tokio::select! {
-                    r = get_asr_text(&client, &id, asr, &mut rx) =>{
+                    r = get_asr_result => {
                         r?
                     }
                     r = submit_to_ai(&pool, &id,&mut chat_session, asr_result) => {
@@ -871,7 +959,14 @@ async fn handle_audio(
                             log::error!("`{id}` error: {e}");
                         };
 
-                        get_asr_text(&client, &id, asr, &mut rx).await?
+                        match asr {
+                            crate::config::ASRConfig::Whisper(asr) => {
+                                get_asr_text(&client, &id, asr, &mut rx).await?
+                            }
+                            crate::config::ASRConfig::ParaformerV2(asr) => {
+                                get_paraformer_v2_text(&id, asr, &mut rx).await?
+                            }
+                        }
                     }
                 };
             }

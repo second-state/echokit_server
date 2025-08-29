@@ -14,8 +14,8 @@ use uuid::Uuid;
 
 use crate::{
     ai::{
+        bailian::cosyvoice,
         openai::realtime::*,
-        tts::cosyvoice,
         vad::{VadRealtimeClient, VadRealtimeEvent},
         ChatSession,
     },
@@ -64,7 +64,7 @@ impl RealtimeSession {
 pub struct StableRealtimeConfig {
     pub llm: LLMConfig,
     pub tts: TTSConfig,
-    pub asr: ASRConfig,
+    pub asr: WhisperASRConfig,
 }
 
 enum RealtimeEvent {
@@ -292,7 +292,7 @@ async fn handle_client_message(
     tx: &mpsc::Sender<ServerEvent>,
     llm: &LLMConfig,
     tts: &TTSConfig,
-    asr: &ASRConfig,
+    asr: &WhisperASRConfig,
 ) -> anyhow::Result<()> {
     match client_event {
         RealtimeEvent::ClientEvent(client_event) => {
@@ -655,7 +655,7 @@ async fn handle_audio_buffer_commit(
     session: &mut RealtimeSession,
     tx: &mpsc::Sender<ServerEvent>,
     item_id: Option<String>,
-    config: &ASRConfig,
+    config: &WhisperASRConfig,
 ) -> anyhow::Result<bool> {
     let audio_data = &session.input_audio_buffer;
 
@@ -1201,8 +1201,7 @@ async fn tts_and_send(
             Ok(())
         }
         crate::config::TTSConfig::CosyVoice(cosyvoice) => {
-            let mut tts =
-                crate::ai::tts::cosyvoice::CosyVoiceTTS::connect(cosyvoice.token.clone()).await?;
+            let mut tts = cosyvoice::CosyVoiceTTS::connect(cosyvoice.token.clone()).await?;
 
             tts.start_synthesis(
                 cosyvoice.version,

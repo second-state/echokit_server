@@ -80,7 +80,7 @@ pub struct StreamGSV {
     pub speaker: String,
 }
 
-pub use crate::ai::tts::cosyvoice::CosyVoiceVersion;
+pub use crate::ai::bailian::cosyvoice::CosyVoiceVersion;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CosyVoiceTTS {
@@ -102,7 +102,7 @@ pub enum TTSConfig {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ASRConfig {
+pub struct WhisperASRConfig {
     pub url: String,
     #[serde(default)]
     pub api_key: String,
@@ -116,6 +116,18 @@ pub struct ASRConfig {
     pub vad_url: Option<String>,
     #[serde(default)]
     pub vad_realtime_url: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ParaformerV2AsrConfig {
+    pub paraformer_token: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum ASRConfig {
+    Whisper(WhisperASRConfig),
+    ParaformerV2(ParaformerV2AsrConfig),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

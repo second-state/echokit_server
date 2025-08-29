@@ -8,6 +8,8 @@ use rmcp::{
     ServiceExt,
 };
 
+/// 阿里百炼
+pub mod bailian;
 pub mod gemini;
 pub mod openai;
 pub mod store;
