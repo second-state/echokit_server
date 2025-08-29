@@ -342,14 +342,18 @@ async fn tts_and_send(pool: &WsPool, id: &str, text: String) -> anyhow::Result<(
             Ok(())
         }
         crate::config::TTSConfig::CosyVoice(cosyvoice) => {
-            let mut tts = crate::ai::tts::cosyvoice::synthesize(
-                &cosyvoice.appkey,
-                &cosyvoice.token,
-                &text,
+            let mut tts =
+                crate::ai::tts::cosyvoice::CosyVoiceTTS::connect(cosyvoice.token.clone()).await?;
+
+            tts.start_synthesis(
+                crate::ai::tts::cosyvoice::CosyVoiceVersion::V2,
                 cosyvoice.speaker.as_deref(),
                 Some(16000),
+                &text,
             )
-            .await?;
+            .await
+            .unwrap();
+
             while let Ok(Some(chunk)) = tts.next_audio_chunk().await {
                 pool.send(id, WsCommand::Audio(chunk.into()))
                     .await

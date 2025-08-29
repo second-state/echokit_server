@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::{
     ai::{
         openai::realtime::*,
+        tts::cosyvoice,
         vad::{VadRealtimeClient, VadRealtimeEvent},
         ChatSession,
     },
@@ -1200,15 +1201,18 @@ async fn tts_and_send(
             Ok(())
         }
         crate::config::TTSConfig::CosyVoice(cosyvoice) => {
-            let mut cosyvoice = crate::ai::tts::cosyvoice::synthesize(
-                &cosyvoice.appkey,
-                &cosyvoice.token,
-                &text,
+            let mut tts =
+                crate::ai::tts::cosyvoice::CosyVoiceTTS::connect(cosyvoice.token.clone()).await?;
+
+            tts.start_synthesis(
+                cosyvoice::CosyVoiceVersion::V2,
                 cosyvoice.speaker.as_deref(),
                 Some(24000),
+                &text,
             )
             .await?;
-            while let Ok(Some(chunk)) = cosyvoice.next_audio_chunk().await {
+
+            while let Ok(Some(chunk)) = tts.next_audio_chunk().await {
                 tx.send(ServerEvent::ResponseAudioDelta {
                     event_id: Uuid::new_v4().to_string(),
                     response_id: response_id.clone(),

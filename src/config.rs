@@ -80,12 +80,15 @@ pub struct StreamGSV {
     pub speaker: String,
 }
 
+pub use crate::ai::tts::cosyvoice::CosyVoiceVersion;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CosyVoiceTTS {
-    pub appkey: String,
     pub token: String,
     #[serde(default)]
     pub speaker: Option<String>,
+    #[serde(default)]
+    pub version: CosyVoiceVersion,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

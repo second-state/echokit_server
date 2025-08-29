@@ -177,62 +177,17 @@ async fn test_fish_tts() {
     std::fs::write("./resources/test/out.wav", wav_audio).unwrap();
 }
 
-/// aliyun tts cosyvoice WebSocket implementation
+/// bailian tts cosyvoice WebSocket implementation
 pub mod cosyvoice {
     use bytes::Bytes;
     use futures_util::{SinkExt, StreamExt};
     use reqwest_websocket::{RequestBuilderExt, WebSocket};
-    use serde::{Deserialize, Serialize};
+    use serde::Deserialize;
     use uuid::Uuid;
-
-    #[derive(Debug, Serialize)]
-    struct Header {
-        message_id: String,
-        task_id: String,
-        namespace: String,
-        name: String,
-        appkey: String,
-    }
-
-    #[derive(Debug, Serialize)]
-    struct StartSynthesisPayload {
-        voice: String,
-        format: String,
-        sample_rate: u32,
-        volume: u32,
-        speech_rate: i32,
-        pitch_rate: i32,
-        enable_subtitle: bool,
-    }
-
-    #[derive(Debug, Serialize)]
-    struct StartSynthesisMessage {
-        header: Header,
-        payload: StartSynthesisPayload,
-    }
-
-    #[derive(Debug, Serialize)]
-    struct RunSynthesisPayload {
-        text: String,
-    }
-
-    #[derive(Debug, Serialize)]
-    struct RunSynthesisMessage {
-        header: Header,
-        payload: RunSynthesisPayload,
-    }
-
-    #[derive(Debug, Serialize)]
-    struct StopSynthesisMessage {
-        header: Header,
-    }
 
     #[derive(Debug, Deserialize)]
     struct ResponseHeader {
-        name: String,
-        status: u64,
-        #[allow(dead_code)]
-        message_id: String,
+        event: String,
         #[allow(dead_code)]
         task_id: String,
     }
@@ -242,64 +197,110 @@ pub mod cosyvoice {
         header: ResponseHeader,
     }
 
+    impl ResponseMessage {
+        fn is_task_started(&self) -> bool {
+            self.header.event == "task-started"
+        }
+
+        fn is_result_generated(&self) -> bool {
+            self.header.event == "result-generated"
+        }
+
+        fn is_task_finished(&self) -> bool {
+            self.header.event == "task-finished"
+        }
+    }
+
     pub struct CosyVoiceTTS {
-        appkey: String,
         #[allow(unused)]
         token: String,
-        task_id: String,
         websocket: WebSocket,
         synthesis_started: bool,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub enum CosyVoiceVersion {
+        V1,
+        V2,
+    }
+
+    impl CosyVoiceVersion {
+        pub fn as_str(&self) -> &'static str {
+            match self {
+                CosyVoiceVersion::V1 => "cosyvoice-v1",
+                CosyVoiceVersion::V2 => "cosyvoice-v2",
+            }
+        }
+    }
+
+    impl Default for CosyVoiceVersion {
+        fn default() -> Self {
+            CosyVoiceVersion::V2
+        }
+    }
+
     impl CosyVoiceTTS {
-        pub async fn connect(appkey: String, token: String) -> anyhow::Result<Self> {
-            let url = format!(
-                "wss://nls-gateway-cn-beijing.aliyuncs.com/ws/v1?token={}",
-                token
-            );
+        pub async fn connect(token: String) -> anyhow::Result<Self> {
+            let url = format!("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
 
             let client = reqwest::Client::new();
-            let response = client.get(&url).upgrade().send().await?;
+            let response = client
+                .get(url)
+                .bearer_auth(&token)
+                .header("X-DashScope-DataInspection", "enable")
+                .upgrade()
+                .send()
+                .await?;
             let websocket = response.into_websocket().await?;
 
             Ok(Self {
-                appkey,
                 token,
-                task_id: Uuid::new_v4().to_string().replace('-', ""),
                 websocket,
                 synthesis_started: false,
             })
         }
 
-        fn create_header(&self, name: &str) -> Header {
-            Header {
-                message_id: Uuid::new_v4().to_string().replace('-', ""),
-                task_id: self.task_id.clone(),
-                namespace: "FlowingSpeechSynthesizer".to_string(),
-                name: name.to_string(),
-                appkey: self.appkey.clone(),
-            }
-        }
-
         pub async fn start_synthesis(
             &mut self,
+            model: CosyVoiceVersion,
             voice: Option<&str>,
             sample_rate: Option<u32>,
+            text: &str,
         ) -> anyhow::Result<()> {
-            let header = self.create_header("StartSynthesis");
-
-            let start_message = StartSynthesisMessage {
-                header,
-                payload: StartSynthesisPayload {
-                    voice: voice.unwrap_or("zhixiaoxia").to_string(),
-                    format: "PCM".to_string(),
-                    sample_rate: sample_rate.unwrap_or(24000),
-                    volume: 100,
-                    speech_rate: 0,
-                    pitch_rate: 0,
-                    enable_subtitle: true,
-                },
+            let voice = if let Some(v) = voice {
+                v
+            } else {
+                match model {
+                    CosyVoiceVersion::V1 => "longwan",
+                    CosyVoiceVersion::V2 => "longwan_v2",
+                }
             };
+
+            let task_id = Uuid::new_v4().to_string();
+            log::info!("Starting synthesis task with ID: {}", task_id);
+
+            let start_message = serde_json::json!({
+                 "header": {
+                    "action": "run-task",
+                    "task_id": &task_id,
+                    "streaming": "duplex"
+                },
+                "payload": {
+                    "task_group": "audio",
+                    "task": "tts",
+                    "function": "SpeechSynthesizer",
+                    "model": model.as_str(),
+                    "parameters": {
+                        "text_type": "PlainText",
+                        "voice": voice,
+                        "format": "pcm",
+                        "sample_rate": sample_rate.unwrap_or(24000),
+                    },
+                    "input": {
+                        "text": text
+                    }
+                },
+            });
 
             let message_json = serde_json::to_string(&start_message)?;
             self.websocket
@@ -309,20 +310,16 @@ pub mod cosyvoice {
             while let Some(message) = self.websocket.next().await {
                 match message? {
                     reqwest_websocket::Message::Text(text) => {
-                        let response: ResponseMessage = serde_json::from_str(&text)?;
-                        log::debug!("Received message: {:?}", response);
+                        log::debug!("Received message: {:?}", text);
 
-                        if response.header.name == "SynthesisStarted"
-                            && response.header.status == 20000000
-                        {
+                        let response: ResponseMessage = serde_json::from_str(&text)?;
+
+                        if response.is_task_started() {
+                            log::info!("Synthesis task started");
                             self.synthesis_started = true;
-                            log::info!("Synthesis started successfully");
                             break;
-                        } else if response.header.status != 20000000 {
-                            return Err(anyhow::anyhow!(
-                                "Failed to start synthesis, status: {}",
-                                response.header.status
-                            ));
+                        } else {
+                            return Err(anyhow::anyhow!("Synthesis error: {:?}", text));
                         }
                     }
                     reqwest_websocket::Message::Binary(_) => {}
@@ -334,40 +331,21 @@ pub mod cosyvoice {
                 }
             }
 
-            Ok(())
-        }
-
-        pub async fn synthesize_text(&mut self, text: &str) -> anyhow::Result<()> {
-            if !self.synthesis_started {
-                return Err(anyhow::anyhow!("Synthesis not started"));
-            }
-
-            let run_message = RunSynthesisMessage {
-                header: self.create_header("RunSynthesis"),
-                payload: RunSynthesisPayload {
-                    text: text.to_string(),
+            let finish_task = serde_json::json!({
+                "header": {
+                    "action": "finish-task",
+                    "task_id": &task_id,
+                    "streaming": "duplex"
                 },
-            };
-
-            let message_json = serde_json::to_string(&run_message)?;
+                "payload": {
+                    "input": {}
+                }
+            });
+            let finish_message_json = serde_json::to_string(&finish_task)?;
             self.websocket
-                .send(reqwest_websocket::Message::Text(message_json))
+                .send(reqwest_websocket::Message::Text(finish_message_json))
                 .await?;
 
-            Ok(())
-        }
-
-        pub async fn stop_synthesis(&mut self) -> anyhow::Result<()> {
-            let stop_message = StopSynthesisMessage {
-                header: self.create_header("StopSynthesis"),
-            };
-
-            let message_json = serde_json::to_string(&stop_message)?;
-            self.websocket
-                .send(reqwest_websocket::Message::Text(message_json))
-                .await?;
-
-            self.synthesis_started = false;
             Ok(())
         }
 
@@ -379,18 +357,14 @@ pub mod cosyvoice {
                     }
                     reqwest_websocket::Message::Text(text) => {
                         let response: ResponseMessage = serde_json::from_str(&text)?;
-                        log::debug!("Received message: {:?}", response);
 
-                        if response.header.name == "SynthesisCompleted"
-                            && response.header.status == 20000000
-                        {
-                            log::info!("Synthesis completed");
+                        if response.is_task_finished() {
+                            log::debug!("Synthesis task finished");
                             return Ok(None);
-                        } else if response.header.status != 20000000 {
-                            return Err(anyhow::anyhow!(
-                                "Synthesis error, status: {}",
-                                response.header.status
-                            ));
+                        } else if response.is_result_generated() {
+                            log::info!("Result generated");
+                        } else {
+                            return Err(anyhow::anyhow!("Synthesis error: {:?}", response));
                         }
                     }
                     msg => {
@@ -405,29 +379,14 @@ pub mod cosyvoice {
         }
     }
 
-    pub async fn synthesize(
-        appkey: &str,
-        token: &str,
-        text: &str,
-        voice: Option<&str>,
-        sample_rate: Option<u32>,
-    ) -> anyhow::Result<CosyVoiceTTS> {
-        let mut tts = CosyVoiceTTS::connect(appkey.to_string(), token.to_string()).await?;
-
-        tts.start_synthesis(voice, sample_rate).await?;
-        tts.synthesize_text(text).await?;
-        tts.stop_synthesis().await?;
-
-        Ok(tts)
-    }
-
     #[tokio::test]
     async fn test_cosyvoice_tts() {
-        let appkey = std::env::var("COSYVOICE_APPKEY").unwrap();
+        env_logger::init();
         let token = std::env::var("COSYVOICE_TOKEN").unwrap();
-        let text = "你好,我是CosyVoice";
+        let text = "你好,我是CosyVoice V2";
 
-        let mut tts = synthesize(&appkey, &token, text, Some("zhixiaoxia"), Some(24000))
+        let mut tts = CosyVoiceTTS::connect(token).await.unwrap();
+        tts.start_synthesis(CosyVoiceVersion::V2, None, Some(24000), text)
             .await
             .unwrap();
 
