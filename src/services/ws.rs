@@ -26,6 +26,7 @@ use crate::{
         ChatSession, StableLLMResponseChunk,
     },
     config::AIConfig,
+    util::WavConfig,
 };
 
 pub enum WsCommand {
@@ -368,27 +369,15 @@ async fn tts_and_send(pool: &WsPool, id: &str, text: String) -> anyhow::Result<(
 async fn recv_audio_to_wav(
     audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
 ) -> anyhow::Result<(Vec<u8>, bool)> {
-    let head = wav_io::new_header(16000, 16, false, true);
-    let mut samples = Vec::new();
+    let mut samples = bytes::BytesMut::new();
     let mut is_recording = false;
 
     while let Some(chunk) = audio.recv().await {
         match chunk {
             AudioChunk::Chunk(data) => {
-                if data.len() % 2 != 0 {
-                    log::warn!("Received audio chunk with odd length, skipping");
-                    for i in data[0..data.len() - 1].chunks_exact(2) {
-                        let sample = i16::from_le_bytes([i[0], i[1]]);
-                        samples.push(sample as f32 / std::i16::MAX as f32);
-                    }
-                } else {
-                    for i in data.chunks_exact(2) {
-                        let sample = i16::from_le_bytes([i[0], i[1]]);
-                        samples.push(sample as f32 / std::i16::MAX as f32);
-                    }
-                }
+                samples.extend_from_slice(&data);
             }
-            AudioChunk::Enb => {
+            AudioChunk::End => {
                 log::info!("end audio");
                 break;
             }
@@ -403,7 +392,14 @@ async fn recv_audio_to_wav(
         return Err(anyhow::anyhow!("no audio received"));
     }
 
-    let wav_audio = wav_io::write_to_bytes(&head, &samples)?;
+    let wav_audio = crate::util::pcm_to_wav(
+        &samples,
+        WavConfig {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+        },
+    );
 
     Ok((wav_audio, is_recording))
 }
@@ -489,7 +485,7 @@ async fn get_paraformer_v2_text(
                 AudioChunk::Chunk(data) => {
                     samples.extend_from_slice(&data);
                 }
-                AudioChunk::Enb => {
+                AudioChunk::End => {
                     log::info!("end audio");
                     break;
                 }
@@ -714,7 +710,7 @@ async fn submit_to_gemini_and_tts(
                     }))
                     .await?;
             }
-            GeminiEvent::AudioChunk(AudioChunk::Enb) => {}
+            GeminiEvent::AudioChunk(AudioChunk::End) => {}
             GeminiEvent::AudioChunk(AudioChunk::Recording) => {}
         }
 
@@ -850,7 +846,7 @@ async fn submit_to_gemini(
 pub enum AudioChunk {
     /// 16000 16bit le
     Chunk(Bytes),
-    Enb,
+    End,
     Recording,
 }
 
@@ -883,7 +879,7 @@ async fn process_socket_io(
                     .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
                 ProcessMessageResult::Skip => {}
                 ProcessMessageResult::Submit => audio_tx
-                    .send(AudioChunk::Enb)
+                    .send(AudioChunk::End)
                     .await
                     .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
                 ProcessMessageResult::Recording => audio_tx
