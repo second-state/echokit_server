@@ -332,24 +332,20 @@ async fn tts_and_send(pool: &WsSetting, tx: &mut WsTx, text: String) -> anyhow::
 
 /// return: (wav_data,is_recording)
 async fn recv_audio_to_wav(
-    audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
-) -> anyhow::Result<(Vec<u8>, bool)> {
+    audio: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
+) -> anyhow::Result<Vec<u8>> {
     let mut samples = bytes::BytesMut::new();
-    let mut is_recording = false;
 
     while let Some(chunk) = audio.recv().await {
         match chunk {
-            AudioChunk::Chunk(data) => {
+            ClientMsg::AudioChunk(data) => {
                 samples.extend_from_slice(&data);
             }
-            AudioChunk::End => {
+            ClientMsg::Submit => {
                 log::info!("end audio");
                 break;
             }
-            AudioChunk::Recording => {
-                is_recording = true;
-                break;
-            }
+            _ => {}
         }
     }
 
@@ -366,102 +362,132 @@ async fn recv_audio_to_wav(
         },
     );
 
-    Ok((wav_audio, is_recording))
+    Ok(wav_audio)
 }
 
-async fn get_asr_text(
+async fn get_whisper_asr_text(
     client: &reqwest::Client,
     id: &str,
     asr: &crate::config::WhisperASRConfig,
-    audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
+    audio: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
 ) -> anyhow::Result<String> {
-    std::fs::create_dir_all(format!("./record/{id}"))?;
     loop {
-        let (wav_data, is_recording) = recv_audio_to_wav(audio).await?;
+        let msg = audio
+            .recv()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("client rx channel closed"))?;
 
-        std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data)?;
+        match msg {
+            ClientMsg::Text(input) => {
+                return Ok(input);
+            }
+            ClientMsg::StartRecord => {
+                let wav_data = recv_audio_to_wav(audio).await?;
 
-        if let Some(vad_url) = &asr.vad_url {
-            match crate::ai::vad::vad_detect(client, vad_url, wav_data.clone()).await {
-                Ok(r) => {
-                    if let Some(err) = r.error {
-                        log::error!("`{id}` vad error: {err}, skipping ASR");
-                        continue;
-                    }
+                let now = chrono::Local::now().to_rfc3339();
 
-                    if r.timestamps.is_empty() {
-                        log::warn!("`{id}` vad returned empty timestamps, skipping ASR");
-                        continue;
-                    }
-                }
+                if let Err(e) =
+                    std::fs::write(format!("./record/{id}/recording_{now}.wav"), &wav_data)
+                {
+                    log::error!("`{id}` error writing recording file {now}: {e}");
+                };
+                continue;
+            }
+            ClientMsg::StartChat => {
+                // start chat
+                let wav_data = recv_audio_to_wav(audio).await?;
+                std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data)?;
 
-                Err(e) => {
-                    log::error!("`{id}` vad error: {e}, skipping ASR");
+                let st = std::time::Instant::now();
+                let text = retry_asr(
+                    client,
+                    &asr.url,
+                    &asr.api_key,
+                    &asr.model,
+                    &asr.lang,
+                    &asr.prompt,
+                    wav_data,
+                    3,
+                    std::time::Duration::from_secs(10),
+                )
+                .await;
+                log::info!("`{id}` ASR took: {:?}", st.elapsed());
+                let text = text.join("\n");
+                log::info!("ASR result: {:?}", text);
+                if text.is_empty() || text.trim().starts_with("(") {
                     continue;
                 }
+                return Ok(hanconv::tw2sp(text));
+            }
+            ClientMsg::Submit => {
+                continue;
+            }
+            ClientMsg::AudioChunk(_) => {
+                continue;
             }
         }
-
-        if is_recording {
-            let now = chrono::Local::now().to_rfc3339();
-
-            if let Err(e) = std::fs::write(format!("./record/{id}/recording_{now}.wav"), &wav_data)
-            {
-                log::error!("`{id}` error writing recording file {now}: {e}");
-            };
-            continue;
-        }
-
-        let st = std::time::Instant::now();
-        let text = retry_asr(
-            client,
-            &asr.url,
-            &asr.api_key,
-            &asr.model,
-            &asr.lang,
-            &asr.prompt,
-            wav_data,
-            3,
-            std::time::Duration::from_secs(10),
-        )
-        .await;
-        log::info!("`{id}` ASR took: {:?}", st.elapsed());
-        let text = text.join("\n");
-        log::info!("ASR result: {:?}", text);
-        if text.is_empty() || text.trim().starts_with("(") {
-            continue;
-        }
-        return Ok(hanconv::tw2sp(text));
     }
 }
 
 async fn get_paraformer_v2_text(
     id: &str,
     asr: &crate::config::ParaformerV2AsrConfig,
-    audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
+    audio: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
 ) -> anyhow::Result<String> {
-    std::fs::create_dir_all(format!("./record/{id}"))?;
-
     let mut samples = bytes::BytesMut::new();
-    let mut is_recording = false;
+    let paraformer_token = asr.paraformer_token.clone();
+    let mut asr: Option<crate::ai::bailian::realtime_asr::ParaformerRealtimeV2Asr> = None;
     loop {
         while let Some(chunk) = audio.recv().await {
             match chunk {
-                AudioChunk::Chunk(data) => {
+                ClientMsg::Text(input) => {
+                    return Ok(input);
+                }
+                ClientMsg::AudioChunk(data) => {
                     samples.extend_from_slice(&data);
+                    if let Some(asr) = asr.as_mut() {
+                        asr.send_audio(data).await?;
+                    }
                 }
-                AudioChunk::End => {
-                    log::info!("end audio");
+                ClientMsg::Submit => {
                     break;
                 }
-                AudioChunk::Recording => {
-                    is_recording = true;
-                    break;
+                ClientMsg::StartRecord => {
+                    continue;
+                }
+                ClientMsg::StartChat => {
+                    // ignore
+                    let mut paraformer_asr =
+                        crate::ai::bailian::realtime_asr::ParaformerRealtimeV2Asr::connect(
+                            paraformer_token.clone(),
+                            16000,
+                        )
+                        .await?;
+
+                    paraformer_asr.start_pcm_recognition().await?;
+                    asr = Some(paraformer_asr);
+                    continue;
                 }
             }
         }
 
-        if is_recording {
+        if let Some(mut asr) = asr.take() {
+            asr.finish_task().await?;
+            let mut text = String::new();
+            while let Some(sentence) = asr.next_result().await? {
+                if sentence.sentence_end {
+                    text = sentence.text;
+                    log::info!("ASR final result: {:?}", text);
+                    break;
+                }
+            }
+            if text.is_empty() {
+                continue;
+            } else {
+                return Ok(text);
+            }
+        } else {
+            // recording
             let wav_data = crate::util::pcm_to_wav(
                 &samples,
                 crate::util::WavConfig {
@@ -478,31 +504,18 @@ async fn get_paraformer_v2_text(
             };
             continue;
         }
+    }
+}
 
-        let mut text = String::new();
-
-        let mut asr = crate::ai::bailian::realtime_asr::ParaformerRealtimeV2Asr::connect(
-            asr.paraformer_token.clone(),
-            16000,
-        )
-        .await?;
-
-        asr.start_pcm_recognition().await?;
-        asr.send_audio(samples.freeze()).await?;
-        samples = bytes::BytesMut::new();
-        asr.finish_task().await?;
-        while let Some(sentence) = asr.next_result().await? {
-            if sentence.sentence_end {
-                log::info!("ASR final result: {:?}", text);
-                text = sentence.text;
-                break;
-            }
-        }
-        if text.is_empty() {
-            continue;
-        } else {
-            return Ok(text);
-        }
+async fn get_input(
+    client: &reqwest::Client,
+    id: &str,
+    asr: &crate::config::ASRConfig,
+    rx: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
+) -> anyhow::Result<String> {
+    match asr {
+        crate::config::ASRConfig::Whisper(asr) => get_whisper_asr_text(client, id, asr, rx).await,
+        crate::config::ASRConfig::ParaformerV2(asr) => get_paraformer_v2_text(id, asr, rx).await,
     }
 }
 
@@ -596,12 +609,12 @@ async fn submit_to_gemini_and_tts(
     client: &mut gemini::LiveClient,
     tx: &mut WsTx,
     setup: gemini::types::Setup,
-    audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
+    audio: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
 ) -> anyhow::Result<()> {
     // Gemini live api
 
     enum GeminiEvent {
-        AudioChunk(AudioChunk),
+        AudioChunk(ClientMsg),
         ServerEvent(gemini::types::ServerContent),
     }
 
@@ -661,7 +674,7 @@ async fn submit_to_gemini_and_tts(
                     return Err(anyhow::anyhow!("Gemini GoAway"));
                 }
             },
-            GeminiEvent::AudioChunk(AudioChunk::Chunk(sample)) => {
+            GeminiEvent::AudioChunk(ClientMsg::AudioChunk(sample)) => {
                 client
                     .send_realtime_input(gemini::types::RealtimeInput::Audio(RealtimeAudio {
                         data: Blob::new(sample.to_vec()),
@@ -669,8 +682,14 @@ async fn submit_to_gemini_and_tts(
                     }))
                     .await?;
             }
-            GeminiEvent::AudioChunk(AudioChunk::End) => {}
-            GeminiEvent::AudioChunk(AudioChunk::Recording) => {}
+            GeminiEvent::AudioChunk(ClientMsg::Submit) => {}
+            GeminiEvent::AudioChunk(ClientMsg::StartRecord) => {}
+            GeminiEvent::AudioChunk(ClientMsg::StartChat) => {}
+            GeminiEvent::AudioChunk(ClientMsg::Text(input)) => {
+                client
+                    .send_realtime_input(gemini::types::RealtimeInput::Text(input.clone()))
+                    .await?;
+            }
         }
 
         let recv_ = {
@@ -796,17 +815,19 @@ async fn submit_to_gemini(
     Ok(())
 }
 
-pub enum AudioChunk {
+pub enum ClientMsg {
+    StartChat,
+    StartRecord,
     /// 16000 16bit le
-    Chunk(Bytes),
-    End,
-    Recording,
+    AudioChunk(Bytes),
+    Submit,
+    Text(String),
 }
 
 // return: wav data
 async fn process_socket_io(
     rx: &mut WsRx,
-    audio_tx: tokio::sync::mpsc::Sender<AudioChunk>,
+    audio_tx: tokio::sync::mpsc::Sender<ClientMsg>,
     socket: &mut WebSocket,
 ) -> anyhow::Result<Vec<u8>> {
     loop {
@@ -825,18 +846,25 @@ async fn process_socket_io(
         match r {
             Some(WsEvent::Command(cmd)) => process_command(socket, cmd).await?,
             Some(WsEvent::Message(Ok(msg))) => match process_message(msg) {
-                // i16 16000
-                ProcessMessageResult::Ok(d) => audio_tx
-                    .send(AudioChunk::Chunk(d))
+                ProcessMessageResult::Audio(d) => audio_tx
+                    .send(ClientMsg::AudioChunk(d))
+                    .await
+                    .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
+                ProcessMessageResult::Submit => audio_tx
+                    .send(ClientMsg::Submit)
+                    .await
+                    .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
+                ProcessMessageResult::Text(input) => audio_tx
+                    .send(ClientMsg::Text(input))
                     .await
                     .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
                 ProcessMessageResult::Skip => {}
-                ProcessMessageResult::Submit => audio_tx
-                    .send(AudioChunk::End)
+                ProcessMessageResult::StartRecord => audio_tx
+                    .send(ClientMsg::StartRecord)
                     .await
                     .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
-                ProcessMessageResult::Recording => audio_tx
-                    .send(AudioChunk::Recording)
+                ProcessMessageResult::StartChat => audio_tx
+                    .send(ClientMsg::StartChat)
                     .await
                     .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
                 ProcessMessageResult::Close => {
@@ -856,11 +884,12 @@ async fn process_socket_io(
 async fn handle_audio(
     id: String,
     pool: Arc<WsSetting>,
-    mut rx: tokio::sync::mpsc::Receiver<AudioChunk>,
+    mut rx: tokio::sync::mpsc::Receiver<ClientMsg>,
     mut ws_tx: WsTx,
 ) -> anyhow::Result<()> {
     match &pool.config {
         AIConfig::Stable { llm, asr, .. } => {
+            std::fs::create_dir_all(format!("./record/{id}"))?;
             let client = reqwest::Client::new();
             let mut chat_session = ChatSession::new(
                 llm.llm_chat_url.to_string(),
@@ -874,28 +903,11 @@ async fn handle_audio(
             chat_session.system_prompts = llm.sys_prompts.clone();
             chat_session.messages = llm.dynamic_prompts.clone();
 
-            let mut asr_result = match asr {
-                crate::config::ASRConfig::Whisper(asr) => {
-                    get_asr_text(&client, &id, asr, &mut rx).await?
-                }
-                crate::config::ASRConfig::ParaformerV2(asr) => {
-                    get_paraformer_v2_text(&id, asr, &mut rx).await?
-                }
-            };
+            let mut asr_result = get_input(&client, &id, asr, &mut rx).await?;
 
             loop {
-                let get_asr_result = async {
-                    match asr {
-                        crate::config::ASRConfig::Whisper(asr) => {
-                            get_asr_text(&client, &id, asr, &mut rx).await
-                        }
-                        crate::config::ASRConfig::ParaformerV2(asr) => {
-                            get_paraformer_v2_text(&id, asr, &mut rx).await
-                        }
-                    }
-                };
                 asr_result = tokio::select! {
-                    r = get_asr_result => {
+                    r = get_input(&client, &id, asr, &mut rx) => {
                         r?
                     }
                     r = submit_to_ai(&pool, &mut ws_tx,&mut chat_session, asr_result) => {
@@ -909,14 +921,7 @@ async fn handle_audio(
                             log::error!("`{id}` error: {e}");
                         };
 
-                        match asr {
-                            crate::config::ASRConfig::Whisper(asr) => {
-                                get_asr_text(&client, &id, asr, &mut rx).await?
-                            }
-                            crate::config::ASRConfig::ParaformerV2(asr) => {
-                                get_paraformer_v2_text(&id, asr, &mut rx).await?
-                            }
-                        }
+                        get_input(&client, &id, asr, &mut rx).await?
                     }
                 };
             }
@@ -975,12 +980,12 @@ async fn handle_audio(
 
             client.setup(setup).await?;
 
-            let mut wav_audio = recv_audio_to_wav(&mut rx).await?.0;
+            let mut wav_audio = recv_audio_to_wav(&mut rx).await?;
 
             loop {
                 wav_audio = tokio::select! {
                     r = recv_audio_to_wav(&mut rx) =>{
-                        r?.0
+                        r?
                     }
                     r = submit_to_gemini(&mut client, &mut ws_tx, wav_audio) => {
                         if let Err(e) = r {
@@ -993,7 +998,7 @@ async fn handle_audio(
                             log::error!("`{id}` error: {e}");
                         };
 
-                        recv_audio_to_wav(&mut rx).await?.0
+                        recv_audio_to_wav(&mut rx).await?
                     }
                 };
             }
@@ -1034,7 +1039,7 @@ async fn handle_socket(
         }
     }
 
-    let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<AudioChunk>(1);
+    let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<ClientMsg>(1);
     let pool_ = pool.clone();
     let id = id.to_string();
     tokio::spawn(async move {
@@ -1096,9 +1101,11 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
 }
 
 enum ProcessMessageResult {
-    Ok(Bytes),
+    Audio(Bytes),
     Submit,
-    Recording,
+    Text(String),
+    StartRecord,
+    StartChat,
     Close,
     Skip,
 }
@@ -1106,15 +1113,22 @@ enum ProcessMessageResult {
 fn process_message(msg: Message) -> ProcessMessageResult {
     match msg {
         Message::Text(t) => {
-            if t.as_str() == "End:Normal" {
-                ProcessMessageResult::Submit
-            } else if t.as_str() == "End:Recording" {
-                ProcessMessageResult::Recording
+            if let Ok(cmd) = serde_json::from_str::<crate::protocol::ClientCommand>(&t) {
+                match cmd {
+                    crate::protocol::ClientCommand::StartRecord => {
+                        ProcessMessageResult::StartRecord
+                    }
+                    crate::protocol::ClientCommand::StartChat => ProcessMessageResult::StartChat,
+                    crate::protocol::ClientCommand::Submit => ProcessMessageResult::Submit,
+                    crate::protocol::ClientCommand::Text { input } => {
+                        ProcessMessageResult::Text(input)
+                    }
+                }
             } else {
                 ProcessMessageResult::Skip
             }
         }
-        Message::Binary(d) => ProcessMessageResult::Ok(d),
+        Message::Binary(d) => ProcessMessageResult::Audio(d),
         Message::Close(c) => {
             if let Some(cf) = c {
                 log::info!(

@@ -498,12 +498,18 @@
                         int16Array[i] = Math.max(-32768, Math.min(32767, audioData[i] * 32767));
                     }
 
+                    if (this.recordingMode) {
+                        this.websocket.send(JSON.stringify({ event: 'StartRecord' }));
+                    } else {
+                        this.websocket.send(JSON.stringify({ event: 'StartChat' }));
+                    }
+
                     this.websocket.send(int16Array.buffer);
                     console.log('发送 VAD 音频数据到服务器，长度:', int16Array.length);
 
                     // 根据录制模式发送不同的结束标识
-                    const endMarker = this.recordingMode ? "End:Recording" : "End:Normal";
-                    this.websocket.send(endMarker);
+                    const endMarker = this.recordingMode ? "Recording" : "Normal";
+                    this.websocket.send(JSON.stringify({ event: 'Submit' }));
                     console.log('发送结束标识:', endMarker);
 
                     // 在调试模式下显示发送的结束标识
