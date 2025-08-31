@@ -496,6 +496,10 @@ async fn get_paraformer_v2_text(
             }
         }
 
+        if samples.is_empty() {
+            return Err(anyhow::anyhow!("no audio received"));
+        }
+
         if is_recording {
             let wav_data = crate::util::pcm_to_wav(
                 &samples,
@@ -505,6 +509,7 @@ async fn get_paraformer_v2_text(
                     bits_per_sample: 16,
                 },
             );
+            samples.clear();
             let now = chrono::Local::now().to_rfc3339();
 
             if let Err(e) = std::fs::write(format!("./record/{id}/recording_{now}.wav"), &wav_data)
