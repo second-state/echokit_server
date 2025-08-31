@@ -456,7 +456,6 @@ async fn get_paraformer_v2_text(
                     continue;
                 }
                 ClientMsg::StartChat => {
-                    // ignore
                     let mut paraformer_asr =
                         crate::ai::bailian::realtime_asr::ParaformerRealtimeV2Asr::connect(
                             paraformer_token.clone(),
@@ -471,7 +470,12 @@ async fn get_paraformer_v2_text(
             }
         }
 
+        if samples.is_empty() {
+            return Err(anyhow::anyhow!("client rx channel closed"));
+        }
+
         if let Some(mut asr) = asr.take() {
+            samples.clear();
             asr.finish_task().await?;
             let mut text = String::new();
             while let Some(sentence) = asr.next_result().await? {
@@ -496,6 +500,7 @@ async fn get_paraformer_v2_text(
                     bits_per_sample: 16,
                 },
             );
+            samples.clear();
             let now = chrono::Local::now().to_rfc3339();
 
             if let Err(e) = std::fs::write(format!("./record/{id}/recording_{now}.wav"), &wav_data)

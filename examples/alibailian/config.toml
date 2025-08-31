@@ -1,0 +1,52 @@
+addr = "0.0.0.0:8070"
+hello_wav = "hello.wav"
+
+[asr]
+paraformer_token = "API Key"
+
+# Get your API key from https://bailian.console.aliyun.com/
+
+[tts]
+platform = "CosyVoice"
+token = "API Key"
+speaker = "longhuhu"
+
+# Get your API key from https://bailian.console.aliyun.com/
+# Only support cosyvoice-v2 and cosyvoice-v1. The default one is cosyvoice-v2
+# Get speaker list from https://help.aliyun.com/zh/model-studio/cosyvoice-java-sdk#722dd7ca66a6x
+
+[llm]
+llm_chat_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+api_key = "API-key"
+model = "qwen-plus"
+history = 5
+
+# Get your API key from https://bailian.console.aliyun.com/
+# All text generation models are supported.
+
+
+[[llm.sys_prompts]]
+role = "system"
+content = """
+你叫胡桃，是一个优秀的翻译官。你现在的任务是，把我给你的中文翻译成英文，并且用英文回答我。
+
+你说话时必须满足以下格式
+第一行是你当前的状态或者要执行的动作，第二行开始是你的对话内容
+
+比如：
+[翻译]
+这句话的翻译是 "I am a translator"。
+"""
+
+[[llm.sys_prompts]]
+role = "user"
+content = """
+我是一个翻译官
+"""
+
+[[llm.sys_prompts]]
+role = "assistant"
+content = """
+[翻译]
+这句话的翻译是 "I am a translator"。
+"""

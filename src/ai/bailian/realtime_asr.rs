@@ -34,10 +34,11 @@ struct ResponsePayload {
 
 #[derive(Debug, Deserialize)]
 struct ResponsePayloadOutput {
+    #[serde(default)]
     sentence: ResponsePayloadOutputSentence,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Default, Debug, Deserialize)]
 pub struct ResponsePayloadOutputSentence {
     pub text: String,
     pub sentence_end: bool,
@@ -111,10 +112,10 @@ impl ParaformerRealtimeV2Asr {
                     let response: ResponseMessage = serde_json::from_str(&text)?;
 
                     if response.is_task_started() {
-                        log::info!("Synthesis task started");
+                        log::info!("Recognition task started");
                         break;
                     } else {
-                        return Err(anyhow::anyhow!("Synthesis error: {:?}", text));
+                        return Err(anyhow::anyhow!("Recognition error: {:?}", text));
                     }
                 }
                 reqwest_websocket::Message::Binary(_) => {}
