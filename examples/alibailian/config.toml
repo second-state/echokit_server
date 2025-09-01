@@ -9,10 +9,10 @@ paraformer_token = "API Key"
 [tts]
 platform = "CosyVoice"
 token = "API Key"
-speaker = "longhuhu"
+speaker = "longhua_v2"
 
 # Get your API key from https://bailian.console.aliyun.com/
-# Only support cosyvoice-v2 and cosyvoice-v1. The default one is cosyvoice-v2
+# Supported platforms: cosyvoice-v2 (default) and cosyvoice-v1
 # Get speaker list from https://help.aliyun.com/zh/model-studio/cosyvoice-java-sdk#722dd7ca66a6x
 
 [llm]
@@ -22,7 +22,7 @@ model = "qwen-plus"
 history = 5
 
 # Get your API key from https://bailian.console.aliyun.com/
-# All text generation models are supported.
+# Any text generation models is supported.
 
 
 [[llm.sys_prompts]]
