@@ -1,5 +1,7 @@
 use std::io::{Cursor, Write};
 
+use wav_io::{header::SampleFormat, reader::DecodeError};
+
 /// WAV 音频参数结构体
 #[derive(Debug, Clone)]
 pub struct WavConfig {
@@ -61,4 +63,219 @@ pub fn convert_samples_f32_to_i16_bytes(samples: &[f32]) -> Vec<u8> {
         samples_i16.extend_from_slice(&sample.to_le_bytes());
     }
     samples_i16
+}
+
+pub fn get_samples_f32(reader: &mut wav_io::reader::Reader) -> Result<Vec<f32>, DecodeError> {
+    let mut result: Vec<f32> = Vec::new();
+    loop {
+        // read chunks
+        let chunk_tag = reader.read_str4();
+        if chunk_tag == "" {
+            break;
+        }
+        let size = reader.read_u32().unwrap_or(0) as u64;
+        // todo: check tag
+        // println!("[info] tag={:?}::{}", chunk_tag, size);
+        if size == 0 {
+            continue;
+        }
+        // data?
+        if chunk_tag != "data" {
+            reader.cur.set_position(reader.cur.position() + size);
+            continue;
+        }
+        // read wav data
+        let h = &reader.header.clone().unwrap();
+
+        let bytes_to_read = if size == 0xFFFFFFFF {
+            let current_pos = reader.cur.position();
+            let file_len = reader.cur.get_ref().len() as u64;
+            file_len.saturating_sub(current_pos)
+        } else {
+            size
+        };
+
+        let bytes_per_sample = (h.bits_per_sample / 8) as u64;
+        let total_samples = bytes_to_read / bytes_per_sample;
+        if result.is_empty() {
+            result = Vec::with_capacity(total_samples as usize);
+        }
+
+        match h.sample_format {
+            // float
+            SampleFormat::Float => {
+                match h.bits_per_sample {
+                    32 => {
+                        for _ in 0..total_samples {
+                            let lv = reader.read_f32().unwrap_or(0.0);
+                            result.push(lv);
+                        }
+                    }
+                    64 => {
+                        for _ in 0..total_samples {
+                            let lv = reader.read_f64().unwrap_or(0.0);
+                            result.push(lv as f32); // down to f32
+                        }
+                    }
+                    _ => {
+                        return Err(DecodeError::UnsupportedWav {
+                            attribute: "bits per float sample",
+                            expected: &[32, 64],
+                            found: h.bits_per_sample as u32,
+                        })
+                    }
+                }
+            }
+            // int
+            SampleFormat::Int => {
+                match h.bits_per_sample {
+                    8 => {
+                        for _ in 0..total_samples {
+                            // 0..255
+                            let lv = reader.read_u8().unwrap_or(0);
+                            let fv = lv.wrapping_sub(128) as i8 as f32 / (i8::MAX as f32);
+                            result.push(fv);
+                        }
+                    }
+                    16 => {
+                        for _ in 0..total_samples {
+                            let lv = reader.read_i16().unwrap_or(0);
+                            let fv = lv as f32 / (i16::MAX as f32);
+                            result.push(fv);
+                        }
+                    }
+                    24 => {
+                        for _ in 0..total_samples {
+                            let lv = reader.read_i24().unwrap_or(0);
+                            let fv = lv as f32 / ((1 << 23) - 1) as f32;
+                            result.push(fv);
+                        }
+                    }
+                    32 => {
+                        for _ in 0..total_samples {
+                            let lv = reader.read_i32().unwrap_or(0);
+                            let fv = lv as f32 / (i32::MAX as f32);
+                            result.push(fv);
+                        }
+                    }
+                    _ => {
+                        return Err(DecodeError::UnsupportedWav {
+                            attribute: "bits per integer sample",
+                            expected: &[8, 16, 24, 32],
+                            found: h.bits_per_sample as u32,
+                        })
+                    }
+                }
+            }
+            _ => return Err(DecodeError::UnsupportedEncoding),
+        }
+    }
+    Ok(result)
+}
+
+pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, DecodeError> {
+    let mut result: Vec<i16> = Vec::new();
+    loop {
+        // read chunks
+        let chunk_tag = reader.read_str4();
+        if chunk_tag == "" {
+            break;
+        }
+        let size = reader.read_u32().unwrap_or(0) as u64;
+        // todo: check tag
+        // println!("[info] tag={:?}::{}", chunk_tag, size);
+        if size == 0 {
+            continue;
+        }
+        // data?
+        if chunk_tag != "data" {
+            reader.cur.set_position(reader.cur.position() + size);
+            continue;
+        }
+        // read wav data
+        let h = &reader.header.clone().unwrap();
+
+        let bytes_to_read = if size == 0xFFFFFFFF {
+            let current_pos = reader.cur.position();
+            let file_len = reader.cur.get_ref().len() as u64;
+            file_len.saturating_sub(current_pos)
+        } else {
+            size
+        };
+
+        let bytes_per_sample = (h.bits_per_sample / 8) as u64;
+        let total_samples = bytes_to_read / bytes_per_sample;
+        if result.is_empty() {
+            result = Vec::with_capacity(total_samples as usize);
+        }
+
+        match h.sample_format {
+            // float
+            SampleFormat::Float => match h.bits_per_sample {
+                32 => {
+                    for _ in 0..total_samples {
+                        let lv = reader.read_f32().unwrap_or(0.0);
+                        let sample = (lv.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                        result.push(sample);
+                    }
+                }
+                64 => {
+                    for _ in 0..total_samples {
+                        let lv = reader.read_f64().unwrap_or(0.0);
+                        let sample = ((lv as f32).clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                        result.push(sample);
+                    }
+                }
+                _ => {
+                    return Err(DecodeError::UnsupportedWav {
+                        attribute: "bits per float sample",
+                        expected: &[32, 64],
+                        found: h.bits_per_sample as u32,
+                    })
+                }
+            },
+            // int
+            SampleFormat::Int => match h.bits_per_sample {
+                8 => {
+                    for _ in 0..total_samples {
+                        let lv = reader.read_u8().unwrap_or(0);
+                        let normalized = (lv as f32) / (i8::MAX as f32);
+                        let sample = (normalized * i16::MAX as f32) as i16;
+                        result.push(sample);
+                    }
+                }
+                16 => {
+                    for _ in 0..total_samples {
+                        let lv = reader.read_i16().unwrap_or(0);
+                        result.push(lv);
+                    }
+                }
+                24 => {
+                    for _ in 0..total_samples {
+                        let lv = reader.read_i24().unwrap_or(0);
+                        let normalized = lv as f32 / 0xFFFFFF as f32;
+                        let sample = (normalized * i16::MAX as f32) as i16;
+                        result.push(sample);
+                    }
+                }
+                32 => {
+                    for _ in 0..total_samples {
+                        let lv = reader.read_i32().unwrap_or(0);
+                        let normalized = lv as f32 / i32::MAX as f32;
+                        let sample = (normalized * i16::MAX as f32) as i16;
+                        result.push(sample);
+                    }
+                }
+                _ => {
+                    return Err(DecodeError::UnsupportedWav {
+                        attribute: "bits per integer sample",
+                        expected: &[8, 16, 24, 32],
+                        found: h.bits_per_sample as u32,
+                    })
+                }
+            },
+            _ => return Err(DecodeError::UnsupportedEncoding),
+        }
+    }
+    Ok(result)
 }

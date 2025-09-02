@@ -96,7 +96,7 @@ pub async fn groq(model: &str, token: &str, voice: &str, text: &str) -> anyhow::
     Ok(bytes)
 }
 
-// cargo test --package esp_assistant --bin esp_assistant -- ai::tts:test_groq --exact --show-output
+// cargo test --package echokit_server --bin echokit_server -- ai::tts::test_groq --exact --show-output
 #[tokio::test]
 async fn test_groq() {
     let token = std::env::var("GROQ_API_KEY").unwrap();
@@ -107,6 +107,8 @@ async fn test_groq() {
     let head = reader.read_header().unwrap();
     println!("wav header: {:?}", head);
     std::fs::write("./resources/test/groq_out.wav", wav_audio).unwrap();
+    let samples = crate::util::get_samples_f32(&mut reader).unwrap();
+    println!("samples len: {}", samples.len());
 }
 
 #[derive(Debug, serde::Serialize)]
