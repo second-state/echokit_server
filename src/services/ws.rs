@@ -194,7 +194,8 @@ async fn send_wav(
         .map_err(|e| anyhow::anyhow!("wav_io reader error: {e}"))?;
 
     let header = reader.read_header()?;
-    let mut samples = reader.get_samples_f32()?;
+    let mut samples = crate::util::get_samples_f32(&mut reader)
+        .map_err(|e| anyhow::anyhow!("get_samples_f32 error: {e}"))?;
     let duration_sec = samples.len() as f32 / (header.sample_rate as f32 * header.channels as f32);
     let duration_sec = std::time::Duration::from_secs_f32(duration_sec);
 
