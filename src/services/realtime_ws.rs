@@ -1184,7 +1184,7 @@ async fn tts_and_send(
             let wav_data =
                 crate::ai::tts::groq(&groq.model, &groq.api_key, &groq.voice, &text).await?;
             let duration_sec = send_wav(tx, response_id, item_id, text, wav_data).await?;
-            log::info!("Fish TTS duration: {:?}", duration_sec);
+            log::info!("Groq TTS duration: {:?}", duration_sec);
             Ok(())
         }
         crate::config::TTSConfig::StreamGSV(stream_tts) => {
