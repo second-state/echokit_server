@@ -1,23 +1,24 @@
 addr = "0.0.0.0:9090"
 hello_wav = "hello.wav"
 
+# Requires a local gsv_tts server at port 9094: https://github.com/second-state/gsv_tts
 [tts]
 platform = "StreamGSV"
 url = "http://localhost:9094/v1/audio/stream_speech"
 speaker = "cooper"
 
+# Requires a local Whisper API server at port 9092: https://llamaedge.com/docs/ai-models/speech-to-text/quick-start-whisper
 [asr]
 url = "http://localhost:9092/v1/audio/transcriptions"
 lang = "auto"
-# vad_url = "http://localhost:8000/v1/audio/vad"
+# Requires a local Silero VAD server at port 9093: https://github.com/second-state/silero_vad_server
+vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
-# if you want to open server_vad in realtime mode, you can uncomment the following line
-# vad_realtime_url = "ws://localhost:8000/v1/audio/realtime_vad"
-
-
+# Requires a local LlamaEdge API server at port 9091: https://llamaedge.com/docs/ai-models/llm/quick-start-llm
 [llm]
 llm_chat_url = "http://localhost:9091/v1/chat/completions"
 api_key = "Bearer gaia-1234"
+model = "default"
 history = 5
 
 [[llm.sys_prompts]]
