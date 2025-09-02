@@ -1,22 +1,30 @@
 addr = "0.0.0.0:9090"
 hello_wav = "hello.wav"
 
+# Requires a local gsv_tts server at port 9094: https://github.com/second-state/gsv_tts
 [tts]
 platform = "StreamGSV"
 url = "http://localhost:9094/v1/audio/stream_speech"
 speaker = "cooper"
 
+# Use Groq for fast ASR here
 [asr]
-url = "http://localhost:9092/v1/audio/transcriptions"
-lang = "auto"
-# vad_url = "http://localhost:9093/v1/audio/vad"
+url = "https://api.groq.com/openai/v1/audio/transcriptions"
+api_key = "gsk_ABCD"
+model = "whisper-large-v3"
+lang = "en"
+prompt = "Hello\n你好\n(noise)\n(bgm)\n(silence)\n"
+# Requires a local Silero VAD server at port 9093: https://github.com/second-state/silero_vad_server
 vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
+# Use Groq for fast LLM here
 [llm]
-llm_chat_url = "http://localhost:9091/v1/chat/completions"
-api_key = "Bearer gaia-1234"
-history = 5
+llm_chat_url = "https://api.groq.com/openai/v1/chat/completions"
+api_key = "gsk_ABCD"
+model = "openai/gpt-oss-20b"
+history = 10
 
+# Requires an MCP server running at port 8000
 [[llm.mcp_server]]
 server = "http://localhost:8000/mcp"
 type = "http_streamable"
