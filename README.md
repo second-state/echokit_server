@@ -58,7 +58,9 @@ Configure WiFi and server
 
 * WiFi SSID (e.g., `MyHome`)
 * WiFi password (e.g., `MyPassword`)
-* Server URL (e.g., `ws://34.44.85.57:9090/ws/`) -- that IP address and port are for the server running `echokit_server`
+* Web Socket server URL for `echokit_server`
+    * US: `ws://indie.echokit.dev/ws/`
+    * Asia: `ws://hk.echokit.dev/ws/`
 
 ![Configure Wifi](https://hackmd.io/_uploads/HJkh5ZjVee.png)
 
