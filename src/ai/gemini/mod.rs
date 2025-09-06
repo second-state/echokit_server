@@ -28,9 +28,7 @@ impl LiveClient {
 
     pub async fn setup(&mut self, setup: types::Setup) -> anyhow::Result<()> {
         self.ws
-            .send(Message::Text(serde_json::to_string(
-                &serde_json::json!({"setup":setup}),
-            )?))
+            .send(Message::Text(serde_json::to_string(&serde_json::json!({"setup":setup}))?))
             .await?;
         let x = self
             .ws
@@ -54,10 +52,8 @@ impl LiveClient {
     }
 
     pub async fn send_realtime_audio(&mut self, audio: types::RealtimeAudio) -> anyhow::Result<()> {
-        self.send_realtime_input(types::RealtimeInput::Audio(audio))
-            .await?;
-        self.send_realtime_input(types::RealtimeInput::AudioStreamEnd(true))
-            .await?;
+        self.send_realtime_input(types::RealtimeInput::Audio(audio)).await?;
+        self.send_realtime_input(types::RealtimeInput::AudioStreamEnd(true)).await?;
         Ok(())
     }
 
@@ -73,7 +69,7 @@ impl LiveClient {
                         })?;
                     log::debug!("Parsed text message: {:?}", server_content);
                     Ok(server_content.server_content)
-                }
+                },
                 Message::Binary(bin) => {
                     let server_content: ServerContent_ =
                         serde_json::from_slice(&bin).map_err(|e| {
@@ -81,7 +77,7 @@ impl LiveClient {
                         })?;
                     log::debug!("Parsed binary message: {:?}", server_content);
                     Ok(server_content.server_content)
-                }
+                },
                 Message::Close { code, reason } => Err(anyhow::anyhow!(
                     "WebSocket closed with code: {:?}, reason: {:?}",
                     code,
@@ -109,8 +105,10 @@ mod test {
         let mut client = LiveClient::connect(&api_key).await?;
         log::info!("Connected to Gemini Live Client");
 
-        let mut cfg = types::GenerationConfig::default();
-        cfg.response_modalities = Some(vec![types::Modality::TEXT]);
+        let cfg = types::GenerationConfig {
+            response_modalities: Some(vec![types::Modality::TEXT]),
+            ..Default::default()
+        };
 
         let setup = types::Setup {
             model: "models/gemini-2.0-flash-live-001".to_string(),
@@ -148,9 +146,7 @@ mod test {
             mime_type: "audio/pcm;rate=16000".to_string(),
         });
         client.send_realtime_input(input).await?;
-        client
-            .send_realtime_input(types::RealtimeInput::AudioStreamEnd(true))
-            .await?;
+        client.send_realtime_input(types::RealtimeInput::AudioStreamEnd(true)).await?;
 
         log::info!("Sent realtime input");
         loop {

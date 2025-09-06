@@ -59,15 +59,12 @@ pub struct GenerationConfig {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Default)]
 pub enum Modality {
+    #[default]
     TEXT,
     IMAGE,
     AUDIO,
-}
-impl Default for Modality {
-    fn default() -> Self {
-        Modality::TEXT
-    }
 }
 
 #[derive(Debug, Clone)]

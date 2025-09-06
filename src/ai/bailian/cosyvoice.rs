@@ -38,8 +38,10 @@ pub struct CosyVoiceTTS {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Default)]
 pub enum CosyVoiceVersion {
     V1,
+    #[default]
     V2,
 }
 
@@ -52,15 +54,10 @@ impl CosyVoiceVersion {
     }
 }
 
-impl Default for CosyVoiceVersion {
-    fn default() -> Self {
-        CosyVoiceVersion::V2
-    }
-}
 
 impl CosyVoiceTTS {
     pub async fn connect(token: String) -> anyhow::Result<Self> {
-        let url = format!("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
+        let url = "wss://dashscope.aliyuncs.com/api-ws/v1/inference".to_string();
 
         let client = reqwest::Client::new();
         let response = client

@@ -41,38 +41,34 @@ async fn routes(
 
     let mut tool_set = ai::openai::tool::ToolSet::default();
     let mut real_config: Option<StableRealtimeConfig> = None;
-    match &config.config {
-        config::AIConfig::Stable {
-            llm,
-            tts,
-            asr: ASRConfig::Whisper(asr),
-        } => {
-            real_config = Some(StableRealtimeConfig {
-                llm: llm.clone(),
-                tts: tts.clone(),
-                asr: asr.clone(),
-            });
-            for server in &llm.mcp_server {
-                match server.type_ {
-                    config::MCPType::SSE => {
-                        if let Err(e) =
-                            ai::load_sse_tools(&mut tool_set, clients, &server.server).await
-                        {
-                            log::error!("Failed to load tools from {}: {}", &server.server, e);
-                        }
+    if let config::AIConfig::Stable {
+        llm,
+        tts,
+        asr: ASRConfig::Whisper(asr),
+    } = &config.config
+    {
+        real_config = Some(StableRealtimeConfig {
+            llm: llm.clone(),
+            tts: tts.clone(),
+            asr: asr.clone(),
+        });
+        for server in &llm.mcp_server {
+            match server.type_ {
+                config::MCPType::SSE => {
+                    if let Err(e) = ai::load_sse_tools(&mut tool_set, clients, &server.server).await
+                    {
+                        log::error!("Failed to load tools from {}: {}", &server.server, e);
                     }
-                    config::MCPType::HttpStreamable => {
-                        if let Err(e) =
-                            ai::load_http_streamable_tools(&mut tool_set, clients, &server.server)
-                                .await
-                        {
-                            log::error!("Failed to load tools from {}: {}", &server.server, e);
-                        }
+                },
+                config::MCPType::HttpStreamable => {
+                    if let Err(e) =
+                        ai::load_http_streamable_tools(&mut tool_set, clients, &server.server).await
+                    {
+                        log::error!("Failed to load tools from {}: {}", &server.server, e);
                     }
-                }
+                },
             }
         }
-        _ => {}
     }
 
     let mut router = Router::new()
@@ -86,10 +82,7 @@ async fn routes(
         ))));
 
     if let Some(real_config) = real_config {
-        log::info!(
-            "Adding realtime WebSocket handler with config: {:?}",
-            real_config
-        );
+        log::info!("Adding realtime WebSocket handler with config: {:?}", real_config);
         router = router
             .route("/v1/realtime", any(services::realtime_ws::ws_handler))
             .layer(axum::Extension(Arc::new(real_config)));

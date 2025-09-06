@@ -54,7 +54,7 @@ pub struct ParaformerRealtimeV2Asr {
 
 impl ParaformerRealtimeV2Asr {
     pub async fn connect(token: String, sample_rate: u32) -> anyhow::Result<Self> {
-        let url = format!("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
+        let url = "wss://dashscope.aliyuncs.com/api-ws/v1/inference".to_string();
 
         let client = reqwest::Client::new();
         let response = client
@@ -100,9 +100,7 @@ impl ParaformerRealtimeV2Asr {
         });
 
         let message_json = serde_json::to_string(&start_message)?;
-        self.websocket
-            .send(reqwest_websocket::Message::Text(message_json))
-            .await?;
+        self.websocket.send(reqwest_websocket::Message::Text(message_json)).await?;
 
         while let Some(message) = self.websocket.next().await {
             match message? {
@@ -117,13 +115,13 @@ impl ParaformerRealtimeV2Asr {
                     } else {
                         return Err(anyhow::anyhow!("Recognition error: {:?}", text));
                     }
-                }
-                reqwest_websocket::Message::Binary(_) => {}
+                },
+                reqwest_websocket::Message::Binary(_) => {},
                 msg => {
                     if cfg!(debug_assertions) {
                         log::debug!("Received non-text message: {:?}", msg);
                     }
-                }
+                },
             }
         }
 
@@ -149,9 +147,7 @@ impl ParaformerRealtimeV2Asr {
     }
 
     pub async fn send_audio(&mut self, audio_pcm_data: Bytes) -> anyhow::Result<()> {
-        self.websocket
-            .send(reqwest_websocket::Message::Binary(audio_pcm_data))
-            .await?;
+        self.websocket.send(reqwest_websocket::Message::Binary(audio_pcm_data)).await?;
         Ok(())
     }
 
@@ -160,7 +156,7 @@ impl ParaformerRealtimeV2Asr {
             match message? {
                 reqwest_websocket::Message::Binary(_) => {
                     log::debug!("Received unexpected binary message");
-                }
+                },
                 reqwest_websocket::Message::Text(text) => {
                     let response: ResponseMessage = serde_json::from_str(&text)?;
 
@@ -172,12 +168,12 @@ impl ParaformerRealtimeV2Asr {
                     } else {
                         return Err(anyhow::anyhow!("ASR error: {:?}", text));
                     }
-                }
+                },
                 msg => {
                     if cfg!(debug_assertions) {
                         log::debug!("Received non-binary/text message: {:?}", msg);
                     }
-                }
+                },
             }
         }
 
@@ -195,22 +191,16 @@ async fn test_paraformer_asr() {
     let samples = crate::util::convert_samples_f32_to_i16_bytes(&samples);
     let audio_data = bytes::Bytes::from(samples);
 
-    let mut asr = ParaformerRealtimeV2Asr::connect(token, head.sample_rate)
-        .await
-        .unwrap();
+    let mut asr = ParaformerRealtimeV2Asr::connect(token, head.sample_rate).await.unwrap();
     asr.start_pcm_recognition().await.unwrap();
 
     asr.send_audio(audio_data).await.unwrap();
     asr.finish_task().await.unwrap();
 
-    loop {
-        if let Ok(Some(sentence)) = asr.next_result().await {
-            println!("{:?}", sentence);
-            if sentence.sentence_end {
-                println!();
-            }
-        } else {
-            break;
+    while let Ok(Some(sentence)) = asr.next_result().await {
+        println!("{:?}", sentence);
+        if sentence.sentence_end {
+            println!();
         }
     }
 }

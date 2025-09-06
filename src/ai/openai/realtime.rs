@@ -293,7 +293,7 @@ pub enum ServerEvent {
 // 支持数据结构
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SessionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modalities: Option<Vec<Modality>>,
@@ -657,67 +657,6 @@ impl ServerEvent {
 }
 
 // ============================================================================
-// 测试模块
-// ============================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_client_event_serialization() {
-        let event = ClientEvent::session_update(SessionConfig {
-            modalities: Some(vec![Modality::Text, Modality::Audio]),
-            voice: Some("default".to_string()),
-            instructions: Some("You are a helpful assistant.".to_string()),
-            input_audio_format: Some(AudioFormat::Pcm16),
-            output_audio_format: Some(AudioFormat::Pcm16),
-            tool_choice: Some(ToolChoice::Auto),
-            ..Default::default()
-        });
-
-        let json = serde_json::to_string(&event).unwrap();
-        println!("Client event JSON: {}", json);
-
-        let _: ClientEvent = serde_json::from_str(&json).unwrap();
-    }
-
-    #[test]
-    fn test_server_event_deserialization() {
-        let json = r#"{
-            "type": "response.text.delta",
-            "event_id": "event_123",
-            "response_id": "resp_001",
-            "item_id": "item_001", 
-            "output_index": 0,
-            "content_index": 0,
-            "delta": "Hello"
-        }"#;
-
-        let event: ServerEvent = serde_json::from_str(json).unwrap();
-        println!("Server event: {:?}", event);
-    }
-}
-
-impl Default for SessionConfig {
-    fn default() -> Self {
-        Self {
-            modalities: None,
-            instructions: None,
-            voice: None,
-            input_audio_format: None,
-            output_audio_format: None,
-            input_audio_transcription: None,
-            turn_detection: None,
-            tools: None,
-            tool_choice: None,
-            temperature: None,
-            max_output_tokens: None,
-        }
-    }
-}
-
-// ============================================================================
 // 枚举便捷方法
 // ============================================================================
 
@@ -809,5 +748,48 @@ impl TurnDetection {
             silence_duration_ms: None,
             create_response: None,
         }
+    }
+}
+
+// ============================================================================
+// 测试模块
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_client_event_serialization() {
+        let event = ClientEvent::session_update(SessionConfig {
+            modalities: Some(vec![Modality::Text, Modality::Audio]),
+            voice: Some("default".to_string()),
+            instructions: Some("You are a helpful assistant.".to_string()),
+            input_audio_format: Some(AudioFormat::Pcm16),
+            output_audio_format: Some(AudioFormat::Pcm16),
+            tool_choice: Some(ToolChoice::Auto),
+            ..Default::default()
+        });
+
+        let json = serde_json::to_string(&event).unwrap();
+        println!("Client event JSON: {}", json);
+
+        let _: ClientEvent = serde_json::from_str(&json).unwrap();
+    }
+
+    #[test]
+    fn test_server_event_deserialization() {
+        let json = r#"{
+            "type": "response.text.delta",
+            "event_id": "event_123",
+            "response_id": "resp_001",
+            "item_id": "item_001", 
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "Hello"
+        }"#;
+
+        let event: ServerEvent = serde_json::from_str(json).unwrap();
+        println!("Server event: {:?}", event);
     }
 }
