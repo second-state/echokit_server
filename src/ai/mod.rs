@@ -38,12 +38,7 @@ impl AsrResult {
 
 /// wav_audio: 16bit,16k,single-channel.
 pub async fn asr(
-    client: &reqwest::Client,
-    asr_url: &str,
-    api_key: &str,
-    model: &str,
-    lang: &str,
-    prompt: &str,
+    client: &reqwest::Client, asr_url: &str, api_key: &str, model: &str, lang: &str, prompt: &str,
     wav_audio: Vec<u8>,
 ) -> anyhow::Result<Vec<String>> {
     let mut form =
@@ -64,9 +59,7 @@ pub async fn asr(
     let builder = client.post(asr_url).multipart(form);
 
     let res = if !api_key.is_empty() {
-        builder
-            .bearer_auth(api_key)
-            .header(reqwest::header::USER_AGENT, "curl/7.81.0")
+        builder.bearer_auth(api_key).header(reqwest::header::USER_AGENT, "curl/7.81.0")
     } else {
         builder
     }
@@ -87,17 +80,9 @@ async fn test_asr() {
     let lang = "zh";
     let wav_audio = std::fs::read("./resources/test/out.wav").unwrap();
     let client = reqwest::Client::new();
-    let text = asr(
-        &client,
-        asr_url,
-        "",
-        "",
-        lang,
-        "你好\n(click)\n(Music)\n(bgm)",
-        wav_audio,
-    )
-    .await
-    .unwrap();
+    let text = asr(&client, asr_url, "", "", lang, "你好\n(click)\n(Music)\n(bgm)", wav_audio)
+        .await
+        .unwrap();
     println!("ASR result: {:?}", text);
 }
 
@@ -110,17 +95,9 @@ async fn test_groq_asr() {
     let wav_audio = std::fs::read("./resources/test/out.wav").unwrap();
     let client = reqwest::Client::new();
 
-    let text = asr(
-        &client,
-        asr_url,
-        &groq_api_key,
-        "whisper-large-v3",
-        lang,
-        "",
-        wav_audio,
-    )
-    .await
-    .unwrap();
+    let text = asr(&client, asr_url, &groq_api_key, "whisper-large-v3", lang, "", wav_audio)
+        .await
+        .unwrap();
     println!("ASR result: {:?}", text);
 }
 
@@ -159,9 +136,9 @@ impl StableLlmResponse {
         if !self.string_buffer.is_empty() {
             let mut new_str = String::new();
             std::mem::swap(&mut new_str, &mut self.string_buffer);
-            return Ok(StableLLMResponseChunk::Text(new_str));
+            Ok(StableLLMResponseChunk::Text(new_str))
         } else {
-            return Ok(StableLLMResponseChunk::Stop);
+            Ok(StableLLMResponseChunk::Stop)
         }
     }
 
@@ -169,7 +146,7 @@ impl StableLlmResponse {
         let mut ret = s;
 
         loop {
-            if let Some(i) = ret.find(&['.', '!', '?', ';', '。', '！', '？', '；', '\n']) {
+            if let Some(i) = ret.find(['.', '!', '?', ';', '。', '！', '？', '；', '\n']) {
                 let ((chunk, ret_), char_len) = if ret.is_char_boundary(i + 1) {
                     (ret.split_at(i + 1), 1)
                 } else {
@@ -181,7 +158,7 @@ impl StableLlmResponse {
                 if ret.chars().next().is_some_and(|c| c.is_numeric()) {
                     continue;
                 }
-                if char_len == 1 && ret.len() > 0 && !ret.starts_with(&[' ', '\n']) {
+                if char_len == 1 && !ret.is_empty() && !ret.starts_with([' ', '\n']) {
                     continue;
                 }
 
@@ -235,7 +212,7 @@ impl StableLlmResponse {
                     }
                     if let Some(content) = &chunk.choices[0].delta.content {
                         log::trace!("llm response content: {content}");
-                        chunks.push_str(&content);
+                        chunks.push_str(content);
                     }
                     if !chunk.choices[0].delta.tool_calls.is_empty() {
                         std::mem::swap(&mut chunk.choices[0].delta.tool_calls, &mut tools);
@@ -304,11 +281,11 @@ pub mod llm {
         pub function: Function,
     }
 
-    impl Into<Tool> for Function {
-        fn into(self) -> Tool {
+    impl From<Function> for Tool {
+        fn from(val: Function) -> Self {
             Tool {
                 type_: "function",
-                function: self,
+                function: val,
             }
         }
     }
@@ -412,18 +389,11 @@ pub mod llm {
     }
 }
 
-pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
-    llm_url: &str,
-    token: &str,
-    model: &str,
-    chat_id: Option<String>,
-    prompts: I,
+pub async fn llm_stable<I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
+    llm_url: &str, token: &str, model: &str, chat_id: Option<String>, prompts: I,
     tools: Vec<llm::Tool>,
 ) -> anyhow::Result<StableLlmResponse> {
-    let messages = prompts
-        .into_iter()
-        .map(|c| c.as_ref().clone())
-        .collect::<Vec<_>>();
+    let messages = prompts.into_iter().map(|c| c.as_ref().clone()).collect::<Vec<_>>();
 
     let mut response_builder = reqwest::Client::new().post(llm_url);
     if !token.is_empty() {
@@ -441,10 +411,7 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
         tool_choice,
     };
 
-    log::debug!(
-        "#### send to llm:\n{}\n#####",
-        serde_json::to_string_pretty(&request)?
-    );
+    log::debug!("#### send to llm:\n{}\n#####", serde_json::to_string_pretty(&request)?);
 
     let response = response_builder
         .header(reqwest::header::USER_AGENT, "curl/7.81.0")
@@ -514,19 +481,19 @@ async fn test_stable_llm() {
         match resp.next_chunk().await {
             Ok(StableLLMResponseChunk::Text(chunk)) => {
                 println!("{}", chunk);
-            }
+            },
             Ok(StableLLMResponseChunk::Functions(functions)) => {
                 for function in functions {
                     println!("Tool call: {:#?}", function);
                 }
-            }
+            },
             Ok(StableLLMResponseChunk::Stop) => {
                 break;
-            }
+            },
             Err(e) => {
                 println!("error: {:#?}", e);
                 break;
-            }
+            },
         }
     }
 }
@@ -546,11 +513,7 @@ pub struct ChatSession {
 
 impl ChatSession {
     pub fn new(
-        url: String,
-        api_key: String,
-        model: String,
-        chat_id: Option<String>,
-        history: usize,
+        url: String, api_key: String, model: String, chat_id: Option<String>, history: usize,
         tools: ToolSet<McpToolAdapter>,
     ) -> Self {
         Self {
@@ -696,16 +659,10 @@ impl ChatSession {
             }
             Ok(())
         } else {
-            log::error!(
-                "Tool call {} failed, tool not found",
-                tool_call.function.name
-            );
+            log::error!("Tool call {} failed, tool not found", tool_call.function.name);
             self.messages.push_back(llm::Content {
                 role: llm::Role::Tool,
-                message: format!(
-                    "Tool call {} failed, tool not found",
-                    tool_call.function.name
-                ),
+                message: format!("Tool call {} failed, tool not found", tool_call.function.name),
                 tool_calls: None,
                 tool_call_id: Some(tool_call.id.clone()),
             });
@@ -819,36 +776,30 @@ async fn test_chat_session() {
 
     chat_session.system_prompts = prompts;
 
-    let mut resp = chat_session
-        .complete()
-        .await
-        .expect("Failed to complete chat session");
+    let mut resp = chat_session.complete().await.expect("Failed to complete chat session");
 
     loop {
         match resp.next_chunk().await {
             Ok(StableLLMResponseChunk::Text(chunk)) => {
                 log::info!("{}", chunk);
-            }
+            },
             Ok(StableLLMResponseChunk::Functions(functions)) => {
                 for function in functions {
                     log::info!("Tool call: {:#?}", function);
-                    chat_session
-                        .execute_tool(&function)
-                        .await
-                        .expect("Failed to execute tool");
+                    chat_session.execute_tool(&function).await.expect("Failed to execute tool");
                 }
                 resp = chat_session
                     .complete()
                     .await
                     .expect("Failed to complete chat session after tool call");
-            }
+            },
             Ok(StableLLMResponseChunk::Stop) => {
                 break;
-            }
+            },
             Err(e) => {
                 log::info!("error: {:#?}", e);
                 break;
-            }
+            },
         }
     }
 }

@@ -2,17 +2,13 @@ use std::collections::LinkedList;
 
 use crate::ai::llm::Content;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub enum MCPType {
     #[serde(rename = "sse")]
     SSE,
     #[serde(rename = "http_streamable")]
+    #[default]
     HttpStreamable,
-}
-impl Default for MCPType {
-    fn default() -> Self {
-        MCPType::HttpStreamable
-    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
