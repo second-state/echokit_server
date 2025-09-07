@@ -156,6 +156,63 @@ pub enum AIConfig {
 impl Config {
     pub fn load(path: &str) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        Ok(toml::from_str(&content)?)
+        let mut config: Config = toml::from_str(&content)?;
+        config.load_api_key()?;
+        Ok(config)
+    }
+
+    /// load api key from environment variable or .env file, key: LLM_API_KEY, TTS_API_KEY, ASR_API_KEY
+    pub fn load_api_key(&mut self) -> anyhow::Result<()> {
+        let api_key = std::env::var("LLM_API_KEY").expect("LLM_API_KEY is not set");
+        match &mut self.config {
+            AIConfig::Stable { llm, tts, asr } => {
+                llm.api_key = Some(api_key);
+                load_tts_api_key(tts);
+                load_asr_api_key(asr);
+            },
+            AIConfig::GeminiAndTTS { gemini, tts } => {
+                gemini.api_key = api_key;
+                load_tts_api_key(tts);
+            },
+            AIConfig::Gemini { gemini } => {
+                gemini.api_key = api_key;
+            },
+        };
+        Ok(())
+    }
+}
+
+fn load_tts_api_key(tts: &mut TTSConfig) {
+    let tts_api_key = std::env::var("TTS_API_KEY").expect("TTS_API_KEY is not set");
+
+    match tts {
+        TTSConfig::Stable(tts) => {
+            tts.api_key = tts_api_key;
+        },
+        TTSConfig::Fish(tts) => {
+            tts.api_key = tts_api_key;
+        },
+        TTSConfig::Groq(tts) => {
+            tts.api_key = tts_api_key;
+        },
+        TTSConfig::StreamGSV(tts) => {
+            tts.api_key = tts_api_key;
+        },
+        TTSConfig::CosyVoice(tts) => {
+            tts.token = tts_api_key;
+        },
+    }
+}
+
+fn load_asr_api_key(asr: &mut ASRConfig) {
+    let asr_api_key = std::env::var("ASR_API_KEY").expect("ASR_API_KEY is not set");
+
+    match asr {
+        ASRConfig::Whisper(asr) => {
+            asr.api_key = asr_api_key;
+        },
+        ASRConfig::ParaformerV2(asr) => {
+            asr.paraformer_token = asr_api_key;
+        },
     }
 }

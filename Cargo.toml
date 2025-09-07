@@ -51,6 +51,8 @@ tower-http = { version = "0.6.6", features = ["fs", "trace"] }
 
 chrono = "0.4.41"
 
+dotenv = "0.15"
+
 [lints.clippy]
 option_map_unit_fn = "allow"
 large_enum_variant = "allow"

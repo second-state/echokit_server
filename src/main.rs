@@ -13,6 +13,7 @@ pub mod util;
 
 #[tokio::main]
 async fn main() {
+    dotenv::dotenv().ok();
     env_logger::init();
     let config_path = std::env::args().nth(1).unwrap_or("config.toml".to_string());
     let config = config::Config::load(&config_path).unwrap();

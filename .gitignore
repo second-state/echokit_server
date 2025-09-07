@@ -1,2 +1,4 @@
 /target
 /record
+.env
+.DS_Store
