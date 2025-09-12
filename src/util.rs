@@ -42,9 +42,7 @@ pub fn pcm_to_wav(pcm_data: &[u8], config: WavConfig) -> Vec<u8> {
     cursor.write_all(&config.sample_rate.to_le_bytes()).unwrap(); // SampleRate
     cursor.write_all(&byte_rate.to_le_bytes()).unwrap(); // ByteRate
     cursor.write_all(&block_align.to_le_bytes()).unwrap(); // BlockAlign
-    cursor
-        .write_all(&config.bits_per_sample.to_le_bytes())
-        .unwrap(); // BitsPerSample
+    cursor.write_all(&config.bits_per_sample.to_le_bytes()).unwrap(); // BitsPerSample
 
     // data 子块
     cursor.write_all(b"data").unwrap(); // Subchunk2ID
@@ -59,7 +57,7 @@ pub fn pcm_to_wav(pcm_data: &[u8], config: WavConfig) -> Vec<u8> {
 pub fn convert_samples_f32_to_i16_bytes(samples: &[f32]) -> Vec<u8> {
     let mut samples_i16 = vec![];
     for v in samples {
-        let sample = (*v * std::i16::MAX as f32) as i16;
+        let sample = (*v * i16::MAX as f32) as i16;
         samples_i16.extend_from_slice(&sample.to_le_bytes());
     }
     samples_i16
@@ -70,7 +68,7 @@ pub fn get_samples_f32(reader: &mut wav_io::reader::Reader) -> Result<Vec<f32>, 
     loop {
         // read chunks
         let chunk_tag = reader.read_str4();
-        if chunk_tag == "" {
+        if chunk_tag.is_empty() {
             break;
         }
         let size = reader.read_u32().unwrap_or(0) as u64;
@@ -110,22 +108,22 @@ pub fn get_samples_f32(reader: &mut wav_io::reader::Reader) -> Result<Vec<f32>, 
                             let lv = reader.read_f32().unwrap_or(0.0);
                             result.push(lv);
                         }
-                    }
+                    },
                     64 => {
                         for _ in 0..total_samples {
                             let lv = reader.read_f64().unwrap_or(0.0);
                             result.push(lv as f32); // down to f32
                         }
-                    }
+                    },
                     _ => {
                         return Err(DecodeError::UnsupportedWav {
                             attribute: "bits per float sample",
                             expected: &[32, 64],
                             found: h.bits_per_sample as u32,
                         })
-                    }
+                    },
                 }
-            }
+            },
             // int
             SampleFormat::Int => {
                 match h.bits_per_sample {
@@ -136,37 +134,37 @@ pub fn get_samples_f32(reader: &mut wav_io::reader::Reader) -> Result<Vec<f32>, 
                             let fv = lv.wrapping_sub(128) as i8 as f32 / (i8::MAX as f32);
                             result.push(fv);
                         }
-                    }
+                    },
                     16 => {
                         for _ in 0..total_samples {
                             let lv = reader.read_i16().unwrap_or(0);
                             let fv = lv as f32 / (i16::MAX as f32);
                             result.push(fv);
                         }
-                    }
+                    },
                     24 => {
                         for _ in 0..total_samples {
                             let lv = reader.read_i24().unwrap_or(0);
                             let fv = lv as f32 / ((1 << 23) - 1) as f32;
                             result.push(fv);
                         }
-                    }
+                    },
                     32 => {
                         for _ in 0..total_samples {
                             let lv = reader.read_i32().unwrap_or(0);
                             let fv = lv as f32 / (i32::MAX as f32);
                             result.push(fv);
                         }
-                    }
+                    },
                     _ => {
                         return Err(DecodeError::UnsupportedWav {
                             attribute: "bits per integer sample",
                             expected: &[8, 16, 24, 32],
                             found: h.bits_per_sample as u32,
                         })
-                    }
+                    },
                 }
-            }
+            },
             _ => return Err(DecodeError::UnsupportedEncoding),
         }
     }
@@ -178,7 +176,7 @@ pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, 
     loop {
         // read chunks
         let chunk_tag = reader.read_str4();
-        if chunk_tag == "" {
+        if chunk_tag.is_empty() {
             break;
         }
         let size = reader.read_u32().unwrap_or(0) as u64;
@@ -218,21 +216,21 @@ pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, 
                         let sample = (lv.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
                         result.push(sample);
                     }
-                }
+                },
                 64 => {
                     for _ in 0..total_samples {
                         let lv = reader.read_f64().unwrap_or(0.0);
                         let sample = ((lv as f32).clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
                         result.push(sample);
                     }
-                }
+                },
                 _ => {
                     return Err(DecodeError::UnsupportedWav {
                         attribute: "bits per float sample",
                         expected: &[32, 64],
                         found: h.bits_per_sample as u32,
                     })
-                }
+                },
             },
             // int
             SampleFormat::Int => match h.bits_per_sample {
@@ -243,13 +241,13 @@ pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, 
                         let sample = (normalized * i16::MAX as f32) as i16;
                         result.push(sample);
                     }
-                }
+                },
                 16 => {
                     for _ in 0..total_samples {
                         let lv = reader.read_i16().unwrap_or(0);
                         result.push(lv);
                     }
-                }
+                },
                 24 => {
                     for _ in 0..total_samples {
                         let lv = reader.read_i24().unwrap_or(0);
@@ -257,7 +255,7 @@ pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, 
                         let sample = (normalized * i16::MAX as f32) as i16;
                         result.push(sample);
                     }
-                }
+                },
                 32 => {
                     for _ in 0..total_samples {
                         let lv = reader.read_i32().unwrap_or(0);
@@ -265,14 +263,14 @@ pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, 
                         let sample = (normalized * i16::MAX as f32) as i16;
                         result.push(sample);
                     }
-                }
+                },
                 _ => {
                     return Err(DecodeError::UnsupportedWav {
                         attribute: "bits per integer sample",
                         expected: &[8, 16, 24, 32],
                         found: h.bits_per_sample as u32,
                     })
-                }
+                },
             },
             _ => return Err(DecodeError::UnsupportedEncoding),
         }

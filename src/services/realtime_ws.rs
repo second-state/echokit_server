@@ -452,8 +452,7 @@ async fn handle_client_message(
                             .config
                             .turn_detection
                             .as_ref()
-                            .map(|td| td.prefix_padding_ms)
-                            .flatten()
+                            .and_then(|td| td.prefix_padding_ms)
                             .unwrap_or(300);
                         let prefix_padding_samples_len =
                             2 * prefix_padding_ms as usize * 24000 / 1000;
@@ -666,7 +665,7 @@ async fn handle_audio_buffer_commit(
     }
 
     // 24k pcm to wav
-    let wav_audio = crate::util::pcm_to_wav(&audio_data, crate::util::WavConfig::default());
+    let wav_audio = crate::util::pcm_to_wav(audio_data, crate::util::WavConfig::default());
 
     // 发送 input_audio_buffer.committed 事件
     let committed_event = ServerEvent::InputAudioBufferCommitted {
@@ -712,7 +711,7 @@ async fn handle_audio_buffer_commit(
         status: Some("completed".to_string()),
         role: Some("user".to_string()),
         content: Some(vec![ContentPart::InputAudio {
-            audio: encode_base64(&audio_data),
+            audio: encode_base64(audio_data),
             transcript: Some(transcript.clone()),
         }]),
         call_id: None,
@@ -888,7 +887,7 @@ async fn generate_response(
                     // 跳过函数调用
                     continue;
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(e),
             }
         }
 
@@ -1090,7 +1089,7 @@ async fn send_stream_chunk(
 
         log::trace!("Received audio chunk of size: {}", chunk.len());
 
-        if rest.len() > 0 {
+        if !rest.is_empty() {
             log::trace!("chunk size: {}, rest size: {}", chunk.len(), rest.len());
             if chunk.len() + rest.len() > read_chunk_size {
                 let n = read_chunk_size - rest.len();
@@ -1122,7 +1121,7 @@ async fn send_stream_chunk(
         for samples_24k_data in chunk.chunks(read_chunk_size) {
             if samples_24k_data.len() < read_chunk_size {
                 log::trace!("Received audio chunk with odd length, skipping");
-                rest.extend_from_slice(&samples_24k_data);
+                rest.extend_from_slice(samples_24k_data);
                 continue 'next_chunk;
             }
             let audio_24k = samples_24k_data.to_vec();
@@ -1141,7 +1140,7 @@ async fn send_stream_chunk(
         }
     }
 
-    if rest.len() > 0 {
+    if !rest.is_empty() {
         let audio_24k = rest.to_vec();
         log::trace!("Sending audio chunk of size: {}", audio_24k.len());
         // send server audio delta

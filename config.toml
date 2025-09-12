@@ -1,70 +1,44 @@
-addr = "0.0.0.0:8080"
+addr = "0.0.0.0:8090"
 hello_wav = "hello.wav"
 
-# [tts]
-# platform = "Groq"
-# api_key = "gsk_xxx"
-# model = "playai-tts"
-# voice = "Aaliyah-PlayAI"
-
-# [tts]
-# platform = "StreamGSV"
-# url = "http://localhost:8000/v1/audio/speech"
-# speaker = "speaker2"
-
 [tts]
-platform = "Stable"
-url = "https://0x66b496fba1fdff4237cca9ac597d7171126369c7.gaia.domains/v1/audio/speech"
-speaker = "speaker2"
-
-
-# [asr]
-# url = "https://api.groq.com/openai/v1/audio/transcriptions"
-# lang = "zh"
-# api_key = "gsk_xxx"
-# model = "whisper-large-v3-turbo"
-# vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
+platform = "CosyVoice"
+token = ""
+speaker = "longhua_v2"
 
 [asr]
-url = "https://whisper.gaia.domains/v1/audio/transcriptions"
-lang = "auto"
-prompt = "Hello\n你好\n(noise)\n(bgm)\n(silence)\n"
-# vad_url = "http://localhost:9093/v1/audio/vad"
-vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
+paraformer_token=""
+# vad_url = "http://localhost:8000/v1/audio/vad"
 
-# [llm]
-# llm_chat_url = "https://api.groq.com/openai/v1/chat/completions"
-# api_key = "gsk_xxx"
-# model = "gemma2-9b-it"
-# history = 1
+# [asr]
+# url = "http://localhost:9092/v1/audio/transcriptions"
+# lang = "auto"
+# prompt = "Hello\n你好\n(noise)\n(bgm)\n(silence)\n"
+# vad_url = "http://192.168.215.2:8000/v1/audio/vad"
+
 
 [llm]
-llm_chat_url = "https://0xb2962131564bc854ece7b0f7c8c9a8345847abfb.gaia.domains/v1/chat/completions"
-api_key = "gaia-1234"
+llm_chat_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+api_key = ""
+model = "qwen-flash"
 history = 5
 
 [[llm.sys_prompts]]
 role = "system"
 content = """
-你叫胡桃，是一个优秀的翻译官。你现在的任务是，把我给你的中文翻译成英文，并且用英文回答我。
-
-你说话时必须满足以下格式
-第一行是你当前的状态或者要执行的动作，第二行开始是你的对话内容
-
-比如：
-[翻译]
-这句话的翻译是 "I am a translator"。
+You are a helpful assistant. Please answer user questions as concise as possible while being accurate and truthful. Use short sentences. Try to be humorous and light-hearted. Respond in the same language as the user.
+If the user is speaking English, you must respond in English.
+如果用户说中文，你必须用中文回答。
+如果用户的问题没有准确的答案，你要回答：“抱歉,我不太明白你的问题,你可以再说一遍吗?”
 """
 
 [[llm.sys_prompts]]
 role = "user"
 content = """
-我是一个翻译官
 """
 
 [[llm.sys_prompts]]
 role = "assistant"
 content = """
-[翻译]
-这句话的翻译是 "I am a translator"。
+你好，我是小美同学，是一个智能助手。有什么可以帮你的吗？
 """
