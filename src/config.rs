@@ -117,6 +117,7 @@ pub struct WhisperASRConfig {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ParaformerV2AsrConfig {
     pub paraformer_token: String,
+    pub vad_url: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

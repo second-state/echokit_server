@@ -387,23 +387,25 @@ async fn get_asr_text(
         std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data)?;
 
         if let Some(vad_url) = &asr.vad_url {
-            match crate::ai::vad::vad_detect(client, vad_url, wav_data.clone()).await {
-                Ok(r) => {
-                    if let Some(err) = r.error {
-                        log::error!("`{id}` vad error: {err}, skipping ASR");
-                        continue;
-                    }
+            if !vad_url.is_empty() {
+                match crate::ai::vad::vad_detect(client, vad_url, wav_data.clone()).await {
+                    Ok(r) => {
+                        if let Some(err) = r.error {
+                            log::error!("`{id}` vad error: {err}, skipping ASR");
+                            continue;
+                        }
 
-                    if r.timestamps.is_empty() {
-                        log::warn!("`{id}` vad returned empty timestamps, skipping ASR");
-                        continue;
-                    }
-                },
+                        if r.timestamps.is_empty() {
+                            log::warn!("`{id}` vad returned empty timestamps, skipping ASR");
+                            continue;
+                        }
+                    },
 
-                Err(e) => {
-                    log::error!("`{id}` vad error: {e}, skipping ASR");
-                    continue;
-                },
+                    Err(e) => {
+                        log::error!("`{id}` vad error: {e}, skipping ASR");
+                        continue;
+                    },
+                }
             }
         }
 
@@ -441,44 +443,39 @@ async fn get_asr_text(
 }
 
 async fn get_paraformer_v2_text(
-    id: &str, asr: &crate::config::ParaformerV2AsrConfig,
+    client: &reqwest::Client, id: &str, asr: &crate::config::ParaformerV2AsrConfig,
     audio: &mut tokio::sync::mpsc::Receiver<AudioChunk>,
 ) -> anyhow::Result<String> {
     std::fs::create_dir_all(format!("./record/{id}"))?;
-
-    let mut samples = bytes::BytesMut::new();
-    let mut is_recording = false;
     loop {
-        while let Some(chunk) = audio.recv().await {
-            match chunk {
-                AudioChunk::Chunk(data) => {
-                    samples.extend_from_slice(&data);
-                },
-                AudioChunk::End => {
-                    log::info!("end audio");
-                    break;
-                },
-                AudioChunk::Recording => {
-                    is_recording = true;
-                    break;
-                },
+        let (wav_data, is_recording) = recv_audio_to_wav(audio).await?;
+
+        std::fs::write(format!("./record/{id}/paraformer.last.wav"), &wav_data)?;
+
+        if let Some(vad_url) = &asr.vad_url {
+            if !vad_url.is_empty() {
+                match crate::ai::vad::vad_detect(client, vad_url, wav_data.clone()).await {
+                    Ok(r) => {
+                        if let Some(err) = r.error {
+                            log::error!("`{id}` vad error: {err}, skipping ASR");
+                            continue;
+                        }
+
+                        if r.timestamps.is_empty() {
+                            log::warn!("`{id}` vad returned empty timestamps, skipping ASR");
+                            continue;
+                        }
+                    },
+
+                    Err(e) => {
+                        log::error!("`{id}` vad error: {e}, skipping ASR");
+                        continue;
+                    },
+                }
             }
         }
 
-        if samples.is_empty() {
-            return Err(anyhow::anyhow!("no audio received"));
-        }
-
         if is_recording {
-            let wav_data = crate::util::pcm_to_wav(
-                &samples,
-                crate::util::WavConfig {
-                    channels: 1,
-                    sample_rate: 16000,
-                    bits_per_sample: 16,
-                },
-            );
-            samples.clear();
             let now = chrono::Local::now().to_rfc3339();
 
             if let Err(e) = std::fs::write(format!("./record/{id}/recording_{now}.wav"), &wav_data)
@@ -486,6 +483,24 @@ async fn get_paraformer_v2_text(
                 log::error!("`{id}` error writing recording file {now}: {e}");
             };
             continue;
+        }
+
+        let st = std::time::Instant::now();
+
+        // Convert WAV back to PCM samples for Paraformer
+        let mut reader = wav_io::reader::Reader::from_vec(wav_data)
+            .map_err(|e| anyhow::anyhow!("wav_io reader error: {e}"))?;
+        let _header = reader.read_header()?;
+        let samples_f32 = crate::util::get_samples_f32(&mut reader)
+            .map_err(|e| anyhow::anyhow!("get_samples_f32 error: {e}"))?;
+
+        // Convert to i16 PCM data
+        let samples_i16 = wav_io::convert_samples_f32_to_i16(&samples_f32);
+
+        // Convert i16 samples to bytes
+        let mut pcm_bytes = bytes::BytesMut::new();
+        for sample in samples_i16 {
+            pcm_bytes.extend_from_slice(&sample.to_le_bytes());
         }
 
         let mut text = String::new();
@@ -497,21 +512,23 @@ async fn get_paraformer_v2_text(
         .await?;
 
         asr.start_pcm_recognition().await?;
-        asr.send_audio(samples.freeze()).await?;
-        samples = bytes::BytesMut::new();
+        asr.send_audio(pcm_bytes.freeze()).await?;
         asr.finish_task().await?;
         while let Some(sentence) = asr.next_result().await? {
             if sentence.sentence_end {
-                log::info!("ASR final result: {:?}", text);
+                log::info!("Paraformer ASR final result: {:?}", sentence.text);
                 text = sentence.text;
                 break;
             }
         }
-        if text.is_empty() {
+
+        log::info!("`{id}` Paraformer ASR took: {:?}", st.elapsed());
+        log::info!("Paraformer ASR result: {:?}", text);
+
+        if text.is_empty() || text.trim().starts_with("(") {
             continue;
-        } else {
-            return Ok(text);
         }
+        return Ok(text);
     }
 }
 
@@ -883,7 +900,7 @@ async fn handle_audio(
                     get_asr_text(&client, &id, asr, &mut rx).await?
                 },
                 crate::config::ASRConfig::ParaformerV2(asr) => {
-                    get_paraformer_v2_text(&id, asr, &mut rx).await?
+                    get_paraformer_v2_text(&client, &id, asr, &mut rx).await?
                 },
             };
 
@@ -894,7 +911,7 @@ async fn handle_audio(
                             get_asr_text(&client, &id, asr, &mut rx).await
                         },
                         crate::config::ASRConfig::ParaformerV2(asr) => {
-                            get_paraformer_v2_text(&id, asr, &mut rx).await
+                            get_paraformer_v2_text(&client, &id, asr, &mut rx).await
                         },
                     }
                 };
@@ -918,7 +935,7 @@ async fn handle_audio(
                                 get_asr_text(&client, &id, asr, &mut rx).await?
                             }
                             crate::config::ASRConfig::ParaformerV2(asr) => {
-                                get_paraformer_v2_text(&id, asr, &mut rx).await?
+                                get_paraformer_v2_text(&client, &id, asr, &mut rx).await?
                             }
                         }
                     }

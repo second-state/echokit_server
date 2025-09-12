@@ -73,7 +73,7 @@ async fn routes(
     }
 
     let mut router = Router::new()
-        // .route("/", get(handler))
+        .route("/", axum::routing::get(|| async { "Hello World" }))
         .route("/ws/{id}", any(services::ws::ws_handler))
         .nest("/record", services::file::new_file_service("./record"))
         .layer(axum::Extension(Arc::new(services::ws::WsPool::new(
