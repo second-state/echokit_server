@@ -498,12 +498,18 @@
                         int16Array[i] = Math.max(-32768, Math.min(32767, audioData[i] * 32767));
                     }
 
+                    if (this.recordingMode) {
+                        this.websocket.send(JSON.stringify({ event: 'StartRecord' }));
+                    } else {
+                        this.websocket.send(JSON.stringify({ event: 'StartChat' }));
+                    }
+
                     this.websocket.send(int16Array.buffer);
                     console.log('Sent VAD audio data to server, length:', int16Array.length);
 
                     // Send different end markers based on recording mode
-                    const endMarker = this.recordingMode ? "End:Recording" : "End:Normal";
-                    this.websocket.send(endMarker);
+                    const endMarker = this.recordingMode ? "Recording" : "Normal";
+                    this.websocket.send(JSON.stringify({ event: 'Submit' }));
                     console.log('Sent end marker:', endMarker);
 
                     // Show sent end marker in debug mode

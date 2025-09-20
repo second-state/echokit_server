@@ -36,3 +36,28 @@ fn test_rmp_command() {
         _ => panic!("Unexpected command: {:?}", cmd),
     }
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "event")]
+pub enum ClientCommand {
+    StartRecord,
+    StartChat,
+    Submit,
+    Text { input: String },
+}
+
+#[test]
+fn test_rmp_client_command() {
+    let cmd = ClientCommand::Text {
+        input: "Hello".to_string(),
+    };
+    let data = serde_json::to_string(&cmd).unwrap();
+    println!("Serialized data: {}", data);
+    let cmd2: ClientCommand = serde_json::from_str(&data).unwrap();
+    match cmd2 {
+        ClientCommand::Text { input } => {
+            assert_eq!(input, "Hello");
+        }
+        _ => panic!("Unexpected command: {:?}", cmd2),
+    }
+}

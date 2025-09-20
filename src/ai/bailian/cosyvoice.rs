@@ -181,7 +181,7 @@ impl CosyVoiceTTS {
                         log::debug!("Synthesis task finished");
                         return Ok(None);
                     } else if response.is_result_generated() {
-                        log::debug!("Result generated");
+                        log::trace!("Result generated:{text}");
                     } else {
                         return Err(anyhow::anyhow!("Synthesis error: {:?}", response));
                     }
