@@ -1,6 +1,5 @@
-addr = "0.0.0.0:8090"
-hello_wav = "./exmaple/hello_en.wav"
-
+addr = "0.0.0.0:8080"
+hello_wav = "hello.wav"
 
 # [tts]
 # platform = "Groq"
