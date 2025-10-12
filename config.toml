@@ -1,6 +1,5 @@
 addr = "0.0.0.0:8090"
 hello_wav = "./exmaple/hello_en.wav"
-background_gif = "echokit.gif"
 
 
 # [tts]
