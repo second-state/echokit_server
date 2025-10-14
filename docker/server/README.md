@@ -7,13 +7,17 @@ This directory contains a multi-stage Dockerfile for producing a lean runtime im
 
 ## Run
 
-Mount your local `config.toml` so the container uses your configuration:
+Mount your local configuration directory and a writable recordings directory:
 
 ```sh
-docker run --rm -p 8080:8080 -v $(pwd)/config.toml:/app/config.toml secondstate/echokit:latest-server
+docker run --rm \
+  -p 8080:8080 \
+  -v $(pwd)/config:/app \
+  -v $(pwd)/record:/app/record \
+  secondstate/echokit:latest-server
 ```
 
-The container executes `echokit_server config.toml` by default, reading logs at the `info` level.
+Place `config.toml` and `hello.wav` inside the mounted `config` directory so they appear in `/app` inside the container. The server writes any generated artifacts to `/app/record`, so ensure the `record` directory exists locally and is writable. The container executes `echokit_server config.toml` by default, reading logs at the `info` level.
 
 ## Build
 
@@ -33,4 +37,3 @@ docker buildx build . --platform linux/arm64,linux/amd64 --tag secondstate/echok
 docker login
 docker push secondstate/echokit:latest-server
 ```
-
