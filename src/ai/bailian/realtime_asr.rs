@@ -162,7 +162,9 @@ impl ParaformerRealtimeV2Asr {
                     log::debug!("Received unexpected binary message");
                 }
                 reqwest_websocket::Message::Text(text) => {
-                    let response: ResponseMessage = serde_json::from_str(&text)?;
+                    let response: ResponseMessage = serde_json::from_str(&text).map_err(|e| {
+                        anyhow::anyhow!("Failed to parse response message: {}, error: {}", text, e)
+                    })?;
 
                     if response.is_task_finished() {
                         log::debug!("ASR task finished");
