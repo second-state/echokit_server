@@ -397,6 +397,16 @@ async fn get_whisper_asr_text(
             ClientMsg::StartChat => {
                 // start chat
                 let wav_data = recv_audio_to_wav(audio).await?;
+                if let Some(vad_url) = &asr.vad_url {
+                    let response =
+                        crate::ai::vad::vad_detect(client, vad_url, wav_data.clone()).await;
+
+                    let is_speech = response.map(|r| !r.timestamps.is_empty()).unwrap_or(true);
+                    if !is_speech {
+                        log::info!("VAD detected no speech, ignore this audio");
+                        continue;
+                    }
+                }
                 std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data)?;
 
                 let st = std::time::Instant::now();
@@ -476,6 +486,17 @@ async fn get_paraformer_v2_text(
         }
 
         if let Some(mut asr) = asr.take() {
+            let wav_data = crate::util::pcm_to_wav(
+                &samples,
+                crate::util::WavConfig {
+                    channels: 1,
+                    sample_rate: 16000,
+                    bits_per_sample: 16,
+                },
+            );
+            if let Err(e) = std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data) {
+                log::error!("`{id}` error writing asr file {id}: {e}");
+            };
             samples.clear();
             asr.finish_task().await?;
             let mut text = String::new();
