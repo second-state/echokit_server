@@ -2,7 +2,7 @@
 
 This directory contains a multi-stage Dockerfile for producing a lean runtime image of `echokit_server`.
 
-- **Builder stage** (`rust:1.85-slim`): installs the minimal Rust toolchain dependencies, clones `https://github.com/second-state/echokit_server`, and compiles the project in release mode.
+- **Builder stage** (`rust:1.85-slim`): installs the minimal Rust toolchain dependencies, copies the repository contents into `/app`, and compiles the project in release mode.
 - **Runtime stage** (`debian:bookworm-slim`): installs the required runtime libraries, copies the compiled binary and default `config.toml`, and sets `RUST_LOG=info` before starting the server with that config.
 
 ## Run
@@ -22,13 +22,13 @@ Place `config.toml` and `hello.wav` inside the mounted `config` directory so the
 ## Build
 
 ```sh
-docker build -t secondstate/echokit:latest-server .
+docker build -t secondstate/echokit:latest-server -f docker/server/Dockerfile .
 ```
 
 ## Multi-platform build
 
 ```sh
-docker buildx build . --platform linux/arm64,linux/amd64 --tag secondstate/echokit:latest-server -f Dockerfile
+docker buildx build . --platform linux/arm64,linux/amd64 --tag secondstate/echokit:latest-server -f docker/server/Dockerfile
 ```
 
 ## Publish 
