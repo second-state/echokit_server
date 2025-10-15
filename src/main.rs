@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{routing::any, Router};
+use clap::Parser;
 use config::Config;
 
 use crate::{config::ASRConfig, services::realtime_ws::StableRealtimeConfig};
@@ -11,11 +12,22 @@ pub mod protocol;
 pub mod services;
 pub mod util;
 
+#[derive(Parser, Debug)]
+#[command(version)]
+struct Args {
+    #[clap(
+        default_value = "config.toml",
+        help = "Path to config file",
+        env = "CONFIG_PATH"
+    )]
+    config: String,
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
-    let config_path = std::env::args().nth(1).unwrap_or("config.toml".to_string());
-    let config = config::Config::load(&config_path).unwrap();
+    let args = Args::parse();
+    let config = config::Config::load(&args.config).unwrap();
 
     let listener = tokio::net::TcpListener::bind(&config.addr).await.unwrap();
     let mut mcp_clients = vec![];
