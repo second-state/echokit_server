@@ -6,12 +6,12 @@ WORKDIR /app
 
 # Install build dependencies required by reqwest/rustls toolchain.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends pkg-config libssl-dev build-essential git \
+    && apt-get install -y --no-install-recommends pkg-config libssl-dev build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone https://github.com/second-state/echokit_server.git
-RUN cd echokit_server \
-    && cargo build --release
+COPY . .
+
+RUN cargo build --release
 
 
 FROM debian:bookworm-slim AS runtime
@@ -22,8 +22,8 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --from=builder /app/echokit_server/config.toml .
-COPY --from=builder /app/echokit_server/target/release/echokit_server /usr/local/bin/echokit_server
+COPY --from=builder /app/config.toml .
+COPY --from=builder /app/target/release/echokit_server /usr/local/bin/echokit_server
 
 ENV RUST_LOG=info
 
