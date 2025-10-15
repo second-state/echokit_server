@@ -17,6 +17,7 @@ use futures_util::StreamExt;
 use crate::{
     ai::{
         bailian::cosyvoice,
+        elevenlabs,
         gemini::{
             self,
             types::{Blob, GenerationConfig, RealtimeAudio},
@@ -325,6 +326,35 @@ async fn tts_and_send(pool: &WsSetting, tx: &mut WsTx, text: String) -> anyhow::
             while let Ok(Some(chunk)) = tts.next_audio_chunk().await {
                 tx.send(WsCommand::Audio(chunk.into()))
                     .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
+            }
+            Ok(())
+        }
+        crate::config::TTSConfig::Elevenlabs(elevenlabs_tts) => {
+            let mut tts = elevenlabs::tts::ElevenlabsTTS::new(
+                elevenlabs_tts.token.clone(),
+                elevenlabs_tts.voice.clone(),
+                elevenlabs::tts::OutputFormat::Pcm16000,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Elevenlabs TTS init error: {e}"))?;
+
+            tts.initialize_connection()
+                .await
+                .map_err(|e| anyhow::anyhow!("Elevenlabs TTS initialize connection error: {e}"))?;
+
+            tts.send_text(&text, true)
+                .await
+                .map_err(|e| anyhow::anyhow!("Elevenlabs TTS send text error: {e}"))?;
+
+            tts.close_connection()
+                .await
+                .map_err(|e| anyhow::anyhow!("Elevenlabs TTS close connection error: {e}"))?;
+
+            while let Ok(Some(resp)) = tts.next_audio_response().await {
+                if let Some(audio) = resp.get_audio_bytes() {
+                    tx.send(WsCommand::Audio(audio))
+                        .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
+                }
             }
             Ok(())
         }
@@ -1111,16 +1141,19 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
             ws.send(Message::binary(action)).await?;
         }
         WsCommand::StartAudio(text) => {
+            log::trace!("StartAudio: {text:?}");
             let start_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::StartAudio { text })
                 .expect("Failed to serialize StartAudio ServerEvent");
             ws.send(Message::binary(start_audio)).await?;
         }
         WsCommand::Audio(data) => {
+            log::trace!("Audio chunk size: {}", data.len());
             let start_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunk { data })
                 .expect("Failed to serialize StartAudio ServerEvent");
             ws.send(Message::binary(start_audio)).await?;
         }
         WsCommand::EndAudio => {
+            log::trace!("EndAudio");
             let end_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndAudio)
                 .expect("Failed to serialize EndAudio ServerEvent");
             ws.send(Message::binary(end_audio)).await?;

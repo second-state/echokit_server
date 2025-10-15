@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::{
     ai::{
         bailian::cosyvoice,
+        elevenlabs,
         openai::realtime::*,
         vad::{VadRealtimeClient, VadRealtimeEvent},
         ChatSession,
@@ -133,6 +134,7 @@ async fn handle_socket(config: Arc<StableRealtimeConfig>, socket: WebSocket) {
         TTSConfig::CosyVoice(cosyvoice) => {
             cosyvoice.speaker.clone().unwrap_or("default".to_string())
         }
+        TTSConfig::Elevenlabs(elevenlabs_tts) => elevenlabs_tts.voice.clone(),
     };
 
     session.config.turn_detection = Some(turn_detection.clone());
@@ -1219,6 +1221,41 @@ async fn tts_and_send(
                     output_index: 0,
                     content_index: 1,
                     delta: encode_base64(&chunk),
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
+            }
+            Ok(())
+        }
+        crate::config::TTSConfig::Elevenlabs(elevenlabs_tts) => {
+            let mut tts = elevenlabs::tts::ElevenlabsTTS::new(
+                elevenlabs_tts.token.clone(),
+                elevenlabs_tts.voice.clone(),
+                elevenlabs::tts::OutputFormat::Pcm24000,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Elevenlabs TTS init error: {e}"))?;
+
+            tts.initialize_connection()
+                .await
+                .map_err(|e| anyhow::anyhow!("Elevenlabs TTS connection error: {e}"))?;
+
+            tts.send_text(&text, true)
+                .await
+                .map_err(|e| anyhow::anyhow!("Elevenlabs TTS send text error: {e}"))?;
+
+            tts.close_connection()
+                .await
+                .map_err(|e| anyhow::anyhow!("Elevenlabs TTS close connection error: {e}"))?;
+
+            while let Ok(Some(resp)) = tts.next_audio_response().await {
+                tx.send(ServerEvent::ResponseAudioDelta {
+                    event_id: Uuid::new_v4().to_string(),
+                    response_id: response_id.clone(),
+                    item_id: item_id.clone().unwrap_or_default(),
+                    output_index: 0,
+                    content_index: 1,
+                    delta: resp.audio.unwrap(),
                 })
                 .await
                 .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;

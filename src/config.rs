@@ -92,6 +92,12 @@ pub struct CosyVoiceTTS {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ElevenlabsTTS {
+    pub token: String,
+    pub voice: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "platform")]
 pub enum TTSConfig {
     Stable(StableTTS),
@@ -99,6 +105,7 @@ pub enum TTSConfig {
     Groq(GroqTTS),
     StreamGSV(StreamGSV),
     CosyVoice(CosyVoiceTTS),
+    Elevenlabs(ElevenlabsTTS),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

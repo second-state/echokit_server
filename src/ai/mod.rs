@@ -10,6 +10,7 @@ use rmcp::{
 
 /// 阿里百炼
 pub mod bailian;
+pub mod elevenlabs;
 pub mod gemini;
 pub mod openai;
 pub mod store;
