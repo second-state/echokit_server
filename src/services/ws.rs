@@ -457,7 +457,9 @@ async fn get_paraformer_v2_text(
                 ClientMsg::AudioChunk(data) => {
                     samples.extend_from_slice(&data);
                     if let Some(asr) = asr.as_mut() {
-                        asr.send_audio(data).await?;
+                        asr.send_audio(data).await.map_err(|e| {
+                            anyhow::anyhow!("`{id}` error sending paraformer asr audio: {e}")
+                        })?;
                     }
                 }
                 ClientMsg::Submit => {
@@ -474,7 +476,9 @@ async fn get_paraformer_v2_text(
                         )
                         .await?;
 
-                    paraformer_asr.start_pcm_recognition().await?;
+                    paraformer_asr.start_pcm_recognition().await.map_err(|e| {
+                        anyhow::anyhow!("`{id}` error starting paraformer asr: {e}")
+                    })?;
                     asr = Some(paraformer_asr);
                     continue;
                 }
@@ -498,9 +502,15 @@ async fn get_paraformer_v2_text(
                 log::error!("`{id}` error writing asr file {id}: {e}");
             };
             samples.clear();
-            asr.finish_task().await?;
+            asr.finish_task()
+                .await
+                .map_err(|e| anyhow::anyhow!("`{id}` error finishing paraformer asr task: {e}"))?;
             let mut text = String::new();
-            while let Some(sentence) = asr.next_result().await? {
+            while let Some(sentence) = asr
+                .next_result()
+                .await
+                .map_err(|e| anyhow::anyhow!("`{id}` error getting paraformer asr result: {e}"))?
+            {
                 if sentence.sentence_end {
                     text = sentence.text;
                     log::info!("ASR final result: {:?}", text);

@@ -157,7 +157,7 @@ impl ParaformerRealtimeV2Asr {
 
     pub async fn next_result(&mut self) -> anyhow::Result<Option<ResponsePayloadOutputSentence>> {
         while let Some(message) = self.websocket.next().await {
-            match message? {
+            match message.map_err(|e| anyhow::anyhow!("Paraformer ASR WebSocket error: {}", e))? {
                 reqwest_websocket::Message::Binary(_) => {
                     log::debug!("Received unexpected binary message");
                 }
