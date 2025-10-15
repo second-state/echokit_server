@@ -1,6 +1,19 @@
 # Setup the EchoKit server
 
+EchoKit Server is the central component that manages communication between the EchoKit device and AI services. It can be deployed locally or connected to preset servers, allowing developers to customize LLM endpoints, plan the LLM prompt, configure speech models, and integrate additional AI features like MCP servers.
+
+<br>
+<div align="center">
+    <a href="https://echokit.dev/">Website</a> |
+    <a href="https://discord.gg/Fwe3zsT5g3">Discord</a> |
+    <a href="https://youtu.be/Zy-rLT4EgZQ">Live Demo</a> |
+    <a href="https://echokit.dev/docs/quick-start/">Documentation</a>
+</div>
+</br>
+
 You will need an EchoKit device, or create your own ESP32 device with the [EchoKit firmware](https://github.com/second-state/echokit_box).
+
+
 
 ## Build
 
