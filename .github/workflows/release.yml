@@ -1,0 +1,177 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-x86_64:
+    name: Build (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install base dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates \
+            pkg-config \
+            libssl-dev \
+            build-essential \
+            git \
+            curl \
+            unzip
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Rust target
+        run: rustup target add x86_64-unknown-linux-gnu
+
+      - name: Build binary
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Package release artifact
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary_path="target/x86_64-unknown-linux-gnu/release/echokit_server"
+          if [ ! -f "$binary_path" ]; then
+            echo "Release binary not found at $binary_path" >&2
+            exit 1
+          fi
+
+          archive_name="echokit_server-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz"
+          mkdir -p dist
+          cp "$binary_path" dist/echokit_server
+          chmod +x dist/echokit_server
+          tar -C dist -czf "$archive_name" echokit_server
+          rm dist/echokit_server
+
+          echo "archive=$archive_name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: echokit_server-x86_64-unknown-linux-gnu
+          path: ${{ steps.package.outputs.archive }}
+
+  build-aarch64:
+    name: Build (aarch64)
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm-slim
+    steps:
+      - name: Install base dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          dpkg --add-architecture arm64
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates \
+            pkg-config \
+            libssl-dev \
+            libssl-dev:arm64 \
+            gcc-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
+            build-essential \
+            git \
+            curl \
+            unzip
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Rust target
+        run: rustup target add aarch64-unknown-linux-gnu
+
+      - name: Build binary
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          PKG_CONFIG_ALLOW_CROSS: "1"
+          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
+        run: cargo build --release --target aarch64-unknown-linux-gnu
+
+      - name: Package release artifact
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary_path="target/aarch64-unknown-linux-gnu/release/echokit_server"
+          if [ ! -f "$binary_path" ]; then
+            echo "Release binary not found at $binary_path" >&2
+            exit 1
+          fi
+
+          archive_name="echokit_server-${{ github.ref_name }}-aarch64-unknown-linux-gnu.tar.gz"
+          mkdir -p dist
+          cp "$binary_path" dist/echokit_server
+          chmod +x dist/echokit_server
+          tar -C dist -czf "$archive_name" echokit_server
+          rm dist/echokit_server
+
+          echo "archive=$archive_name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: echokit_server-aarch64-unknown-linux-gnu
+          path: ${{ steps.package.outputs.archive }}
+
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs:
+      - build-x86_64
+      - build-aarch64
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: echokit_server-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Prepare release files
+        id: prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t archives < <(find artifacts -name '*.tar.gz' -type f)
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "No release archives found" >&2
+            exit 1
+          fi
+          {
+            echo "files<<EOF"
+            for archive in "${archives[@]}"; do
+              echo "$archive"
+            done
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Echokit Server ${{ github.ref_name }}
+          files: ${{ steps.prepare.outputs.files }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
