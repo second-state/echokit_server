@@ -18,7 +18,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
-    curl -L https://download.pytorch.org/libtorch/cu124/libtorch-cxx11-abi-shared-with-deps-2.4.0%2Bcu124.zip -o /tmp/libtorch.zip; \
+    curl -L https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.4.0%2Bcpu.zip -o /tmp/libtorch.zip; \
     unzip /tmp/libtorch.zip -d /usr/local/lib; \
     rm /tmp/libtorch.zip; \
     if [ -f /usr/local/lib/libtorch/lib/libnvrtc-builtins.so ]; then \
