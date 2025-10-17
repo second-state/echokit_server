@@ -1,4 +1,4 @@
-# Setup the EchoKit server
+# Set up the EchoKit server
 
 EchoKit Server is the central component that manages communication between the EchoKit device and AI services. It can be deployed locally or connected to preset servers, allowing developers to customize LLM endpoints, plan the LLM prompt, configure speech models, and integrate additional AI features like MCP servers.
 
