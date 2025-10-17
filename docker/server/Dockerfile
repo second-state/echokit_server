@@ -26,7 +26,9 @@ RUN set -eux; \
     test -n "$bin_path"; \
     install -m 0755 "$bin_path" /usr/local/bin/echokit_server; \
     rm -rf "$tmpdir" /tmp/echokit_server.tar.gz
-COPY config.toml config.toml
+
+COPY config.toml .
+COPY hello.wav .
 
 ENV RUST_LOG=info
 

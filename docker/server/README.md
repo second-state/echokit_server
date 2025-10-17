@@ -21,7 +21,7 @@ Mount your `config.toml` directly into `/app/config.toml`. If you need to overri
 ## Build
 
 ```sh
-docker build -t secondstate/echokit:latest-server -f docker/server/Dockerfile .
+docker build -t secondstate/echokit:latest-server .
 ```
 
 The build automatically selects the correct release artifact for your build architecture using the BuildKit-provided `TARGETPLATFORM`/`TARGETARCH` arguments. Override the downloaded release by supplying `--build-arg ECHOKIT_VERSION=<version>` (for example `0.1.1`) if you want a different tag.
@@ -33,10 +33,9 @@ Use Buildx to produce and publish a multi-arch manifest in one command. BuildKit
 ```sh
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  --push \
   --build-arg ECHOKIT_VERSION=0.1.0 \
   --tag secondstate/echokit:latest-server \
-  -f docker/server/Dockerfile .
+  .
 ```
 
 Adjust `ECHOKIT_VERSION` as needed; omit the flag to fall back to the default version baked into the Dockerfile.

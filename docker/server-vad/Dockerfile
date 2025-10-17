@@ -55,6 +55,7 @@ ENV LD_LIBRARY_PATH=/usr/local/lib/libtorch/lib:$LD_LIBRARY_PATH
 ENV LIBTORCH=/usr/local/lib/libtorch
 
 COPY config.toml .
+COPY hello.wav .
 
 RUN cat <<'EOF' > /usr/local/bin/start_servers.sh \
     && chmod +x /usr/local/bin/start_servers.sh

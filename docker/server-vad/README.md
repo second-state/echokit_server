@@ -27,7 +27,11 @@ The VAD server listens on port `8000` internally. Choose one of the following so
 ## Build
 
 ```sh
-docker build -t secondstate/echokit:latest-server-vad -f docker/vad/Dockerfile .
+docker build \
+  --platform linux/amd64 \
+  --build-arg ECHOKIT_VERSION=0.1.0 \
+  -t secondstate/echokit:latest-server-vad \
+  .
 ```
 
 This Dockerfile always downloads the `linux-x86_64` release artifacts baked into the file. Update the URLs if you need to pin a different release.
