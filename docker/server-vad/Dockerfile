@@ -4,29 +4,51 @@ FROM debian:bookworm-slim
 
 WORKDIR /app
 
+ARG TARGETPLATFORM
 ARG ECHOKIT_VERSION=0.1.0
 ARG VAD_VERSION=0.1.0
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
         bash \
         ca-certificates \
         curl \
         unzip \
         libgomp1 \
-        libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+        libssl3; \
+    if [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
+        apt-get install -y --no-install-recommends \
+            libopenblas-dev \
+	    libgomp1; \
+    fi; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
-    curl -L https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.4.0%2Bcpu.zip -o /tmp/libtorch.zip; \
-    unzip /tmp/libtorch.zip -d /usr/local/lib; \
-    rm /tmp/libtorch.zip; \
+    case "${TARGETPLATFORM}" in \
+    "linux/amd64") \
+        curl -fsSL "https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.4.0%2Bcpu.zip" -o /tmp/libtorch.zip; \
+        unzip /tmp/libtorch.zip -d /usr/local/lib; \
+        rm /tmp/libtorch.zip; \
+        ;; \
+    "linux/arm64") \
+        curl -fsSL "https://github.com/second-state/libtorch-releases/releases/download/v2.4.0/libtorch-cxx11-abi-aarch64-2.4.0.tar.gz" -o /tmp/libtorch.tar.gz; \
+        tar -xzf /tmp/libtorch.tar.gz -C /usr/local/lib; \
+	mv /usr/local/lib/torch /usr/local/lib/libtorch; \
+        rm /tmp/libtorch.tar.gz; \
+        ;; \
+    *) echo "Unsupported TARGETPLATFORM: ${TARGETPLATFORM}" >&2; exit 1 ;; \
+    esac; \
     if [ -f /usr/local/lib/libtorch/lib/libnvrtc-builtins.so ]; then \
         ln -sf /usr/local/lib/libtorch/lib/libnvrtc-builtins.so /usr/local/lib/libtorch/lib/libnvrtc-builtins.so.12.4; \
     fi
 
 RUN set -eux; \
-    ARCH_SUFFIX="x86_64-unknown-linux-gnu"; \
+    case "${TARGETPLATFORM}" in \
+    "linux/amd64") ARCH_SUFFIX="x86_64-unknown-linux-gnu" ;; \
+    "linux/arm64") ARCH_SUFFIX="aarch64-unknown-linux-gnu" ;; \
+    *) echo "Unsupported TARGETPLATFORM: ${TARGETPLATFORM}" >&2; exit 1 ;; \
+    esac; \
     tmpdir="$(mktemp -d)"; \
     archive="echokit_server-v${ECHOKIT_VERSION}-${ARCH_SUFFIX}.tar.gz"; \
     url="https://github.com/second-state/echokit_server/releases/download/v${ECHOKIT_VERSION}/${archive}"; \
@@ -38,7 +60,11 @@ RUN set -eux; \
     rm -rf "$tmpdir" /tmp/echokit_server.tar.gz
 
 RUN set -eux; \
-    ARCH_SUFFIX="x86_64-unknown-linux-gnu"; \
+    case "${TARGETPLATFORM}" in \
+    "linux/amd64") ARCH_SUFFIX="x86_64-unknown-linux-gnu" ;; \
+    "linux/arm64") ARCH_SUFFIX="aarch64-unknown-linux-gnu" ;; \
+    *) echo "Unsupported TARGETPLATFORM: ${TARGETPLATFORM}" >&2; exit 1 ;; \
+    esac; \
     tmpdir="$(mktemp -d)"; \
     archive="silero_vad_server-v${VAD_VERSION}-${ARCH_SUFFIX}.tar.gz"; \
     url="https://github.com/second-state/silero_vad_server/releases/download/v${VAD_VERSION}/${archive}"; \

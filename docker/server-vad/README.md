@@ -2,7 +2,7 @@
 
 This directory provides a single-stage runtime image that launches both `echokit_server` and `silero_vad_server` inside the same container.
 
-- **Runtime image** (`debian:bookworm-slim`): installs runtime dependencies, downloads the CUDA-enabled `libtorch` bundle, and fetches the `v0.1.0` release binaries for `echokit_server`, `silero_vad_server`, and the `silero_vad.jit` model.
+- **Runtime image** (`debian:bookworm-slim`): installs the runtime dependencies (adding `libopenblas` on arm64), selects the appropriate `libtorch` archive for the target architecture, and downloads the `v0.1.0` release binaries for `echokit_server`, `silero_vad_server`, and the `silero_vad.jit` model.
 - **Supervisor script**: `/usr/local/bin/start_servers.sh` starts both services, relays signals, and keeps the container alive while either process is running.
 
 ## Run
@@ -27,18 +27,25 @@ The VAD server listens on port `8000` internally. Choose one of the following so
 ## Build
 
 ```sh
-docker build \
-  --platform linux/amd64 \
+docker build -t secondstate/echokit:latest-server-vad .
+```
+
+The build automatically detects `TARGETPLATFORM` and pulls the matching release artifacts (x86_64 or arm64). Override the downloaded releases by supplying `--build-arg ECHOKIT_VERSION=<version>` or `--build-arg VAD_VERSION=<version>` if you want a different tag.
+
+## Multi-platform build
+
+Use Buildx to produce and publish a multi-arch manifest in one command. BuildKit injects `TARGETPLATFORM` (`linux/amd64`, `linux/arm64`, etc.), so you do not need to set them manually.
+
+```sh
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
   --build-arg ECHOKIT_VERSION=0.1.0 \
+  --build-arg VAD_VERSION=0.1.0 \
   -t secondstate/echokit:latest-server-vad \
   .
 ```
 
-This Dockerfile always downloads the `linux-x86_64` release artifacts baked into the file. Update the URLs if you need to pin a different release.
-
-## Platform support
-
-Multi-platform builds are **not supported**. The image bundles CUDA-enabled `libtorch` and hard-coded `x86_64-unknown-linux-gnu` binaries for both servers, so `docker buildx` cannot produce working arm64 (or other architecture) variants.
+Adjust the build arguments as needed; omit them to fall back to the defaults baked into the Dockerfile.
 
 ## Publish
 
