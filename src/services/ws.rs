@@ -205,13 +205,15 @@ async fn send_stream_chunk(
     tx: &mut WsTx,
     text: String,
     resp: reqwest::Response,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<f32> {
     log::info!("llm chunk:{:?}", text);
 
     let in_hz = 16000;
     let mut stream = resp.bytes_stream();
     let mut rest = bytes::BytesMut::new();
     let read_chunk_size = 2 * 5 * in_hz as usize / 10; // 0.5 seconds of audio at 32kHz
+
+    let mut duration_sec = 0.0;
 
     'next_chunk: while let Some(item) = stream.next().await {
         // 小端字节序
@@ -226,6 +228,7 @@ async fn send_stream_chunk(
                 rest.put(chunk.slice(..n));
                 debug_assert_eq!(rest.len(), read_chunk_size);
                 let audio_16k = rest.to_vec();
+                duration_sec += audio_16k.len() as f32 / 32000.0;
                 log::trace!("Sending audio chunk of size: {}", audio_16k.len());
                 tx.send(WsCommand::Audio(audio_16k))
                     .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
@@ -245,6 +248,7 @@ async fn send_stream_chunk(
             }
             let audio_16k = samples_16k_data.to_vec();
             log::trace!("Sending audio chunk of size: {}", audio_16k.len());
+            duration_sec += audio_16k.len() as f32 / 32000.0;
             tx.send(WsCommand::Audio(audio_16k))
                 .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
         }
@@ -253,14 +257,19 @@ async fn send_stream_chunk(
     if rest.len() > 0 {
         let audio_16k = rest.to_vec();
         log::trace!("Sending audio chunk of size: {}", audio_16k.len());
+        duration_sec += audio_16k.len() as f32 / 32000.0;
         tx.send(WsCommand::Audio(audio_16k))
             .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
     }
 
-    Ok(())
+    Ok(duration_sec)
 }
 
-async fn tts_and_send(pool: &WsSetting, tx: &mut WsTx, text: String) -> anyhow::Result<()> {
+async fn tts_and_send(
+    pool: &WsSetting,
+    tx: &mut WsTx,
+    text: String,
+) -> anyhow::Result<std::time::Duration> {
     let tts_config = match &pool.config {
         AIConfig::Stable { tts, .. } => tts,
         AIConfig::GeminiAndTTS { tts, .. } => tts,
@@ -283,20 +292,20 @@ async fn tts_and_send(pool: &WsSetting, tx: &mut WsTx, text: String) -> anyhow::
             .await?;
             let duration_sec = send_wav(tx, text, wav_data).await?;
             log::info!("Stable TTS duration: {:?}", duration_sec);
-            Ok(())
+            Ok(duration_sec)
         }
         crate::config::TTSConfig::Fish(fish) => {
             let wav_data = crate::ai::tts::fish_tts(&fish.api_key, &fish.speaker, &text).await?;
             let duration_sec = send_wav(tx, text, wav_data).await?;
             log::info!("Fish TTS duration: {:?}", duration_sec);
-            Ok(())
+            Ok(duration_sec)
         }
         crate::config::TTSConfig::Groq(groq) => {
             let wav_data =
                 crate::ai::tts::groq(&groq.model, &groq.api_key, &groq.voice, &text).await?;
             let duration_sec = send_wav(tx, text, wav_data).await?;
             log::info!("Groq TTS duration: {:?}", duration_sec);
-            Ok(())
+            Ok(duration_sec)
         }
         crate::config::TTSConfig::StreamGSV(stream_tts) => {
             let resp = crate::ai::tts::stream_gsv(
@@ -307,9 +316,12 @@ async fn tts_and_send(pool: &WsSetting, tx: &mut WsTx, text: String) -> anyhow::
             )
             .await?;
 
-            send_stream_chunk(tx, text, resp).await?;
-            log::info!("Stream GSV TTS sent");
-            Ok(())
+            let duration_sec = send_stream_chunk(tx, text, resp).await?;
+            log::info!(
+                "Stream TTS total duration: {:?}",
+                std::time::Duration::from_secs_f32(duration_sec)
+            );
+            Ok(std::time::Duration::from_secs_f32(duration_sec))
         }
         crate::config::TTSConfig::CosyVoice(cosyvoice) => {
             let mut tts = cosyvoice::CosyVoiceTTS::connect(cosyvoice.token.clone()).await?;
@@ -323,11 +335,18 @@ async fn tts_and_send(pool: &WsSetting, tx: &mut WsTx, text: String) -> anyhow::
             .await
             .unwrap();
 
+            let mut duration_sec = 0.0;
+
             while let Ok(Some(chunk)) = tts.next_audio_chunk().await {
+                duration_sec += chunk.len() as f32 / 32000.0;
+
                 tx.send(WsCommand::Audio(chunk.into()))
                     .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
             }
-            Ok(())
+
+            let duration_sec = std::time::Duration::from_secs_f32(duration_sec);
+            log::info!("CosyVoice TTS duration: {:?}", duration_sec);
+            Ok(duration_sec)
         }
         crate::config::TTSConfig::Elevenlabs(elevenlabs_tts) => {
             let mut tts = elevenlabs::tts::ElevenlabsTTS::new(
@@ -350,13 +369,18 @@ async fn tts_and_send(pool: &WsSetting, tx: &mut WsTx, text: String) -> anyhow::
                 .await
                 .map_err(|e| anyhow::anyhow!("Elevenlabs TTS close connection error: {e}"))?;
 
+            let mut duration_sec = 0.0;
+
             while let Ok(Some(resp)) = tts.next_audio_response().await {
                 if let Some(audio) = resp.get_audio_bytes() {
+                    duration_sec += audio.len() as f32 / 32000.0;
                     tx.send(WsCommand::Audio(audio))
                         .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
                 }
             }
-            Ok(())
+            let duration_sec = std::time::Duration::from_secs_f32(duration_sec);
+            log::info!("Elevenlabs TTS duration: {:?}", duration_sec);
+            Ok(duration_sec)
         }
     }
 }
@@ -499,6 +523,7 @@ async fn get_paraformer_v2_text(
                     continue;
                 }
                 ClientMsg::StartChat => {
+                    log::info!("`{id}` starting paraformer asr");
                     let mut paraformer_asr =
                         crate::ai::bailian::realtime_asr::ParaformerRealtimeV2Asr::connect(
                             paraformer_token.clone(),
@@ -635,14 +660,18 @@ async fn submit_to_ai(
                 }
                 tx.send(WsCommand::StartAudio(chunk.clone()))?;
                 let st = std::time::Instant::now();
-                match tts_and_send(pool, tx, chunk).await {
-                    Ok(_) => {}
+                let r = tts_and_send(pool, tx, chunk).await;
+                log::info!("tts took: {:?}", st.elapsed());
+                tx.send(WsCommand::EndAudio)?;
+
+                match r {
+                    Ok(duration) => {
+                        tokio::time::sleep(duration).await;
+                    }
                     Err(e) => {
                         log::error!("tts error:{e}");
                     }
                 }
-                log::info!("tts took: {:?}", st.elapsed());
-                tx.send(WsCommand::EndAudio)?;
             }
             Ok(StableLLMResponseChunk::Functions(functions)) => {
                 log::info!("llm functions: {:#?}", functions);
@@ -971,10 +1000,12 @@ async fn handle_audio(
             chat_session.messages = llm.dynamic_prompts.clone();
 
             let mut asr_result = get_input(&client, &id, asr, &mut rx).await?;
+            log::info!("`{id}` initial ASR result: {asr_result}");
 
             loop {
                 asr_result = tokio::select! {
                     r = get_input(&client, &id, asr, &mut rx) => {
+                        log::info!("`{id}` ASR result: {r:?}");
                         r?
                     }
                     r = submit_to_ai(&pool, &mut ws_tx,&mut chat_session, asr_result) => {
@@ -1148,9 +1179,14 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
         }
         WsCommand::Audio(data) => {
             log::trace!("Audio chunk size: {}", data.len());
-            let start_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunk { data })
-                .expect("Failed to serialize StartAudio ServerEvent");
-            ws.send(Message::binary(start_audio)).await?;
+            // 1s per chunk
+            for chunk in data.chunks(SAMPLE_RATE_BUFFER_SIZE * 10) {
+                let audio_chunk = rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunk {
+                    data: chunk.to_vec(),
+                })
+                .expect("Failed to serialize AudioChunk ServerEvent");
+                ws.send(Message::binary(audio_chunk)).await?;
+            }
         }
         WsCommand::EndAudio => {
             log::trace!("EndAudio");
