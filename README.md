@@ -30,7 +30,7 @@ Each stage can be configured independently with your preferred models or APIs.
 * **TTS (Text-to-Speech):** Use any *OpenAI-spec* voice model for flexible deployment.
     * ElevenLabs (Streaming Mode)
 
-### End to end Model Pipelines
+### End-to-End Model Pipelines
 
 Out-of-the-box support for:
 
