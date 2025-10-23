@@ -35,7 +35,7 @@ Each stage can be configured independently with your preferred models or APIs.
 Out-of-the-box support for:
 
 * **Gemini** — Google’s multimodal model
-* **Qwen Real time** — Alibaba’s powerful open LLM
+* **Qwen Real-Time** — Alibaba’s powerful open LLM
 
 ### Developer Customization
 
