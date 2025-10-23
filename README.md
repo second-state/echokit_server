@@ -111,7 +111,7 @@ Configure WiFi and server
 
 ### Use the device
 
-**Chat:** press the `K0` button once or multiple times util the screen shows "Listening ...". You can now speak and it will answer.
+**Chat:** press the `K0` button once or multiple times until the screen shows "Listening ...". You can now speak and it will answer.
 
 **Record:** long press the `K0` until the screen shows "Recording ...". You can now speak and the audio will be recorded on the server.
 
