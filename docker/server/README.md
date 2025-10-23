@@ -2,7 +2,7 @@
 
 This directory contains a single-stage Dockerfile that produces a lean runtime image of `echokit_server` by downloading official release binaries.
 
-- **Runtime image** (`debian:bookworm-slim`): installs the required runtime libraries, fetches the architecture-specific tarball from GitHub releases (currently `v0.1.0`), places the `echokit_server` binary in `/usr/local/bin`, copies the default `config.toml`, and sets `RUST_LOG=info` before starting the server with that config.
+- **Runtime image** (`debian:bookworm-slim`): installs the required runtime libraries, fetches the architecture-specific tarball from GitHub releases (currently `v0.1.1`), places the `echokit_server` binary in `/usr/local/bin`, copies the default `config.toml`, and sets `RUST_LOG=info` before starting the server with that config.
 
 ## Run
 
@@ -33,7 +33,7 @@ Use Buildx to produce and publish a multi-arch manifest in one command. BuildKit
 ```sh
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  --build-arg ECHOKIT_VERSION=0.1.0 \
+  --build-arg ECHOKIT_VERSION=0.1.1 \
   --tag secondstate/echokit:latest-server \
   .
 ```
