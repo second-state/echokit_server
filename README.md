@@ -1,4 +1,4 @@
-# Set up the EchoKit server
+# EchoKit Server
 
 EchoKit Server is the central component that manages communication between the [EchoKit device](https://echokit.dev/) and AI services. It can be deployed locally or connected to preset servers, allowing developers to customize LLM endpoints, plan the LLM prompt, configure speech models, and integrate additional AI features like MCP servers.
 
@@ -14,8 +14,40 @@ EchoKit Server is the central component that manages communication between the [
 You will need an [EchoKit device](https://echokit.dev/), or create your own ESP32 device with the [EchoKit firmware](https://github.com/second-state/echokit_box).
 
 
+## Features
 
-## Build
+EchoKit Server powers the full voice–AI interaction loop, making it easy for developers to run end-to-end speech pipelines with flexible model choices and custom integrations.
+
+### ASR → LLM → TTS Pipeline
+
+Seamlessly connect **ASR → LLM → TTS** for real-time, natural conversations.
+Each stage can be configured independently with your preferred models or APIs.
+
+#### Model Compatibility
+
+* **ASR (Speech Recognition):** Works with any API that’s *OpenAI-compatible*.
+* **LLM (Language Model):** Connect to any *OpenAI-spec* endpoint — local or cloud.
+* **TTS (Text-to-Speech):** Use any *OpenAI-spec* voice model for flexible deployment.
+    * ElevenLabs (Streaming Mode)
+
+### End to end Model Pipelines
+
+Out-of-the-box support for:
+
+* **Gemini** — Google’s multimodal model
+* **Qwen Real time** — Alibaba’s powerful open LLM
+
+### Developer Customization
+
+* Deploy **locally** or connect to **remote inference servers**
+* Define your own **LLM prompts** and **response workflows**
+* Configure **speech and voice models** for different personas or use cases
+* Integrate **MCP servers** for extended functionality
+
+
+## Set up the EchoKit server
+
+### Build
 
 ```
 git clone https://github.com/second-state/echokit_server
@@ -27,7 +59,7 @@ Edit `config.toml` to customize the VAD, ASR, LLM, TTS services, as well as prom
 cargo build --release
 ```
 
-## Configure AI services
+### Configure AI services
 
 The `config.toml` can use any combination of open-source or proprietary AI services, as long as they offer OpenAI-compatible API endpoints. Here are instructions to start open source AI servers for the EchoKit server.
 
@@ -40,18 +72,18 @@ Alternatively, you could use Google Gemini Live services for VAD + ASR + LLM, an
 
 You can also [configure MCP servers](examples/gaia/mcp/config.toml) to give the EchoKit server tool use capabilities. 
 
-## Configure the voice prompt
+### Configure the voice prompt
 
 The `hello.wav` file on the server is sent to the EchoKit device when it connects. It is the voice prompt the device will say to tell the user that it is ready.
 
-## Run the EchoKit server
+### Run the EchoKit server
 
 ```
 export RUST_LOG=debug
 nohup target/release/echokit_server &
 ```
 
-## Test on a web page
+### Test on a web page
 
 Go here: https://echokit.dev/chat/
 
@@ -61,7 +93,7 @@ Double click the local `index.html` file and open it in your browser.
 
 In the web page, set the URL to your own EchoKit server address, and start chatting!
 
-## Configure a new device
+### Configure a new device
 
 Go to web page: https://echokit.dev/setup/  and use Bluetooth to connect to the `GAIA ESP332` device.
 
@@ -77,7 +109,7 @@ Configure WiFi and server
 
 ![Configure Wifi](https://hackmd.io/_uploads/HJkh5ZjVee.png)
 
-## Use the device
+### Use the device
 
 **Chat:** press the `K0` button once or multiple times util the screen shows "Listening ...". You can now speak and it will answer.
 
