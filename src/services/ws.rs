@@ -665,8 +665,8 @@ async fn submit_to_ai(
                 tx.send(WsCommand::EndAudio)?;
 
                 match r {
-                    Ok(duration) => {
-                        tokio::time::sleep(duration).await;
+                    Ok(_) => {
+                        // tokio::time::sleep(duration).await;
                     }
                     Err(e) => {
                         log::error!("tts error:{e}");
