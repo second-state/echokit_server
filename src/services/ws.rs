@@ -1006,6 +1006,9 @@ async fn handle_audio(
                 asr_result = tokio::select! {
                     r = get_input(&client, &id, asr, &mut rx) => {
                         log::info!("`{id}` ASR result: {r:?}");
+                        if let Err(e) = ws_tx.send(WsCommand::EndResponse){
+                            log::error!("`{id}` error: {e}");
+                        };
                         r?
                     }
                     r = submit_to_ai(&pool, &mut ws_tx,&mut chat_session, asr_result) => {
