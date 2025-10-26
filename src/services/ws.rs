@@ -458,7 +458,7 @@ async fn get_whisper_asr_text(
                     let is_speech = response.map(|r| !r.timestamps.is_empty()).unwrap_or(true);
                     if !is_speech {
                         log::info!("VAD detected no speech, ignore this audio");
-                        continue;
+                        return Ok(String::new());
                     }
                 }
                 std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data)?;
@@ -480,7 +480,7 @@ async fn get_whisper_asr_text(
                 let text = text.join("\n");
                 log::info!("ASR result: {:?}", text);
                 if text.is_empty() || text.trim().starts_with("(") {
-                    continue;
+                    return Ok(String::new());
                 }
                 return Ok(hanconv::tw2sp(text));
             }
@@ -572,11 +572,7 @@ async fn get_paraformer_v2_text(
                     break;
                 }
             }
-            if text.is_empty() {
-                continue;
-            } else {
-                return Ok(text);
-            }
+            return Ok(text);
         } else {
             // recording
             let wav_data = crate::util::pcm_to_wav(
@@ -618,6 +614,9 @@ async fn submit_to_ai(
     asr_result: String,
 ) -> anyhow::Result<()> {
     let message = asr_result;
+    if message.is_empty() {
+        return Err(anyhow::anyhow!("empty asr result"));
+    }
 
     tx.send(WsCommand::AsrResult(vec![message.clone()]))?;
 
