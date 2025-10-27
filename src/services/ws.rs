@@ -4,7 +4,7 @@ use axum::{
     body::Bytes,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Path,
+        Path, Query,
     },
     response::IntoResponse,
     Extension,
@@ -66,18 +66,25 @@ impl WsSetting {
     }
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct ConnectQueryParams {
+    #[serde(default)]
+    reconnect: bool,
+}
+
 pub async fn ws_handler(
     Extension(pool): Extension<Arc<WsSetting>>,
     ws: WebSocketUpgrade,
     Path(id): Path<String>,
+    Query(params): Query<ConnectQueryParams>,
 ) -> impl IntoResponse {
     let request_id = uuid::Uuid::new_v4().as_u128();
-    log::info!("{id}:{request_id:x} connected.");
+    log::info!("{id}:{request_id:x} connected. {:?}", params);
 
     ws.on_upgrade(move |socket| async move {
         let id = id.clone();
         let pool = pool.clone();
-        if let Err(e) = handle_socket(socket, &id, pool.clone()).await {
+        if let Err(e) = handle_socket(socket, &id, pool.clone(), params).await {
             log::error!("{id}:{request_id:x} error: {e}");
         };
         log::info!("{id}:{request_id:x} disconnected.");
@@ -1013,9 +1020,6 @@ async fn handle_audio(
                     r = submit_to_ai(&pool, &mut ws_tx,&mut chat_session, asr_result) => {
                         if let Err(e) = r {
                             log::error!("`{id}` error: {e}");
-                            if let Err(e) = ws_tx.send(WsCommand::AsrResult(vec![])){
-                                log::error!("`{id}` error: {e}");
-                            };
                         }
                         if let Err(e) = ws_tx.send(WsCommand::EndResponse){
                             log::error!("`{id}` error: {e}");
@@ -1130,11 +1134,12 @@ async fn handle_socket(
     mut socket: WebSocket,
     id: &str,
     pool: Arc<WsSetting>,
+    connect_params: ConnectQueryParams,
 ) -> anyhow::Result<()> {
     let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<WsCommand>();
 
     if let Some(hello_wav) = &pool.hello_wav {
-        if !hello_wav.is_empty() {
+        if !hello_wav.is_empty() && !connect_params.reconnect {
             send_hello_wav(&mut socket, hello_wav).await?;
         }
     }

@@ -171,6 +171,7 @@ impl ElevenlabsTTS {
                     })?;
 
                     if response.is_error() {
+                        log::error!("Elevenlabs TTS error response: {:?}", response);
                         return Err(anyhow::anyhow!(
                             "Elevenlabs TTS error: {}",
                             response.message
@@ -220,13 +221,22 @@ async fn test_elevenlabs_tts() {
         .await
         .expect("Failed to close connection");
 
+    let mut samples = Vec::new();
+
     while let Ok(Some(resp)) = tts.next_audio_response().await {
         if let Some(audio) = resp.get_audio_bytes() {
             println!("Received audio chunk of size: {}", audio.len());
+            samples.extend_from_slice(&audio);
         }
     }
 
-    tts.close_connection()
-        .await
-        .expect("Failed to close connection");
+    let wav = crate::util::pcm_to_wav(
+        &samples,
+        crate::util::WavConfig {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+        },
+    );
+    std::fs::write("./resources/test/elevenlabs_out.wav", wav).unwrap();
 }
