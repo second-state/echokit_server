@@ -1,4 +1,4 @@
-use std::{sync::Arc, vec};
+use std::{collections::HashMap, sync::Arc, vec};
 
 use axum::{
     body::Bytes,
@@ -45,11 +45,18 @@ pub enum WsCommand {
 type WsTx = tokio::sync::mpsc::UnboundedSender<WsCommand>;
 type WsRx = tokio::sync::mpsc::UnboundedReceiver<WsCommand>;
 
+type ClientTx = tokio::sync::mpsc::Sender<ClientMsg>;
+type ClientRx = tokio::sync::mpsc::Receiver<ClientMsg>;
+
+type CtrlTx = tokio::sync::mpsc::Sender<(WsTx, ClientRx)>;
+
 #[derive(Debug)]
 pub struct WsSetting {
     pub config: AIConfig,
     pub hello_wav: Option<Vec<u8>>,
     pub tool_set: ToolSet<McpToolAdapter>,
+
+    pub sessions: tokio::sync::Mutex<HashMap<String, CtrlTx>>,
 }
 
 impl WsSetting {
@@ -62,6 +69,7 @@ impl WsSetting {
             config,
             hello_wav,
             tool_set,
+            sessions: tokio::sync::Mutex::new(HashMap::new()),
         }
     }
 }
@@ -79,13 +87,13 @@ pub async fn ws_handler(
     Query(params): Query<ConnectQueryParams>,
 ) -> impl IntoResponse {
     let request_id = uuid::Uuid::new_v4().as_u128();
-    log::info!("{id}:{request_id:x} connected. {:?}", params);
+    log::info!("[Chat] {id}:{request_id:x} connected. {:?}", params);
 
     ws.on_upgrade(move |socket| async move {
         let id = id.clone();
         let pool = pool.clone();
         if let Err(e) = handle_socket(socket, &id, pool.clone(), params).await {
-            log::error!("{id}:{request_id:x} error: {e}");
+            log::error!("{id}:{request_id:x} handle_socket error: {e}");
         };
         log::info!("{id}:{request_id:x} disconnected.");
     })
@@ -443,18 +451,6 @@ async fn get_whisper_asr_text(
             ClientMsg::Text(input) => {
                 return Ok(input);
             }
-            ClientMsg::StartRecord => {
-                let wav_data = recv_audio_to_wav(audio).await?;
-
-                let now = chrono::Local::now().to_rfc3339();
-
-                if let Err(e) =
-                    std::fs::write(format!("./record/{id}/recording_{now}.wav"), &wav_data)
-                {
-                    log::error!("`{id}` error writing recording file {now}: {e}");
-                };
-                continue;
-            }
             ClientMsg::StartChat => {
                 // start chat
                 let wav_data = recv_audio_to_wav(audio).await?;
@@ -468,7 +464,6 @@ async fn get_whisper_asr_text(
                         return Ok(String::new());
                     }
                 }
-                std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data)?;
 
                 let st = std::time::Instant::now();
                 let text = retry_asr(
@@ -506,7 +501,6 @@ async fn get_paraformer_v2_text(
     asr: &crate::config::ParaformerV2AsrConfig,
     audio: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
 ) -> anyhow::Result<String> {
-    let mut samples = bytes::BytesMut::new();
     let paraformer_token = asr.paraformer_token.clone();
     let mut asr: Option<crate::ai::bailian::realtime_asr::ParaformerRealtimeV2Asr> = None;
     loop {
@@ -516,7 +510,6 @@ async fn get_paraformer_v2_text(
                     return Ok(input);
                 }
                 ClientMsg::AudioChunk(data) => {
-                    samples.extend_from_slice(&data);
                     if let Some(asr) = asr.as_mut() {
                         asr.send_audio(data).await.map_err(|e| {
                             anyhow::anyhow!("`{id}` error sending paraformer asr audio: {e}")
@@ -525,9 +518,6 @@ async fn get_paraformer_v2_text(
                 }
                 ClientMsg::Submit => {
                     break;
-                }
-                ClientMsg::StartRecord => {
-                    continue;
                 }
                 ClientMsg::StartChat => {
                     log::info!("`{id}` starting paraformer asr");
@@ -547,23 +537,7 @@ async fn get_paraformer_v2_text(
             }
         }
 
-        if samples.is_empty() {
-            return Err(anyhow::anyhow!("client rx channel closed"));
-        }
-
         if let Some(mut asr) = asr.take() {
-            let wav_data = crate::util::pcm_to_wav(
-                &samples,
-                crate::util::WavConfig {
-                    channels: 1,
-                    sample_rate: 16000,
-                    bits_per_sample: 16,
-                },
-            );
-            if let Err(e) = std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data) {
-                log::error!("`{id}` error writing asr file {id}: {e}");
-            };
-            samples.clear();
             asr.finish_task()
                 .await
                 .map_err(|e| anyhow::anyhow!("`{id}` error finishing paraformer asr task: {e}"))?;
@@ -581,23 +555,7 @@ async fn get_paraformer_v2_text(
             }
             return Ok(text);
         } else {
-            // recording
-            let wav_data = crate::util::pcm_to_wav(
-                &samples,
-                crate::util::WavConfig {
-                    channels: 1,
-                    sample_rate: 16000,
-                    bits_per_sample: 16,
-                },
-            );
-            samples.clear();
-            let now = chrono::Local::now().to_rfc3339();
-
-            if let Err(e) = std::fs::write(format!("./record/{id}/recording_{now}.wav"), &wav_data)
-            {
-                log::error!("`{id}` error writing recording file {now}: {e}");
-            };
-            continue;
+            return Err(anyhow::anyhow!("`{id}` no paraformer asr session"));
         }
     }
 }
@@ -625,7 +583,13 @@ async fn submit_to_ai(
         return Err(anyhow::anyhow!("empty asr result"));
     }
 
-    tx.send(WsCommand::AsrResult(vec![message.clone()]))?;
+    tx.send(WsCommand::AsrResult(vec![message.clone()]))
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "error sending asr result ws command for message `{}`: {e}",
+                message
+            )
+        })?;
 
     if matches!(
         chat_session.messages.back(),
@@ -640,7 +604,10 @@ async fn submit_to_ai(
     chat_session.add_user_message(message);
 
     log::info!("start llm");
-    let mut resp = chat_session.complete().await?;
+    let mut resp = chat_session
+        .complete()
+        .await
+        .map_err(|e| anyhow::anyhow!("error completing chat session for message: {e}"))?;
 
     let mut llm_response = String::with_capacity(128);
 
@@ -664,20 +631,18 @@ async fn submit_to_ai(
                 if chunk_.is_empty() {
                     continue;
                 }
-                tx.send(WsCommand::StartAudio(chunk.clone()))?;
-                let st = std::time::Instant::now();
-                let r = tts_and_send(pool, tx, chunk).await;
-                log::info!("tts took: {:?}", st.elapsed());
-                tx.send(WsCommand::EndAudio)?;
+                if tx.send(WsCommand::StartAudio(chunk.clone())).is_ok() {
+                    let st = std::time::Instant::now();
+                    let r = tts_and_send(pool, tx, chunk).await;
+                    log::info!("tts took: {:?}", st.elapsed());
+                    if tx.send(WsCommand::EndAudio).is_err() {
+                        continue;
+                    };
 
-                match r {
-                    Ok(_) => {
-                        // tokio::time::sleep(duration).await;
-                    }
-                    Err(e) => {
+                    if let Err(e) = r {
                         log::error!("tts error:{e}");
                     }
-                }
+                };
             }
             Ok(StableLLMResponseChunk::Functions(functions)) => {
                 log::info!("llm functions: {:#?}", functions);
@@ -785,7 +750,6 @@ async fn submit_to_gemini_and_tts(
                     .await?;
             }
             GeminiEvent::AudioChunk(ClientMsg::Submit) => {}
-            GeminiEvent::AudioChunk(ClientMsg::StartRecord) => {}
             GeminiEvent::AudioChunk(ClientMsg::StartChat) => {}
             GeminiEvent::AudioChunk(ClientMsg::Text(input)) => {
                 client
@@ -919,7 +883,6 @@ async fn submit_to_gemini(
 
 pub enum ClientMsg {
     StartChat,
-    StartRecord,
     /// 16000 16bit le
     AudioChunk(Bytes),
     Submit,
@@ -931,7 +894,7 @@ async fn process_socket_io(
     rx: &mut WsRx,
     audio_tx: tokio::sync::mpsc::Sender<ClientMsg>,
     socket: &mut WebSocket,
-) -> anyhow::Result<Vec<u8>> {
+) -> anyhow::Result<()> {
     loop {
         let r = tokio::select! {
             cmd = rx.recv() => {
@@ -961,10 +924,6 @@ async fn process_socket_io(
                     .await
                     .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
                 ProcessMessageResult::Skip => {}
-                ProcessMessageResult::StartRecord => audio_tx
-                    .send(ClientMsg::StartRecord)
-                    .await
-                    .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
                 ProcessMessageResult::StartChat => audio_tx
                     .send(ClientMsg::StartChat)
                     .await
@@ -986,50 +945,28 @@ async fn process_socket_io(
 async fn handle_audio(
     id: String,
     pool: Arc<WsSetting>,
-    mut rx: tokio::sync::mpsc::Receiver<ClientMsg>,
+    chat_session: &mut ChatSession,
+    rx: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
     mut ws_tx: WsTx,
 ) -> anyhow::Result<()> {
     match &pool.config {
-        AIConfig::Stable { llm, asr, .. } => {
-            std::fs::create_dir_all(format!("./record/{id}"))?;
+        AIConfig::Stable { asr, .. } => {
             let client = reqwest::Client::new();
-            let mut chat_session = ChatSession::new(
-                llm.llm_chat_url.to_string(),
-                llm.api_key.clone().unwrap_or_default(),
-                llm.model.clone(),
-                None,
-                llm.history,
-                pool.tool_set.clone(),
-            );
-
-            chat_session.system_prompts = llm.sys_prompts.clone();
-            chat_session.messages = llm.dynamic_prompts.clone();
-
-            let mut asr_result = get_input(&client, &id, asr, &mut rx).await?;
-            log::info!("`{id}` initial ASR result: {asr_result}");
 
             loop {
-                asr_result = tokio::select! {
-                    r = get_input(&client, &id, asr, &mut rx) => {
-                        log::info!("`{id}` ASR result: {r:?}");
-                        if let Err(e) = ws_tx.send(WsCommand::EndResponse){
-                            log::error!("`{id}` error: {e}");
-                        };
-                        r?
-                    }
-                    r = submit_to_ai(&pool, &mut ws_tx,&mut chat_session, asr_result) => {
-                        if let Err(e) = r {
-                            log::error!("`{id}` error: {e}");
-                        }
-                        if let Err(e) = ws_tx.send(WsCommand::EndResponse){
-                            log::error!("`{id}` error: {e}");
-                        };
+                let asr_result = get_input(&client, &id, asr, rx).await?;
+                log::info!("`{id}` ASR result: {asr_result}");
 
-                        get_input(&client, &id, asr, &mut rx).await?
-                    }
-                };
+                let r = submit_to_ai(&pool, &mut ws_tx, chat_session, asr_result).await;
+                if let Err(e) = r {
+                    log::error!("`{id}` error: {e}");
+                }
+                ws_tx.send(WsCommand::EndResponse).map_err(|e| {
+                    anyhow::anyhow!("`{id}` error sending EndResponse ws command: {e}")
+                })?;
             }
         }
+        // TODO: fix reconnect
         AIConfig::GeminiAndTTS { gemini, .. } => loop {
             let mut client = gemini::LiveClient::connect(&gemini.api_key).await?;
             let model = gemini
@@ -1055,8 +992,9 @@ async fn handle_audio(
                 input_audio_transcription: Some(gemini::types::AudioTranscriptionConfig {}),
             };
 
-            submit_to_gemini_and_tts(&pool, &mut client, &mut ws_tx, setup, &mut rx).await?;
+            submit_to_gemini_and_tts(&pool, &mut client, &mut ws_tx, setup, rx).await?;
         },
+        // TODO: fix reconnect
         AIConfig::Gemini { gemini } => {
             let mut client = gemini::LiveClient::connect(&gemini.api_key).await?;
             let model = gemini
@@ -1084,11 +1022,11 @@ async fn handle_audio(
 
             client.setup(setup).await?;
 
-            let mut wav_audio = recv_audio_to_wav(&mut rx).await?;
+            let mut wav_audio = recv_audio_to_wav(rx).await?;
 
             loop {
                 wav_audio = tokio::select! {
-                    r = recv_audio_to_wav(&mut rx) =>{
+                    r = recv_audio_to_wav(rx) =>{
                         r?
                     }
                     r = submit_to_gemini(&mut client, &mut ws_tx, wav_audio) => {
@@ -1102,7 +1040,7 @@ async fn handle_audio(
                             log::error!("`{id}` error: {e}");
                         };
 
-                        recv_audio_to_wav(&mut rx).await?
+                        recv_audio_to_wav(rx).await?
                     }
                 };
             }
@@ -1136,24 +1074,81 @@ async fn handle_socket(
     pool: Arc<WsSetting>,
     connect_params: ConnectQueryParams,
 ) -> anyhow::Result<()> {
-    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<WsCommand>();
-
     if let Some(hello_wav) = &pool.hello_wav {
         if !hello_wav.is_empty() && !connect_params.reconnect {
             send_hello_wav(&mut socket, hello_wav).await?;
         }
     }
 
-    let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<ClientMsg>(1);
-    let pool_ = pool.clone();
-    let id = id.to_string();
-    tokio::spawn(async move {
-        let id_ = id.clone();
-        let r = handle_audio(id, pool_, audio_rx, cmd_tx).await;
-        if let Err(e) = r {
-            log::error!("`{id_}` handle audio error: {e}");
+    let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<ClientMsg>(128);
+    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<WsCommand>();
+
+    let ctrl_rx = {
+        let mut session = pool.sessions.lock().await;
+
+        let new_ctrl_channel = if let Some(ctrl_tx_) = session.get(&id.to_string()) {
+            if ctrl_tx_.is_closed() {
+                let (ctrl_tx, ctrl_rx) = tokio::sync::mpsc::channel(1);
+                ctrl_tx.send((cmd_tx, audio_rx)).await.map_err(|_| {
+                    anyhow::anyhow!("`{}` error sending initial cmd_tx to ctrl channel.", id)
+                })?;
+                Err((ctrl_tx, ctrl_rx))
+            } else {
+                if let Err(_) = ctrl_tx_.send((cmd_tx, audio_rx)).await {
+                    log::error!("`{}` error sending reconnect cmd_tx", id);
+                    return Err(anyhow::anyhow!("error sending reconnect cmd_tx"));
+                }
+                Ok(())
+            }
+        } else {
+            let (ctrl_tx, ctrl_rx) = tokio::sync::mpsc::channel(1);
+            ctrl_tx.send((cmd_tx, audio_rx)).await.map_err(|_| {
+                anyhow::anyhow!("`{}` error sending initial cmd_tx to ctrl channel.", id)
+            })?;
+            Err((ctrl_tx, ctrl_rx))
+        };
+
+        if let Err((ctrl_tx, ctrl_rx)) = new_ctrl_channel {
+            session.insert(id.to_string(), ctrl_tx);
+            Some(ctrl_rx)
+        } else {
+            None
         }
-    });
+    };
+
+    if let Some(ctrl_rx) = ctrl_rx {
+        log::info!("`{}` starting audio handler task", id);
+        let id_ = id.to_string();
+        let pool_ = pool.clone();
+        let mut chat_session = ChatSession::create_from_config(&pool.config, pool.tool_set.clone());
+
+        tokio::spawn(async move {
+            let mut ctrl_rx = ctrl_rx;
+
+            loop {
+                match ctrl_rx.recv().await {
+                    Some((cmd_tx, mut audio_rx)) => {
+                        log::info!("`{id_}` starting audio handler");
+                        let r = handle_audio(
+                            id_.clone(),
+                            pool_.clone(),
+                            &mut chat_session,
+                            &mut audio_rx,
+                            cmd_tx,
+                        )
+                        .await;
+                        if let Err(e) = r {
+                            log::error!("`{id_}` handle audio error: {e}");
+                        }
+                    }
+                    None => {
+                        log::error!("`{}` ctrl channel closed, exiting audio handler", id_);
+                        break;
+                    }
+                }
+            }
+        });
+    }
 
     process_socket_io(&mut cmd_rx, audio_tx, &mut socket).await?;
 
@@ -1217,7 +1212,6 @@ enum ProcessMessageResult {
     Audio(Bytes),
     Submit,
     Text(String),
-    StartRecord,
     StartChat,
     Close,
     Skip,
@@ -1228,9 +1222,7 @@ fn process_message(msg: Message) -> ProcessMessageResult {
         Message::Text(t) => {
             if let Ok(cmd) = serde_json::from_str::<crate::protocol::ClientCommand>(&t) {
                 match cmd {
-                    crate::protocol::ClientCommand::StartRecord => {
-                        ProcessMessageResult::StartRecord
-                    }
+                    crate::protocol::ClientCommand::StartRecord => ProcessMessageResult::Skip,
                     crate::protocol::ClientCommand::StartChat => ProcessMessageResult::StartChat,
                     crate::protocol::ClientCommand::Submit => ProcessMessageResult::Submit,
                     crate::protocol::ClientCommand::Text { input } => {
