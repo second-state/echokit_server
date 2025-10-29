@@ -10,10 +10,34 @@ use axum::{
 };
 use bytes::Bytes;
 
-use crate::services::ws::WsSetting;
+pub struct WsRecordSetting {
+    pub record_callback_url: Option<String>,
+}
+
+async fn post_to_callback_url(callback_url: &str, id: &str, file_path: &str) -> anyhow::Result<()> {
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(callback_url)
+        .json(&serde_json::json!({
+            "id": id,
+            "download_uri": format!("/downloads/{}", file_path),
+        }))
+        .send()
+        .await?;
+
+    log::info!(
+        "[Record] {} callback to {} success: {}",
+        id,
+        callback_url,
+        resp.status()
+    );
+
+    Ok(())
+}
 
 pub async fn ws_handler(
-    Extension(pool): Extension<Arc<WsSetting>>,
+    Extension(setting): Extension<Arc<WsRecordSetting>>,
     ws: WebSocketUpgrade,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
@@ -21,43 +45,31 @@ pub async fn ws_handler(
     log::info!("[Record] {id}:{request_id:x} connected.");
 
     ws.on_upgrade(move |socket| async move {
-        let id = id.clone();
-        let pool = pool.clone();
-        if let Err(e) = handle_socket(socket, &id, pool.clone()).await {
-            log::error!("{id}:{request_id:x} error: {e}");
-        };
+        match handle_socket(socket, &id).await {
+            Ok(file_path) => {
+                if let Some(callback_url) = &setting.record_callback_url {
+                    if let Err(e) = post_to_callback_url(callback_url, &id, &file_path).await {
+                        log::error!("[Record] {} callback to {} failed: {}", id, callback_url, e);
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("{id}:{request_id:x} error: {e}");
+            }
+        }
         log::info!("{id}:{request_id:x} disconnected.");
     })
 }
 
 enum ProcessMessageResult {
     Audio(Bytes),
-    Submit,
-    Text(String),
-    StartRecord,
-    StartChat,
     Close,
     Skip,
 }
 
 fn process_message(msg: Message) -> ProcessMessageResult {
     match msg {
-        Message::Text(t) => {
-            if let Ok(cmd) = serde_json::from_str::<crate::protocol::ClientCommand>(&t) {
-                match cmd {
-                    crate::protocol::ClientCommand::StartRecord => {
-                        ProcessMessageResult::StartRecord
-                    }
-                    crate::protocol::ClientCommand::StartChat => ProcessMessageResult::StartChat,
-                    crate::protocol::ClientCommand::Submit => ProcessMessageResult::Submit,
-                    crate::protocol::ClientCommand::Text { input } => {
-                        ProcessMessageResult::Text(input)
-                    }
-                }
-            } else {
-                ProcessMessageResult::Skip
-            }
-        }
+        Message::Text(_) => ProcessMessageResult::Skip,
         Message::Binary(d) => ProcessMessageResult::Audio(d),
         Message::Close(c) => {
             if let Some(cf) = c {
@@ -76,29 +88,35 @@ fn process_message(msg: Message) -> ProcessMessageResult {
     }
 }
 
-// TODO: implement recording logic
-async fn handle_socket(
-    mut socket: WebSocket,
-    id: &str,
-    pool: Arc<WsSetting>,
-) -> anyhow::Result<()> {
-    std::fs::create_dir_all(format!("./record/{id}"))?;
+async fn handle_socket(mut socket: WebSocket, id: &str) -> anyhow::Result<String> {
+    let now = chrono::Local::now();
+    let date_str = now.format("%Y%m%d_%H%M%S%z").to_string();
+    let file_path = format!("{id}/record_{date_str}.wav");
+    let path = format!("./record/{file_path}");
 
-    while let Some(message) = socket.recv().await {
-        let message = message.map_err(|e| anyhow::anyhow!("recv ws error: {e}"))?;
+    let mut wav_file = crate::util::UnlimitedWavFileWriter::new(
+        &path,
+        crate::util::WavConfig {
+            sample_rate: 16000,
+            channels: 1,
+            bits_per_sample: 16,
+        },
+    )
+    .await?;
 
+    while let Ok(Some(Ok(message))) =
+        tokio::time::timeout(std::time::Duration::from_secs(60), socket.recv()).await
+    {
         match process_message(message) {
-            ProcessMessageResult::Audio(_) => {}
-            ProcessMessageResult::Submit => {}
-            ProcessMessageResult::Text(_) => {}
-            ProcessMessageResult::Skip => {}
-            ProcessMessageResult::StartRecord => {}
-            ProcessMessageResult::StartChat => {}
+            ProcessMessageResult::Audio(chunk) => {
+                wav_file.write_pcm_data(&chunk).await?;
+            }
             ProcessMessageResult::Close => {
                 return Err(anyhow::anyhow!("ws closed"));
             }
+            ProcessMessageResult::Skip => {}
         }
     }
 
-    Ok(())
+    Ok(file_path)
 }

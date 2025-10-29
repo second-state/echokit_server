@@ -892,7 +892,7 @@ pub enum ClientMsg {
 // return: wav data
 async fn process_socket_io(
     rx: &mut WsRx,
-    audio_tx: tokio::sync::mpsc::Sender<ClientMsg>,
+    audio_tx: ClientTx,
     socket: &mut WebSocket,
 ) -> anyhow::Result<()> {
     loop {

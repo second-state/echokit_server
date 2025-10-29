@@ -34,7 +34,7 @@ pub fn pcm_to_wav(pcm_data: &[u8], config: WavConfig) -> Vec<u8> {
     cursor.write_all(&file_size.to_le_bytes()).unwrap(); // ChunkSize (little-endian)
     cursor.write_all(b"WAVE").unwrap(); // Format
 
-    // fmt 子块
+    // fmt subchunk
     cursor.write_all(b"fmt ").unwrap(); // Subchunk1ID
     cursor.write_all(&16u32.to_le_bytes()).unwrap(); // Subchunk1Size (PCM = 16)
     cursor.write_all(&1u16.to_le_bytes()).unwrap(); // AudioFormat (PCM = 1)
@@ -46,7 +46,7 @@ pub fn pcm_to_wav(pcm_data: &[u8], config: WavConfig) -> Vec<u8> {
         .write_all(&config.bits_per_sample.to_le_bytes())
         .unwrap(); // BitsPerSample
 
-    // data 子块
+    // data subchunk
     cursor.write_all(b"data").unwrap(); // Subchunk2ID
     cursor.write_all(&data_size.to_le_bytes()).unwrap(); // Subchunk2Size
 
@@ -278,4 +278,66 @@ pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, 
         }
     }
     Ok(result)
+}
+
+pub struct UnlimitedWavFileWriter {
+    pub config: WavConfig,
+    pub file: tokio::fs::File,
+}
+
+impl UnlimitedWavFileWriter {
+    pub async fn new(path: &str, config: WavConfig) -> anyhow::Result<Self> {
+        let file = tokio::fs::File::create_new(path).await.map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to create wav file at path {}: {}",
+                path,
+                e.to_string()
+            )
+        })?;
+        Ok(Self { config, file })
+    }
+
+    pub async fn write_wav_header(&mut self) -> anyhow::Result<()> {
+        use tokio::io::AsyncWriteExt;
+
+        let bytes_per_sample = self.config.bits_per_sample / 8;
+        let byte_rate =
+            self.config.sample_rate * self.config.channels as u32 * bytes_per_sample as u32;
+        let block_align = self.config.channels * bytes_per_sample;
+        let data_size = 0xFFFFFFFFu32; // unknown data size
+        let file_size = 0x7FFFFFFFu32;
+
+        self.file.write_all(b"RIFF").await?;
+        self.file.write_all(&file_size.to_le_bytes()).await?; // ChunkSize (little-endian)
+        self.file.write_all(b"WAVE").await?; // Format
+
+        // fmt subchunk
+        self.file.write_all(b"fmt ").await?; // Subchunk1ID
+        self.file.write_all(&16u32.to_le_bytes()).await?; // Subchunk1Size (PCM = 16)
+        self.file.write_all(&1u16.to_le_bytes()).await?; // AudioFormat (PCM = 1)
+        self.file
+            .write_all(&self.config.channels.to_le_bytes())
+            .await?; // NumChannels
+        self.file
+            .write_all(&self.config.sample_rate.to_le_bytes())
+            .await?; // SampleRate
+        self.file.write_all(&byte_rate.to_le_bytes()).await?; // ByteRate
+        self.file.write_all(&block_align.to_le_bytes()).await?; // BlockAlign
+        self.file
+            .write_all(&self.config.bits_per_sample.to_le_bytes())
+            .await?; // BitsPerSample
+
+        // data subchunk
+        self.file.write_all(b"data").await?; // Subchunk2ID
+        self.file.write_all(&data_size.to_le_bytes()).await?; // Subchunk2Size
+
+        Ok(())
+    }
+
+    pub async fn write_pcm_data(&mut self, pcm_data: &[u8]) -> anyhow::Result<()> {
+        use tokio::io::AsyncWriteExt;
+
+        self.file.write_all(pcm_data).await?;
+        Ok(())
+    }
 }
