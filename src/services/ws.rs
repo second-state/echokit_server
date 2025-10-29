@@ -1129,22 +1129,49 @@ async fn handle_socket(
 
         tokio::spawn(async move {
             let mut ctrl_rx = ctrl_rx;
+            let r = ctrl_rx.recv().await;
+            if r.is_none() {
+                log::error!(
+                    "`{}` ctrl channel closed immediately, exiting audio handler",
+                    id_
+                );
+                return;
+            }
+            let (mut cmd_tx, mut audio_rx) = r.unwrap();
 
             loop {
-                match ctrl_rx.recv().await {
-                    Some((cmd_tx, mut audio_rx)) => {
-                        log::info!("`{id_}` starting audio handler");
-                        let r = handle_audio(
-                            id_.clone(),
-                            pool_.clone(),
-                            &mut chat_session,
-                            &mut audio_rx,
-                            cmd_tx,
-                        )
-                        .await;
+                let f = handle_audio(
+                    id_.clone(),
+                    pool_.clone(),
+                    &mut chat_session,
+                    &mut audio_rx,
+                    cmd_tx,
+                );
+
+                tokio::select! {
+                    r = f =>{
                         if let Err(e) = r {
                             log::error!("`{id_}` handle audio error: {e}");
                         }
+
+                    }
+                    Some((cmd_tx_, audio_rx_)) = ctrl_rx.recv() =>{
+                        log::info!("`{id_}` received new ctrl channel, switching audio handler");
+                        cmd_tx = cmd_tx_;
+                        audio_rx = audio_rx_;
+                        continue;
+                    }
+                    else =>{
+                        log::error!("`{}` ctrl channel closed, exiting audio handler", id_);
+                        break;
+                    }
+                }
+
+                match ctrl_rx.recv().await {
+                    Some((cmd_tx_, audio_rx_)) => {
+                        log::info!("`{id_}` received new ctrl channel, switching audio handler");
+                        cmd_tx = cmd_tx_;
+                        audio_rx = audio_rx_;
                     }
                     None => {
                         log::error!("`{}` ctrl channel closed, exiting audio handler", id_);
@@ -1155,6 +1182,7 @@ async fn handle_socket(
         });
     }
 
+    log::info!("`{}` starting socket io processing", id);
     process_socket_io(&mut cmd_rx, audio_tx, &mut socket).await?;
 
     Ok(())
@@ -1205,6 +1233,7 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
             log::warn!("video command is not implemented yet");
         }
         WsCommand::EndResponse => {
+            log::debug!("EndResponse");
             let end_response = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndResponse)
                 .expect("Failed to serialize JsonCommand");
             ws.send(Message::binary(end_response)).await?;
