@@ -221,7 +221,7 @@ async fn send_stream_chunk(
     text: String,
     resp: reqwest::Response,
 ) -> anyhow::Result<f32> {
-    log::info!("llm chunk:{:?}", text);
+    log::debug!("[GSV_Stream] llm chunk:{:?}", text);
 
     let in_hz = 16000;
     let mut stream = resp.bytes_stream();
@@ -231,7 +231,8 @@ async fn send_stream_chunk(
     let mut duration_sec = 0.0;
 
     'next_chunk: while let Some(item) = stream.next().await {
-        // 小端字节序
+        // little-endian
+        // chunk len may be not odd number
         let mut chunk = item?;
 
         log::trace!("Received audio chunk of size: {}", chunk.len());
@@ -631,18 +632,22 @@ async fn submit_to_ai(
                 if chunk_.is_empty() {
                     continue;
                 }
-                if tx.send(WsCommand::StartAudio(chunk.clone())).is_ok() {
-                    let st = std::time::Instant::now();
-                    let r = tts_and_send(pool, tx, chunk).await;
-                    log::info!("tts took: {:?}", st.elapsed());
-                    if tx.send(WsCommand::EndAudio).is_err() {
-                        continue;
-                    };
 
-                    if let Err(e) = r {
-                        log::error!("tts error:{e}");
-                    }
+                tx.send(WsCommand::StartAudio(chunk.clone())).map_err(|_| {
+                    anyhow::anyhow!("error sending start audio ws command for chunk `{}`", chunk)
+                })?;
+
+                let st = std::time::Instant::now();
+                let r = tts_and_send(pool, tx, chunk.clone()).await;
+                log::info!("tts took: {:?}", st.elapsed());
+
+                if let Err(e) = r {
+                    log::error!("tts error:{e}");
                 };
+
+                tx.send(WsCommand::EndAudio).map_err(|_| {
+                    anyhow::anyhow!("error sending end audio ws command for chunk `{}`", chunk)
+                })?;
             }
             Ok(StableLLMResponseChunk::Functions(functions)) => {
                 log::info!("llm functions: {:#?}", functions);
