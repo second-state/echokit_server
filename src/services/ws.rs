@@ -96,7 +96,7 @@ enum WsEvent {
     Command(WsCommand),
 }
 
-async fn retry_asr(
+async fn retry_whisper_asr(
     client: &reqwest::Client,
     url: &str,
     api_key: &str,
@@ -110,7 +110,37 @@ async fn retry_asr(
     for i in 0..retry {
         let r = tokio::time::timeout(
             timeout,
-            crate::ai::asr(client, url, api_key, model, lang, prompt, wav_audio.clone()),
+            crate::ai::whisper_asr(client, url, api_key, model, lang, prompt, wav_audio.clone()),
+        )
+        .await;
+        match r {
+            Ok(Ok(v)) => return v,
+            Ok(Err(e)) => {
+                log::error!("asr error: {e}");
+                continue;
+            }
+            Err(_) => {
+                log::error!("asr timeout, retry {i}");
+                continue;
+            }
+        }
+    }
+    vec![]
+}
+
+async fn retry_aliyun_asr(
+    client: &reqwest::Client,
+    url: &str,
+    token: &str,
+    appkey: &str,
+    wav_audio: Vec<u8>,
+    retry: usize,
+    timeout: std::time::Duration,
+) -> Vec<String> {
+    for i in 0..retry {
+        let r = tokio::time::timeout(
+            timeout,
+            crate::ai::aliyun_asr(client, url, token, appkey, wav_audio.clone()),
         )
         .await;
         match r {
@@ -389,6 +419,14 @@ async fn tts_and_send(
             log::info!("Elevenlabs TTS duration: {:?}", duration_sec);
             Ok(duration_sec)
         }
+        crate::config::TTSConfig::Aliyun(aliyun) => {
+            let wav_data =
+                crate::ai::tts::aliyun_tts(&aliyun.url, &aliyun.appkey, &aliyun.token, &text)
+                    .await?;
+            let duration_sec = send_wav(tx, text, wav_data).await?;
+            log::info!("Fish TTS duration: {:?}", duration_sec);
+            Ok(duration_sec)
+        }
     }
 }
 
@@ -431,6 +469,7 @@ async fn get_whisper_asr_text(
     client: &reqwest::Client,
     id: &str,
     asr: &crate::config::WhisperASRConfig,
+    vad: &crate::config::VADConfig,
     audio: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
 ) -> anyhow::Result<String> {
     loop {
@@ -458,7 +497,7 @@ async fn get_whisper_asr_text(
             ClientMsg::StartChat => {
                 // start chat
                 let wav_data = recv_audio_to_wav(audio).await?;
-                if let Some(vad_url) = &asr.vad_url {
+                if let Some(vad_url) = &vad.vad_url {
                     let response =
                         crate::ai::vad::vad_detect(client, vad_url, wav_data.clone()).await;
 
@@ -471,7 +510,7 @@ async fn get_whisper_asr_text(
                 std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data)?;
 
                 let st = std::time::Instant::now();
-                let text = retry_asr(
+                let text = retry_whisper_asr(
                     client,
                     &asr.url,
                     &asr.api_key,
@@ -602,15 +641,94 @@ async fn get_paraformer_v2_text(
     }
 }
 
+async fn get_aliyun_asr_text(
+    client: &reqwest::Client,
+    id: &str,
+    asr: &crate::config::AliyunASR,
+    vad: &crate::config::VADConfig,
+    audio: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
+) -> anyhow::Result<String> {
+    loop {
+        let msg = audio
+            .recv()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("client rx channel closed"))?;
+
+        match msg {
+            ClientMsg::Text(input) => {
+                return Ok(input);
+            }
+            ClientMsg::StartRecord => {
+                let wav_data = recv_audio_to_wav(audio).await?;
+
+                let now = chrono::Local::now().to_rfc3339();
+
+                if let Err(e) =
+                    std::fs::write(format!("./record/{id}/recording_{now}.wav"), &wav_data)
+                {
+                    log::error!("`{id}` error writing recording file {now}: {e}");
+                };
+                continue;
+            }
+            ClientMsg::StartChat => {
+                // start chat
+                let wav_data = recv_audio_to_wav(audio).await?;
+                if let Some(vad_url) = &vad.vad_url {
+                    let response =
+                        crate::ai::vad::vad_detect(client, vad_url, wav_data.clone()).await;
+
+                    let is_speech = response.map(|r| !r.timestamps.is_empty()).unwrap_or(true);
+                    if !is_speech {
+                        log::info!("VAD detected no speech, ignore this audio");
+                        return Ok(String::new());
+                    }
+                }
+                std::fs::write(format!("./record/{id}/asr.last.wav"), &wav_data)?;
+
+                let st = std::time::Instant::now();
+                let text = retry_aliyun_asr(
+                    client,
+                    &asr.url,
+                    &asr.token,
+                    &asr.appkey,
+                    wav_data,
+                    3,
+                    std::time::Duration::from_secs(10),
+                )
+                .await;
+                log::info!("`{id}` ASR took: {:?}", st.elapsed());
+                let text = text.join("\n");
+                log::info!("ASR result: {:?}", text);
+                if text.is_empty() || text.trim().starts_with("(") {
+                    return Ok(String::new());
+                }
+                return Ok(hanconv::tw2sp(text));
+            }
+            ClientMsg::Submit => {
+                continue;
+            }
+            ClientMsg::AudioChunk(_) => {
+                continue;
+            }
+        }
+    }
+}
+
 async fn get_input(
     client: &reqwest::Client,
     id: &str,
     asr: &crate::config::ASRConfig,
+    vad: &crate::config::VADConfig,
     rx: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
 ) -> anyhow::Result<String> {
     match asr {
-        crate::config::ASRConfig::Whisper(asr) => get_whisper_asr_text(client, id, asr, rx).await,
+        crate::config::ASRConfig::Whisper(asr) => {
+            get_whisper_asr_text(client, id, asr, vad, rx).await
+        }
         crate::config::ASRConfig::ParaformerV2(asr) => get_paraformer_v2_text(id, asr, rx).await,
+        crate::config::ASRConfig::Aliyun(asr) => {
+            get_aliyun_asr_text(client, id, asr, vad, rx).await
+        }
     }
 }
 
@@ -990,7 +1108,7 @@ async fn handle_audio(
     mut ws_tx: WsTx,
 ) -> anyhow::Result<()> {
     match &pool.config {
-        AIConfig::Stable { llm, asr, .. } => {
+        AIConfig::Stable { llm, asr, vad, .. } => {
             std::fs::create_dir_all(format!("./record/{id}"))?;
             let client = reqwest::Client::new();
             let mut chat_session = ChatSession::new(
@@ -1005,12 +1123,12 @@ async fn handle_audio(
             chat_session.system_prompts = llm.sys_prompts.clone();
             chat_session.messages = llm.dynamic_prompts.clone();
 
-            let mut asr_result = get_input(&client, &id, asr, &mut rx).await?;
+            let mut asr_result = get_input(&client, &id, asr, vad, &mut rx).await?;
             log::info!("`{id}` initial ASR result: {asr_result}");
 
             loop {
                 asr_result = tokio::select! {
-                    r = get_input(&client, &id, asr, &mut rx) => {
+                    r = get_input(&client, &id, asr, vad, &mut rx) =>{
                         log::info!("`{id}` ASR result: {r:?}");
                         if let Err(e) = ws_tx.send(WsCommand::EndResponse){
                             log::error!("`{id}` error: {e}");
@@ -1025,7 +1143,7 @@ async fn handle_audio(
                             log::error!("`{id}` error: {e}");
                         };
 
-                        get_input(&client, &id, asr, &mut rx).await?
+                        get_input(&client, &id, asr, vad, &mut rx).await?
                     }
                 };
             }

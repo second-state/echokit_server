@@ -38,7 +38,7 @@ impl AsrResult {
 }
 
 /// wav_audio: 16bit,16k,single-channel.
-pub async fn asr(
+pub async fn whisper_asr(
     client: &reqwest::Client,
     asr_url: &str,
     api_key: &str,
@@ -80,6 +80,28 @@ pub async fn asr(
     let asr_result: AsrResult = serde_json::from_value(r)
         .map_err(|e| anyhow::anyhow!("Failed to parse ASR result: {}", e))?;
     Ok(asr_result.parse_text())
+}
+
+/// aliyun asr
+pub async fn aliyun_asr(
+    client: &reqwest::Client,
+    asr_url: &str,
+    token: &str,
+    appkey: &str,
+    wav_audio: Vec<u8>,
+) -> anyhow::Result<Vec<String>> {
+    let builder = client.post(format!("{}?appkey={}", asr_url, appkey));
+
+    let res = builder
+        .header("X-NLS-Token", format!("{}", token))
+        .body(wav_audio)
+        .send()
+        .await?;
+
+    let r: serde_json::Value = res.json().await?;
+    log::debug!("ASR response: {:#?}", r);
+
+    Ok(vec![r["result"].to_string()])
 }
 
 #[tokio::test]

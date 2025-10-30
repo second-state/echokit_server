@@ -98,6 +98,15 @@ pub struct ElevenlabsTTS {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AliyunTTS {
+    #[serde(default)]
+    pub appkey: String,
+    pub url: String,
+    pub token: String,
+    pub voice: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "platform")]
 pub enum TTSConfig {
     Stable(StableTTS),
@@ -106,6 +115,15 @@ pub enum TTSConfig {
     StreamGSV(StreamGSV),
     CosyVoice(CosyVoiceTTS),
     Elevenlabs(ElevenlabsTTS),
+    Aliyun(AliyunTTS),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VADConfig {
+    #[serde(default)]
+    pub vad_url: Option<String>,
+    #[serde(default)]
+    pub vad_realtime_url: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -119,10 +137,15 @@ pub struct WhisperASRConfig {
     pub model: String,
     #[serde(default)]
     pub prompt: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AliyunASR {
+    pub url: String,
     #[serde(default)]
-    pub vad_url: Option<String>,
+    pub appkey: String,
     #[serde(default)]
-    pub vad_realtime_url: Option<String>,
+    pub token: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -131,10 +154,11 @@ pub struct ParaformerV2AsrConfig {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
+#[serde(tag = "type")]
 pub enum ASRConfig {
     Whisper(WhisperASRConfig),
     ParaformerV2(ParaformerV2AsrConfig),
+    Aliyun(AliyunASR),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -154,6 +178,7 @@ pub enum AIConfig {
         llm: LLMConfig,
         tts: TTSConfig,
         asr: ASRConfig,
+        vad: VADConfig,
     },
     GeminiAndTTS {
         gemini: GeminiConfig,

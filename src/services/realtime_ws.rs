@@ -65,7 +65,8 @@ impl RealtimeSession {
 pub struct StableRealtimeConfig {
     pub llm: LLMConfig,
     pub tts: TTSConfig,
-    pub asr: WhisperASRConfig,
+    pub asr: ASRConfig,
+    pub vad: VADConfig,
 }
 
 enum RealtimeEvent {
@@ -101,7 +102,7 @@ async fn handle_socket(config: Arc<StableRealtimeConfig>, socket: WebSocket) {
     let mut session = RealtimeSession::new(chat_session);
     let mut realtime_rx: Option<_> = None;
 
-    if let Some(vad_realtime_url) = &config.asr.vad_realtime_url {
+    if let Some(vad_realtime_url) = &config.vad.vad_realtime_url {
         match crate::ai::vad::vad_realtime_client(&session.client, vad_realtime_url.clone()).await {
             Ok((client, rx)) => {
                 session.vad_realtime_client = Some(client);
@@ -135,6 +136,7 @@ async fn handle_socket(config: Arc<StableRealtimeConfig>, socket: WebSocket) {
             cosyvoice.speaker.clone().unwrap_or("default".to_string())
         }
         TTSConfig::Elevenlabs(elevenlabs_tts) => elevenlabs_tts.voice.clone(),
+        TTSConfig::Aliyun(aliyun) => aliyun.voice.clone(),
     };
 
     session.config.turn_detection = Some(turn_detection.clone());
@@ -274,6 +276,7 @@ async fn handle_socket(config: Arc<StableRealtimeConfig>, socket: WebSocket) {
             &config.llm,
             &config.tts,
             &config.asr,
+            &config.vad,
         )
         .await
         {
@@ -294,7 +297,8 @@ async fn handle_client_message(
     tx: &mpsc::Sender<ServerEvent>,
     llm: &LLMConfig,
     tts: &TTSConfig,
-    asr: &WhisperASRConfig,
+    asr: &ASRConfig,
+    vad: &VADConfig,
 ) -> anyhow::Result<()> {
     match client_event {
         RealtimeEvent::ClientEvent(client_event) => {
@@ -493,7 +497,7 @@ async fn handle_client_message(
                 }
 
                 ClientEvent::InputAudioBufferCommit { event_id: _ } => {
-                    if handle_audio_buffer_commit(session, tx, None, asr).await? {
+                    if handle_audio_buffer_commit(session, tx, None, asr, vad).await? {
                         log::debug!("Audio buffer committed, generating response");
                         generate_response(session, tx, tts).await?;
                     }
@@ -635,7 +639,7 @@ async fn handle_client_message(
                 "speech_end" => {
                     log::debug!("VAD speech end detected");
                     session.triggered = false;
-                    if handle_audio_buffer_commit(session, tx, None, asr).await? {
+                    if handle_audio_buffer_commit(session, tx, None, asr, vad).await? {
                         log::debug!("Audio buffer committed, generating response");
                         generate_response(session, tx, tts).await?;
                     }
@@ -657,7 +661,8 @@ async fn handle_audio_buffer_commit(
     session: &mut RealtimeSession,
     tx: &mpsc::Sender<ServerEvent>,
     item_id: Option<String>,
-    config: &WhisperASRConfig,
+    config: &ASRConfig,
+    vad: &VADConfig,
 ) -> anyhow::Result<bool> {
     let audio_data = &session.input_audio_buffer;
 
@@ -678,7 +683,7 @@ async fn handle_audio_buffer_commit(
     };
     let _ = tx.send(committed_event).await;
 
-    if let Some(vad_url) = &config.vad_url {
+    if let Some(vad_url) = &vad.vad_url {
         let vad = crate::ai::vad::vad_detect(&session.client, vad_url, wav_audio.clone()).await?;
         if vad.timestamps.is_empty() {
             let transcription_completed =
@@ -694,16 +699,34 @@ async fn handle_audio_buffer_commit(
     }
 
     // 执行 ASR
-    let text_results = crate::ai::asr(
-        &session.client,
-        &config.url,
-        &config.api_key,
-        &config.model,
-        &config.lang,
-        &config.prompt,
-        wav_audio.clone(),
-    )
-    .await?;
+    let text_results;
+    match config {
+        crate::config::ASRConfig::Aliyun(asr) => {
+            text_results = crate::ai::aliyun_asr(
+                &session.client,
+                &asr.url,
+                &asr.appkey,
+                &asr.token,
+                wav_audio.clone(),
+            )
+            .await?;
+        }
+        crate::config::ASRConfig::Whisper(asr) => {
+            text_results = crate::ai::whisper_asr(
+                &session.client,
+                &asr.url,
+                &asr.api_key,
+                &asr.model,
+                &asr.lang,
+                &asr.prompt,
+                wav_audio.clone(),
+            )
+            .await?;
+        }
+        _ => {
+            text_results = vec!["".to_string()];
+        }
+    }
     let transcript = text_results.join("\n");
 
     // 创建用户消息项
@@ -1260,6 +1283,14 @@ async fn tts_and_send(
                 .await
                 .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
             }
+            Ok(())
+        }
+        crate::config::TTSConfig::Aliyun(aliyun) => {
+            let wav_data =
+                crate::ai::tts::aliyun_tts(&aliyun.url, &aliyun.appkey, &aliyun.token, &text)
+                    .await?;
+            let duration_sec = send_wav(tx, response_id, item_id, text, wav_data).await?;
+            log::info!("Fish TTS duration: {:?}", duration_sec);
             Ok(())
         }
     }
