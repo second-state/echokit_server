@@ -17,8 +17,15 @@ platform = "Stable"
 url = "https://0x66b496fba1fdff4237cca9ac597d7171126369c7.gaia.domains/v1/audio/speech"
 speaker = "speaker2"
 
+# [tts]
+# platform = "Aliyun"
+# url = "https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts"
+# appkey = "xxxxxxx"
+# token = "xxxxxxx"
+# voice = "xiaoyun"
 
 # [asr]
+# type = "Whisper"
 # url = "https://api.groq.com/openai/v1/audio/transcriptions"
 # lang = "zh"
 # api_key = "gsk_xxx"
@@ -27,10 +34,19 @@ speaker = "speaker2"
 # vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [asr]
+type = "Whisper"
 url = "https://whisper.gaia.domains/v1/audio/transcriptions"
 lang = "auto"
 prompt = "Hello\n你好\n(noise)\n(bgm)\n(silence)\n"
+
+[vad]
 vad_url = "http://localhost:9093/v1/audio/vad"
+
+# [asr]
+# type = "Aliyun"
+# url = "https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/asr"
+# token = "xxxxxxx"
+# appkey = "xxxxxxx"
 
 # [llm]
 # llm_chat_url = "https://api.groq.com/openai/v1/chat/completions"

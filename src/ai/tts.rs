@@ -28,6 +28,32 @@ pub async fn gsv(
     Ok(bytes)
 }
 
+pub async fn aliyun_tts(
+    tts_url: &str,
+    appkey: &str,
+    token: &str,
+    text: &str,
+) -> anyhow::Result<bytes::Bytes> {
+    let client = reqwest::Client::new();
+    let res = client.post(tts_url)
+    .header("Content-Type", "application/json")
+    .json(&serde_json::json!({"appkey":appkey, "text":text,"token":token, "format":"wav", "speech_rate": 150}))
+    .send()
+    .await?;
+
+    let status = res.status();
+    if status != 200 {
+        let body = res.text().await?;
+        return Err(anyhow::anyhow!(
+            "tts failed, status:{status}, body:{}",
+            body
+        ));
+    }
+    let bytes = res.bytes().await?;
+    println!("TTS response: {:?}", bytes.len());
+    Ok(bytes)
+}
+
 // cargo test --package esp_assistant --bin esp_assistant -- ai::tts::test_gsv --exact --show-output
 #[tokio::test]
 async fn test_gsv() {
