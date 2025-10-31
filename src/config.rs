@@ -143,8 +143,17 @@ pub struct Config {
 
     pub hello_wav: Option<String>,
 
+    #[serde(default)]
+    pub record: RecordConfig,
+
     #[serde(flatten)]
     pub config: AIConfig,
+}
+
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RecordConfig {
+    #[serde(default)]
+    pub callback_url: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

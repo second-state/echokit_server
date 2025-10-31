@@ -566,6 +566,46 @@ impl ChatSession {
         }
     }
 
+    pub fn create_from_config(
+        config: &crate::config::AIConfig,
+        tools: ToolSet<McpToolAdapter>,
+    ) -> Self {
+        match config {
+            crate::config::AIConfig::Stable { llm, .. } => {
+                let mut session = ChatSession::new(
+                    llm.llm_chat_url.clone(),
+                    llm.api_key.clone().unwrap_or_default(),
+                    llm.model.clone(),
+                    None,
+                    llm.history,
+                    tools,
+                );
+
+                session.system_prompts = llm.sys_prompts.clone();
+                session.messages = llm.dynamic_prompts.clone();
+
+                session
+            }
+            crate::config::AIConfig::GeminiAndTTS { gemini, .. }
+            | crate::config::AIConfig::Gemini { gemini } => {
+                let mut session = ChatSession::new(
+                    String::new(),
+                    gemini.api_key.clone(),
+                    gemini
+                        .model
+                        .clone()
+                        .unwrap_or("models/gemini-2.0-flash-live-001".to_string()),
+                    None,
+                    20,
+                    tools,
+                );
+
+                session.system_prompts = gemini.sys_prompts.clone();
+                session
+            }
+        }
+    }
+
     pub fn add_user_message(&mut self, message: String) {
         self.messages.push_back(llm::Content {
             role: llm::Role::User,

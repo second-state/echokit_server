@@ -89,13 +89,20 @@ async fn routes(
 
     let mut router = Router::new()
         // .route("/", get(handler))
-        .route("/ws/{id}", any(services::ws::ws_handler))
-        .nest("/record", services::file::new_file_service("./record"))
+        .route("/ws/{id}", any(services::mixed_handler))
+        .route("/v1/chat/{id}", any(services::ws::ws_handler))
+        .route("/v1/record/{id}", any(services::ws_record::ws_handler))
+        .nest("/downloads", services::file::new_file_service("./record"))
         .layer(axum::Extension(Arc::new(services::ws::WsSetting::new(
             hello_wav,
             config.config,
             tool_set,
-        ))));
+        ))))
+        .layer(axum::Extension(Arc::new(
+            services::ws_record::WsRecordSetting {
+                record_callback_url: config.record.callback_url,
+            },
+        )));
 
     if let Some(real_config) = real_config {
         log::info!(

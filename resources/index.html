@@ -13,6 +13,8 @@
     <!-- Add VAD-Web dependency -->
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
+
+    <script src="https://openfpcdn.io/fingerprintjs/v5/iife.min.js"></script>
     <style>
         .recording-pulse {
             animation: pulse 1s ease-in-out infinite alternate;
@@ -117,6 +119,11 @@
     </div>
 
     <script>
+        FingerprintJS.load().then(fp => fp.get()).then(result => {
+            window.visitorId = result.visitorId;
+            console.log("FingerprintJS Visitor ID:", window.visitorId);
+        });
+
         class AudioRecorder {
             constructor() {
                 this.isRecording = false;
@@ -176,6 +183,11 @@
                     this.recordingMode = e.target.checked;
                     const modeText = this.recordingMode ? 'Recording mode' : 'Chat mode';
                     this.addServerMessage(`🔄 Switched to ${modeText}`);
+
+                    // Stop listening when switching modes
+                    if (this.isVadActive) {
+                        this.toggleRecording();
+                    }
                 });
 
                 // Add spacebar shortcut
@@ -234,19 +246,25 @@
                 if (this.isConnected) {
                     this.disconnectWebSocket();
                 } else {
-                    this.connectWebSocket();
+                    // Pass recording mode state to determine whether to add record parameter
+                    this.connectWebSocket(this.recordingMode);
                 }
             }
 
-            connectWebSocket() {
+            connectWebSocket(addRecordParam = false) {
                 let url = this.wsUrlInput.value.trim();
                 if (!url) {
                     this.addServerMessage('Please enter WebSocket URL');
                     return;
                 }
                 url = url.endsWith('/') ? url : url + '/';
-                let uuid = crypto.randomUUID();
-                url = url + uuid;
+                let id = window.visitorId || crypto.randomUUID();
+                url = url + id;
+
+                // If need to add recording parameter
+                if (addRecordParam) {
+                    url = url + '?record=true';
+                }
 
                 try {
                     this.websocket = new WebSocket(url);
@@ -254,7 +272,7 @@
 
                     this.websocket.onopen = () => {
                         this.isConnected = true;
-                        this.updateConnectionStatus('connected', 'Connected: ' + uuid);
+                        this.updateConnectionStatus('connected', 'Connected: ' + id);
                         this.connectBtn.textContent = 'Disconnect';
                         this.connectBtn.classList.remove('btn-primary');
                         this.connectBtn.classList.add('btn-error');
@@ -336,16 +354,12 @@
                     // Handle string events
                     switch (data) {
                         case 'HelloStart':
-                            this.addServerMessage(`👋 Hello started`, debugInfo);
                             break;
                         case 'HelloEnd':
-                            this.addServerMessage(`👋 Hello ended`, debugInfo);
                             break;
                         case 'BGStart':
-                            this.addServerMessage(`🎵 Background music started`, debugInfo);
                             break;
                         case 'BGEnd':
-                            this.addServerMessage(`🎵 Background music ended`, debugInfo);
                             break;
                         case 'EndAudio':
                             // Handle complete audio data
@@ -475,8 +489,32 @@
                     this.myvad.pause();
                     this.isVadActive = false;
                     this.addServerMessage('⏹️ VAD stopped');
+
+                    // Disconnect from server when stopping VAD listening
+                    if (this.isConnected) {
+                        this.disconnectWebSocket();
+                        this.addServerMessage('🔌 Server connection closed');
+                    }
                 } else {
                     try {
+                        // In recording mode, reconnect to server with record=true parameter
+                        if (this.recordingMode) {
+                            if (this.isConnected) {
+                                this.addServerMessage('🔄 Recording mode: Reconnecting to server...');
+                                this.disconnectWebSocket();
+                                // Wait for disconnection to complete
+                                await new Promise(resolve => setTimeout(resolve, 100));
+                            }
+                            this.connectWebSocket(true); // Add record=true parameter
+                            // Wait for connection to establish
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        } else {
+                            // In chat mode, ensure connection is established
+                            this.connectWebSocket(false);
+                            // Wait for connection to establish
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        }
+
                         await this.myvad.start();
                         this.isVadActive = true;
                         const modeText = this.recordingMode ? 'Recording mode' : 'Chat mode';
