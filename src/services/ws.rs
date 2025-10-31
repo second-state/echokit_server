@@ -77,7 +77,7 @@ impl WsSetting {
 #[derive(Debug, serde::Deserialize)]
 pub struct ConnectQueryParams {
     #[serde(default)]
-    reconnect: bool,
+    pub reconnect: bool,
 }
 
 pub async fn ws_handler(

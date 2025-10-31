@@ -5,7 +5,7 @@ use axum::{
         ws::{Message, WebSocket},
         Path, WebSocketUpgrade,
     },
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     Extension,
 };
 use bytes::Bytes;
@@ -43,6 +43,13 @@ pub async fn ws_handler(
 ) -> impl IntoResponse {
     let request_id = uuid::Uuid::new_v4().as_u128();
     log::info!("[Record] {id}:{request_id:x} connected.");
+    if let Err(e) = std::fs::create_dir_all(format!("./record/{}", id)) {
+        log::error!("[Record] {} create dir failed: {}", id, e);
+        return Response::builder()
+            .status(500)
+            .body("Internal Server Error".into())
+            .unwrap();
+    }
 
     ws.on_upgrade(move |socket| async move {
         match handle_socket(socket, &id).await {
@@ -103,6 +110,8 @@ async fn handle_socket(mut socket: WebSocket, id: &str) -> anyhow::Result<String
         },
     )
     .await?;
+
+    wav_file.write_wav_header().await?;
 
     while let Ok(Some(Ok(message))) =
         tokio::time::timeout(std::time::Duration::from_secs(60), socket.recv()).await

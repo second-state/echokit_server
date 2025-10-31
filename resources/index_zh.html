@@ -13,6 +13,8 @@
     <!-- 添加 VAD-Web 依赖 -->
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
+
+    <script src="https://openfpcdn.io/fingerprintjs/v5/iife.min.js"></script>
     <style>
         .recording-pulse {
             animation: pulse 1s ease-in-out infinite alternate;
@@ -117,6 +119,11 @@
     </div>
 
     <script>
+        FingerprintJS.load().then(fp => fp.get()).then(result => {
+            window.visitorId = result.visitorId;
+            console.log("FingerprintJS Visitor ID:", window.visitorId);
+        });
+
         class AudioRecorder {
             constructor() {
                 this.isRecording = false;
@@ -176,6 +183,11 @@
                     this.recordingMode = e.target.checked;
                     const modeText = this.recordingMode ? '录制模式' : '对话模式';
                     this.addServerMessage(`🔄 切换到${modeText}`);
+
+                    // 切换模式时，如果正在监听则停止
+                    if (this.isVadActive) {
+                        this.toggleRecording();
+                    }
                 });
 
                 // 添加空格键快捷键
@@ -234,19 +246,25 @@
                 if (this.isConnected) {
                     this.disconnectWebSocket();
                 } else {
-                    this.connectWebSocket();
+                    // 根据录制模式状态决定是否添加 record 参数
+                    this.connectWebSocket(this.recordingMode);
                 }
             }
 
-            connectWebSocket() {
+            connectWebSocket(addRecordParam = false) {
                 let url = this.wsUrlInput.value.trim();
                 if (!url) {
                     this.addServerMessage('请输入 WebSocket 地址');
                     return;
                 }
                 url = url.endsWith('/') ? url : url + '/';
-                let uuid = crypto.randomUUID();
-                url = url + uuid;
+                let id = window.visitorId || crypto.randomUUID();
+                url = url + id;
+
+                // 如果需要添加录制参数
+                if (addRecordParam) {
+                    url = url + '?record=true';
+                }
 
                 try {
                     this.websocket = new WebSocket(url);
@@ -254,7 +272,7 @@
 
                     this.websocket.onopen = () => {
                         this.isConnected = true;
-                        this.updateConnectionStatus('connected', '已连接: ' + uuid);
+                        this.updateConnectionStatus('connected', '已连接: ' + id);
                         this.connectBtn.textContent = '断开';
                         this.connectBtn.classList.remove('btn-primary');
                         this.connectBtn.classList.add('btn-error');
@@ -336,16 +354,12 @@
                     // 处理字符串事件
                     switch (data) {
                         case 'HelloStart':
-                            this.addServerMessage(`👋 开始问候`, debugInfo);
                             break;
                         case 'HelloEnd':
-                            this.addServerMessage(`👋 问候结束`, debugInfo);
                             break;
                         case 'BGStart':
-                            this.addServerMessage(`🎵 开始背景音乐`, debugInfo);
                             break;
                         case 'BGEnd':
-                            this.addServerMessage(`🎵 背景音乐结束`, debugInfo);
                             break;
                         case 'EndAudio':
                             // 处理完整的音频数据
@@ -475,8 +489,32 @@
                     this.myvad.pause();
                     this.isVadActive = false;
                     this.addServerMessage('⏹️ VAD 已停止');
+
+                    // 关闭 VAD 监听时同时断开服务器连接
+                    if (this.isConnected) {
+                        this.disconnectWebSocket();
+                        this.addServerMessage('🔌 已断开服务器连接');
+                    }
                 } else {
                     try {
+                        // 如果是录制模式，重新连接服务器并添加 record=true 参数
+                        if (this.recordingMode) {
+                            if (this.isConnected) {
+                                this.addServerMessage('🔄 录制模式：重新连接服务器...');
+                                this.disconnectWebSocket();
+                                // 等待断开完成
+                                await new Promise(resolve => setTimeout(resolve, 100));
+                            }
+                            this.connectWebSocket(true); // 添加 record=true 参数
+                            // 等待连接建立
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        } else {
+                            // 对话模式下确保连接已建立
+                            this.connectWebSocket(false);
+                            // 等待连接建立
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        }
+
                         await this.myvad.start();
                         this.isVadActive = true;
                         const modeText = this.recordingMode ? '录制模式' : '对话模式';

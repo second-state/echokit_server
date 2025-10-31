@@ -89,7 +89,7 @@ async fn routes(
 
     let mut router = Router::new()
         // .route("/", get(handler))
-        .route("/ws/{id}", any(services::ws::ws_handler))
+        .route("/ws/{id}", any(services::mixed_handler))
         .route("/v1/chat/{id}", any(services::ws::ws_handler))
         .route("/v1/record/{id}", any(services::ws_record::ws_handler))
         .nest("/downloads", services::file::new_file_service("./record"))

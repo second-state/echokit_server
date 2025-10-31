@@ -1,5 +1,6 @@
 use std::io::{Cursor, Write};
 
+use tokio::io::AsyncSeekExt;
 use wav_io::{header::SampleFormat, reader::DecodeError};
 
 /// WAV 音频参数结构体
@@ -283,6 +284,7 @@ pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, 
 pub struct UnlimitedWavFileWriter {
     pub config: WavConfig,
     pub file: tokio::fs::File,
+    pub data_size: u32,
 }
 
 impl UnlimitedWavFileWriter {
@@ -294,7 +296,11 @@ impl UnlimitedWavFileWriter {
                 e.to_string()
             )
         })?;
-        Ok(Self { config, file })
+        Ok(Self {
+            config,
+            file,
+            data_size: 0,
+        })
     }
 
     pub async fn write_wav_header(&mut self) -> anyhow::Result<()> {
@@ -340,4 +346,26 @@ impl UnlimitedWavFileWriter {
         self.file.write_all(pcm_data).await?;
         Ok(())
     }
+}
+
+#[tokio::test]
+async fn test_unlimited_wav_file_writer() -> anyhow::Result<()> {
+    let mut writer = UnlimitedWavFileWriter::new(
+        "test_unlimited.wav",
+        WavConfig {
+            sample_rate: 16000,
+            channels: 1,
+            bits_per_sample: 16,
+        },
+    )
+    .await?;
+    writer.write_wav_header().await?;
+
+    // 写入一些模拟 PCM 数据
+    for _ in 0..10 {
+        let pcm_data = vec![0xffu8; 16000 * 2]; // 1 秒的静音 PCM 数据 (16kHz, 16-bit, mono)
+        writer.write_pcm_data(&pcm_data).await?;
+    }
+
+    Ok(())
 }
