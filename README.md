@@ -70,7 +70,7 @@ The `config.toml` can use any combination of open-source or proprietary AI servi
 
 Alternatively, you could use Google Gemini Live services for VAD + ASR + LLM, and even optionally, TTS. See [config.toml examples](examples/gemini).
 
-You can also [configure MCP servers](examples/gaia/mcp/config.toml) to give the EchoKit server tool use capabilities. 
+You can also [configure MCP servers](examples/mcp/config.toml) to give the EchoKit server tool use capabilities. 
 
 ### Configure the voice prompt
 
