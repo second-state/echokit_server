@@ -59,8 +59,10 @@ impl Default for CosyVoiceVersion {
 }
 
 impl CosyVoiceTTS {
+    const WEBSOCKET_URL: &str = "wss://dashscope.aliyuncs.com/api-ws/v1/inference";
+
     pub async fn connect(token: String) -> anyhow::Result<Self> {
-        let url = format!("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
+        let url = Self::WEBSOCKET_URL;
 
         let client = reqwest::Client::new();
         let response = client
@@ -77,6 +79,22 @@ impl CosyVoiceTTS {
             websocket,
             synthesis_started: false,
         })
+    }
+
+    pub async fn reconnect(&mut self) -> anyhow::Result<()> {
+        let url = Self::WEBSOCKET_URL;
+
+        let client = reqwest::Client::new();
+        let response = client
+            .get(url)
+            .bearer_auth(&self.token)
+            .header("X-DashScope-DataInspection", "enable")
+            .upgrade()
+            .send()
+            .await?;
+        self.websocket = response.into_websocket().await?;
+        self.synthesis_started = false;
+        Ok(())
     }
 
     pub async fn start_synthesis(
@@ -222,4 +240,23 @@ async fn test_cosyvoice_tts() {
     };
     let wav = crate::util::pcm_to_wav(&audio_data, config);
     std::fs::write("./resources/test/cosyvoice_out.wav", wav).unwrap();
+
+    let text = "Hello, this is CosyVoice V2";
+    tts.start_synthesis(CosyVoiceVersion::V2, None, Some(24000), text)
+        .await
+        .unwrap();
+
+    let mut audio_data = bytes::BytesMut::new();
+    while let Ok(Some(chunk)) = tts.next_audio_chunk().await {
+        audio_data.extend_from_slice(&chunk);
+    }
+
+    println!("Audio data size: {} bytes", audio_data.len());
+    let config = crate::util::WavConfig {
+        channels: 1,
+        sample_rate: 24000,
+        bits_per_sample: 16,
+    };
+    let wav = crate::util::pcm_to_wav(&audio_data, config);
+    std::fs::write("./resources/test/cosyvoice_out2.wav", wav).unwrap();
 }

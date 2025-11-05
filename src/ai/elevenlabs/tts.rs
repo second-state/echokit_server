@@ -99,11 +99,19 @@ impl ElevenlabsTTS {
         voice: String,
         output_format: OutputFormat,
     ) -> anyhow::Result<Self> {
+        let client = reqwest::Client::new();
+        Self::new_with_client(&client, token, voice, output_format).await
+    }
+
+    pub async fn new_with_client(
+        client: &reqwest::Client,
+        token: String,
+        voice: String,
+        output_format: OutputFormat,
+    ) -> anyhow::Result<Self> {
         let url = format!(
             "wss://api.elevenlabs.io/v1/text-to-speech/{voice}/stream-input?model_id={MODEL_ID}&output_format={output_format}",
         );
-
-        let client = reqwest::Client::new();
 
         let response = client
             .get(url)
@@ -203,6 +211,7 @@ impl ElevenlabsTTS {
     }
 }
 
+// cargo test --package echokit_server --bin echokit_server -- ai::elevenlabs::tts::test_elevenlabs_tts --exact --show-output
 #[tokio::test]
 async fn test_elevenlabs_tts() {
     env_logger::init();

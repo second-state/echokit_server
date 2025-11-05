@@ -1,6 +1,5 @@
 use std::io::{Cursor, Write};
 
-use tokio::io::AsyncSeekExt;
 use wav_io::{header::SampleFormat, reader::DecodeError};
 
 /// WAV 音频参数结构体

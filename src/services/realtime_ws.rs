@@ -1169,9 +1169,11 @@ async fn tts_and_send(
     item_id: Option<String>,
     text: String,
 ) -> anyhow::Result<()> {
+    let client = reqwest::Client::new();
     match tts_config {
         crate::config::TTSConfig::Stable(tts) => {
-            let wav_data = crate::ai::tts::gsv(&tts.url, &tts.speaker, &text, Some(24000)).await?;
+            let wav_data =
+                crate::ai::tts::gsv(&client, &tts.url, &tts.speaker, &text, Some(24000)).await?;
             let duration_sec = send_wav(tx, response_id, item_id, text, wav_data).await?;
             log::info!("Stable TTS duration: {:?}", duration_sec);
             Ok(())
@@ -1184,13 +1186,15 @@ async fn tts_and_send(
         }
         crate::config::TTSConfig::Groq(groq) => {
             let wav_data =
-                crate::ai::tts::groq(&groq.model, &groq.api_key, &groq.voice, &text).await?;
+                crate::ai::tts::groq(&client, &groq.model, &groq.api_key, &groq.voice, &text)
+                    .await?;
             let duration_sec = send_wav(tx, response_id, item_id, text, wav_data).await?;
             log::info!("Groq TTS duration: {:?}", duration_sec);
             Ok(())
         }
         crate::config::TTSConfig::StreamGSV(stream_tts) => {
             let resp = crate::ai::tts::stream_gsv(
+                &client,
                 &stream_tts.url,
                 &stream_tts.speaker,
                 &text,
