@@ -1261,6 +1261,7 @@ enum ProcessMessageResult {
 fn process_message(msg: Message) -> ProcessMessageResult {
     match msg {
         Message::Text(t) => {
+            log::debug!("Received text message: {}", t);
             if let Ok(cmd) = serde_json::from_str::<crate::protocol::ClientCommand>(&t) {
                 match cmd {
                     crate::protocol::ClientCommand::StartRecord => ProcessMessageResult::Skip,
@@ -1274,7 +1275,10 @@ fn process_message(msg: Message) -> ProcessMessageResult {
                 ProcessMessageResult::Skip
             }
         }
-        Message::Binary(d) => ProcessMessageResult::Audio(d),
+        Message::Binary(d) => {
+            log::debug!("Received binary message of size: {}", d.len());
+            ProcessMessageResult::Audio(d)
+        }
         Message::Close(c) => {
             if let Some(cf) = c {
                 log::info!(

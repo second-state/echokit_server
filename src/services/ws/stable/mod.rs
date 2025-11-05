@@ -91,6 +91,11 @@ async fn run_session(
     );
 
     loop {
+        log::info!(
+            "{}:{:x} waiting for asr input",
+            session.id,
+            session.request_id
+        );
         let text = asr_session
             .get_input(&session.id, &mut session.client_rx)
             .await?;
@@ -286,18 +291,57 @@ pub async fn run_session_manager(
                 anyhow::anyhow!("error creating asr session for id `{}`: {}", id, e)
             })?;
 
-            while let Some(mut session) = rx.recv().await {
-                if let Err(e) = run_session(
+            let mut session = rx
+                .recv()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("no session received for id `{}`", id))?;
+
+            loop {
+                log::info!("Running session for id `{}`", id);
+
+                let run_fut = run_session(
                     &mut chat_session,
                     &mut tts_req_tx,
                     &mut asr_session,
                     &mut session,
-                )
-                .await
-                {
-                    log::error!("session error: {}", e);
-                }
+                );
+
+                let result = tokio::select! {
+                    res = run_fut => {
+                        Ok(res)
+                    },
+                    new_session = rx.recv() => {
+                        Err(new_session)
+                    }
+                };
+
                 session.cmd_tx.send(super::WsCommand::EndResponse).ok();
+
+                match result {
+                    Ok(Ok(())) => {
+                        log::info!("session for id `{}` completed successfully", id);
+                    }
+                    Ok(Err(e)) => {
+                        log::error!("session for id `{}` error: {}", id, e);
+                    }
+                    Err(Some(new_session)) => {
+                        log::info!("received new session for id `{}`, restarting session", id);
+                        session = new_session;
+                        continue;
+                    }
+                    Err(None) => {
+                        log::info!("no more sessions for id `{}`, exiting", id);
+                        break;
+                    }
+                }
+
+                session = match rx.recv().await {
+                    Some(s) => s,
+                    None => {
+                        log::info!("no more sessions for id `{}`, exiting", id);
+                        break;
+                    }
+                };
             }
 
             anyhow::Result::<()>::Ok(())
