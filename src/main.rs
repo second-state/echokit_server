@@ -86,22 +86,24 @@ async fn routes(
         _ => {}
     }
 
+    let record_config = Arc::new(services::ws_record::WsRecordSetting {
+        record_callback_url: config.record.callback_url,
+    });
+
+    let ws_setting = Arc::new(services::ws::WsSetting::new(
+        hello_wav.clone(),
+        config.config.clone(),
+        tool_set.clone(),
+    ));
+
     let mut router = Router::new()
         // .route("/", get(handler))
-        .route("/ws/{id}", any(services::mixed_handler))
+        .route("/v1/ws/{id}", any(services::mixed_handler))
         .route("/v1/chat/{id}", any(services::ws::ws_handler))
         .route("/v1/record/{id}", any(services::ws_record::ws_handler))
         .nest("/downloads", services::file::new_file_service("./record"))
-        .layer(axum::Extension(Arc::new(services::ws::WsSetting::new(
-            hello_wav.clone(),
-            config.config.clone(),
-            tool_set.clone(),
-        ))))
-        .layer(axum::Extension(Arc::new(
-            services::ws_record::WsRecordSetting {
-                record_callback_url: config.record.callback_url,
-            },
-        )));
+        .layer(axum::Extension(ws_setting.clone()))
+        .layer(axum::Extension(record_config.clone()));
 
     if let config::AIConfig::Stable { llm, tts, asr } = config.config {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -116,13 +118,20 @@ async fn routes(
         });
 
         router = router
-            .route("/v1/stable_ws/{id}", any(services::ws::stable::ws_handler))
+            .route("/ws/{id}", any(services::v2_mixed_handler))
+            .route("/v2/stable_ws/{id}", any(services::ws::stable::ws_handler))
             .layer(axum::Extension(Arc::new(
                 services::ws::stable::StableWsSetting {
                     sessions: tx,
                     hello_wav,
                 },
-            )));
+            )))
+            .layer(axum::Extension(record_config.clone()));
+    } else {
+        router = router
+            .route("/ws/{id}", any(services::mixed_handler))
+            .layer(axum::Extension(ws_setting.clone()))
+            .layer(axum::Extension(record_config.clone()));
     }
 
     if let Some(real_config) = real_config {
