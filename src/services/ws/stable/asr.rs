@@ -43,9 +43,19 @@ impl ParaformerASRSession {
                 }
                 ClientMsg::StartChat => {
                     log::info!("`{id}` starting paraformer asr");
-                    self.start_pcm_recognition().await.map_err(|e| {
-                        anyhow::anyhow!("`{id}` error starting paraformer asr: {e}")
-                    })?;
+                    if let Err(e) = self.start_pcm_recognition().await {
+                        log::warn!(
+                            "`{id}` error starting paraformer asr: {e}, attempting to reconnect..."
+                        );
+                        self.reconnect().await.map_err(|e| {
+                            anyhow::anyhow!("`{id}` error reconnecting paraformer asr: {e}")
+                        })?;
+                        log::info!("`{id}` paraformer asr reconnected successfully");
+                        self.start_pcm_recognition().await.map_err(|e| {
+                            anyhow::anyhow!("`{id}` error starting paraformer asr: {e}")
+                        })?;
+                    }
+
                     continue;
                 }
             }

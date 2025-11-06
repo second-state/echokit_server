@@ -125,6 +125,13 @@ impl ParaformerRealtimeV2Asr {
                     log::debug!("Received message: {:?}", text);
 
                     let response: ResponseMessage = serde_json::from_str(&text)?;
+                    if response.header.task_id != self.task_id {
+                        log::warn!(
+                            "Received message for different task_id: {}",
+                            response.header.task_id
+                        );
+                        continue;
+                    }
 
                     if response.is_task_started() {
                         log::info!("Recognition task started");
