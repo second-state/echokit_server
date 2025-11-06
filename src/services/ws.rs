@@ -30,6 +30,8 @@ use crate::{
     util::WavConfig,
 };
 
+pub mod stable;
+
 pub enum WsCommand {
     AsrResult(Vec<String>),
     Action {
@@ -151,10 +153,11 @@ async fn retry_tts(
     retry: usize,
     timeout: std::time::Duration,
 ) -> anyhow::Result<Bytes> {
+    let client = reqwest::Client::new();
     for i in 0..retry {
         let r = tokio::time::timeout(
             timeout,
-            crate::ai::tts::gsv(url, speaker, text, sample_rate),
+            crate::ai::tts::gsv(&client, url, speaker, text, sample_rate),
         )
         .await;
         match r {
@@ -294,6 +297,8 @@ async fn tts_and_send(
         }
     };
 
+    let client = reqwest::Client::new();
+
     match tts_config {
         crate::config::TTSConfig::Stable(tts) => {
             let timeout_sec = tts.timeout_sec.unwrap_or(15);
@@ -318,13 +323,15 @@ async fn tts_and_send(
         }
         crate::config::TTSConfig::Groq(groq) => {
             let wav_data =
-                crate::ai::tts::groq(&groq.model, &groq.api_key, &groq.voice, &text).await?;
+                crate::ai::tts::groq(&client, &groq.model, &groq.api_key, &groq.voice, &text)
+                    .await?;
             let duration_sec = send_wav(tx, text, wav_data).await?;
             log::info!("Groq TTS duration: {:?}", duration_sec);
             Ok(duration_sec)
         }
         crate::config::TTSConfig::StreamGSV(stream_tts) => {
             let resp = crate::ai::tts::stream_gsv(
+                &client,
                 &stream_tts.url,
                 &stream_tts.speaker,
                 &text,
@@ -436,7 +443,7 @@ async fn recv_audio_to_wav(
     Ok(wav_audio)
 }
 
-async fn get_whisper_asr_text(
+pub async fn get_whisper_asr_text(
     client: &reqwest::Client,
     id: &str,
     asr: &crate::config::WhisperASRConfig,
@@ -497,7 +504,7 @@ async fn get_whisper_asr_text(
     }
 }
 
-async fn get_paraformer_v2_text(
+pub async fn get_paraformer_v2_text(
     id: &str,
     asr: &crate::config::ParaformerV2AsrConfig,
     audio: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
@@ -1254,6 +1261,7 @@ enum ProcessMessageResult {
 fn process_message(msg: Message) -> ProcessMessageResult {
     match msg {
         Message::Text(t) => {
+            log::debug!("Received text message: {}", t);
             if let Ok(cmd) = serde_json::from_str::<crate::protocol::ClientCommand>(&t) {
                 match cmd {
                     crate::protocol::ClientCommand::StartRecord => ProcessMessageResult::Skip,
@@ -1267,7 +1275,10 @@ fn process_message(msg: Message) -> ProcessMessageResult {
                 ProcessMessageResult::Skip
             }
         }
-        Message::Binary(d) => ProcessMessageResult::Audio(d),
+        Message::Binary(d) => {
+            log::debug!("Received binary message of size: {}", d.len());
+            ProcessMessageResult::Audio(d)
+        }
         Message::Close(c) => {
             if let Some(cf) = c {
                 log::info!(

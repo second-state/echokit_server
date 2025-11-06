@@ -75,6 +75,21 @@ impl ParaformerRealtimeV2Asr {
         })
     }
 
+    pub async fn reconnect(&mut self) -> anyhow::Result<()> {
+        let url = format!("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
+
+        let client = reqwest::Client::new();
+        let response = client
+            .get(url)
+            .bearer_auth(&self.token)
+            .header("X-DashScope-DataInspection", "enable")
+            .upgrade()
+            .send()
+            .await?;
+        self.websocket = response.into_websocket().await?;
+        Ok(())
+    }
+
     pub async fn start_pcm_recognition(&mut self) -> anyhow::Result<()> {
         let task_id = Uuid::new_v4().to_string();
         log::info!("Starting asr task with ID: {}", task_id);
@@ -110,6 +125,13 @@ impl ParaformerRealtimeV2Asr {
                     log::debug!("Received message: {:?}", text);
 
                     let response: ResponseMessage = serde_json::from_str(&text)?;
+                    if response.header.task_id != self.task_id {
+                        log::warn!(
+                            "Received message for different task_id: {}",
+                            response.header.task_id
+                        );
+                        continue;
+                    }
 
                     if response.is_task_started() {
                         log::info!("Recognition task started");
@@ -187,6 +209,7 @@ impl ParaformerRealtimeV2Asr {
     }
 }
 
+// cargo test --package echokit_server --bin echokit_server -- ai::bailian::realtime_asr::test_paraformer_asr --exact --show-output
 #[tokio::test]
 async fn test_paraformer_asr() {
     env_logger::init();
@@ -202,6 +225,21 @@ async fn test_paraformer_asr() {
         .unwrap();
     asr.start_pcm_recognition().await.unwrap();
 
+    asr.send_audio(audio_data.clone()).await.unwrap();
+    asr.finish_task().await.unwrap();
+
+    loop {
+        if let Ok(Some(sentence)) = asr.next_result().await {
+            println!("{:?}", sentence);
+            if sentence.sentence_end {
+                println!();
+            }
+        } else {
+            break;
+        }
+    }
+
+    asr.start_pcm_recognition().await.unwrap();
     asr.send_audio(audio_data).await.unwrap();
     asr.finish_task().await.unwrap();
 

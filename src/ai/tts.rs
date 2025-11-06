@@ -2,13 +2,13 @@ use bytes::Bytes;
 
 /// return: wav_audio: 16bit,32k,single-channel.
 pub async fn gsv(
+    client: &reqwest::Client,
     tts_url: &str,
     speaker: &str,
     text: &str,
     sample_rate: Option<usize>,
 ) -> anyhow::Result<Bytes> {
     log::debug!("speaker: {speaker}, text: {text}");
-    let client = reqwest::Client::new();
     let res = client
         .post(tts_url)
         .json(&serde_json::json!({"speaker": speaker, "input": text, "sample_rate": sample_rate}))
@@ -34,7 +34,10 @@ async fn test_gsv() {
     let tts_url = "http://localhost:8000/v1/audio/speech";
     let speaker = "ad";
     let text = "你好，我是胡桃";
-    let wav_audio = gsv(tts_url, speaker, text, Some(16000)).await.unwrap();
+    let client = reqwest::Client::new();
+    let wav_audio = gsv(&client, tts_url, speaker, text, Some(16000))
+        .await
+        .unwrap();
     let header = hound::WavReader::new(wav_audio.as_ref()).unwrap();
     let spec = header.spec();
     println!("wav header: {:?}", spec);
@@ -44,13 +47,13 @@ async fn test_gsv() {
 
 /// return: pcm_chunk: 16bit,32k,single-channel.
 pub async fn stream_gsv(
+    client: &reqwest::Client,
     tts_url: &str,
     speaker: &str,
     text: &str,
     sample_rate: Option<usize>,
 ) -> anyhow::Result<reqwest::Response> {
     log::debug!("speaker: {speaker}, text: {text}");
-    let client = reqwest::Client::new();
     let res = client
         .post(tts_url)
         .json(&serde_json::json!({"speaker": speaker, "input": text, "sample_rate": sample_rate}))
@@ -69,9 +72,14 @@ pub async fn stream_gsv(
 }
 
 /// return: wav_audio: 16bit,48k,single-channel.
-pub async fn groq(model: &str, token: &str, voice: &str, text: &str) -> anyhow::Result<Bytes> {
+pub async fn groq(
+    client: &reqwest::Client,
+    model: &str,
+    token: &str,
+    voice: &str,
+    text: &str,
+) -> anyhow::Result<Bytes> {
     log::debug!("groq tts. voice: {voice}, text: {text}");
-    let client = reqwest::Client::new();
     let res = client
         .post("https://api.groq.com/openai/v1/audio/speech")
         .bearer_auth(token)
@@ -102,7 +110,10 @@ async fn test_groq() {
     let token = std::env::var("GROQ_API_KEY").unwrap();
     let speaker = "Aaliyah-PlayAI";
     let text = "你好，我是胡桃";
-    let wav_audio = groq("playai-tts", &token, speaker, text).await.unwrap();
+    let client = reqwest::Client::new();
+    let wav_audio = groq(&client, "playai-tts", &token, speaker, text)
+        .await
+        .unwrap();
     let mut reader = wav_io::reader::Reader::from_vec(wav_audio.to_vec()).unwrap();
     let head = reader.read_header().unwrap();
     println!("wav header: {:?}", head);

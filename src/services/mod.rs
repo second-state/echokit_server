@@ -43,3 +43,28 @@ pub async fn mixed_handler(
         .into_response()
     }
 }
+
+pub async fn v2_mixed_handler(
+    Extension(record_setting): Extension<Arc<ws_record::WsRecordSetting>>,
+    Extension(pool): Extension<Arc<ws::stable::StableWsSetting>>,
+    ws: WebSocketUpgrade,
+    Path(id): Path<String>,
+    Query(params): Query<ConnectQueryParams>,
+) -> Response {
+    if params.record {
+        ws_record::ws_handler(Extension(record_setting), ws, Path(id))
+            .await
+            .into_response()
+    } else {
+        ws::stable::ws_handler(
+            Extension(pool),
+            ws,
+            Path(id),
+            Query(ws::ConnectQueryParams {
+                reconnect: params.reconnect,
+            }),
+        )
+        .await
+        .into_response()
+    }
+}
