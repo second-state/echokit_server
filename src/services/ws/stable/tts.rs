@@ -317,7 +317,8 @@ async fn groq_tts(
     text: &str,
     tts_resp_tx: &TTSResponseTx,
 ) -> anyhow::Result<()> {
-    let bytes = crate::ai::tts::groq(client, &tts.model, &tts.api_key, &tts.voice, text).await?;
+    let bytes =
+        crate::ai::tts::groq(client, &tts.url, &tts.model, &tts.api_key, &tts.voice, text).await?;
 
     tts_resp_tx.send(bytes.to_vec())?;
     Ok(())

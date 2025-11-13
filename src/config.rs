@@ -70,6 +70,8 @@ pub struct GroqTTS {
     pub api_key: String,
     pub model: String,
     pub voice: String,
+    #[serde(default)]
+    pub url: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

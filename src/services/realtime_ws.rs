@@ -1185,9 +1185,15 @@ async fn tts_and_send(
             Ok(())
         }
         crate::config::TTSConfig::Groq(groq) => {
-            let wav_data =
-                crate::ai::tts::groq(&client, &groq.model, &groq.api_key, &groq.voice, &text)
-                    .await?;
+            let wav_data = crate::ai::tts::groq(
+                &client,
+                &groq.url,
+                &groq.model,
+                &groq.api_key,
+                &groq.voice,
+                &text,
+            )
+            .await?;
             let duration_sec = send_wav(tx, response_id, item_id, text, wav_data).await?;
             log::info!("Groq TTS duration: {:?}", duration_sec);
             Ok(())

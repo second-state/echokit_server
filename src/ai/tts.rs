@@ -74,14 +74,21 @@ pub async fn stream_gsv(
 /// return: wav_audio: 16bit,48k,single-channel.
 pub async fn groq(
     client: &reqwest::Client,
+    url: &str,
     model: &str,
     token: &str,
     voice: &str,
     text: &str,
 ) -> anyhow::Result<Bytes> {
+    let url = if url.is_empty() {
+        "https://api.groq.com/openai/v1/audio/speech"
+    } else {
+        url
+    };
+
     log::debug!("groq tts. voice: {voice}, text: {text}");
     let res = client
-        .post("https://api.groq.com/openai/v1/audio/speech")
+        .post(url)
         .bearer_auth(token)
         .json(&serde_json::json!({
             "model":model,
@@ -111,7 +118,7 @@ async fn test_groq() {
     let speaker = "Aaliyah-PlayAI";
     let text = "你好，我是胡桃";
     let client = reqwest::Client::new();
-    let wav_audio = groq(&client, "playai-tts", &token, speaker, text)
+    let wav_audio = groq(&client, "", "playai-tts", &token, speaker, text)
         .await
         .unwrap();
     let mut reader = wav_io::reader::Reader::from_vec(wav_audio.to_vec()).unwrap();
