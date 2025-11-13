@@ -216,7 +216,7 @@ async fn gsv_stable_tts(
     text: &str,
     tts_resp_tx: &TTSResponseTx,
 ) -> anyhow::Result<()> {
-    let bytes = retry_gsv_tts(
+    let wav_data = retry_gsv_tts(
         client,
         &tts.url,
         &tts.speaker,
@@ -227,7 +227,7 @@ async fn gsv_stable_tts(
     )
     .await?;
 
-    tts_resp_tx.send(bytes.to_vec())?;
+    send_wav(tts_resp_tx, wav_data).await?;
     Ok(())
 }
 
@@ -317,17 +317,17 @@ async fn groq_tts(
     text: &str,
     tts_resp_tx: &TTSResponseTx,
 ) -> anyhow::Result<()> {
-    let bytes =
+    let wav_data =
         crate::ai::tts::groq(client, &tts.url, &tts.model, &tts.api_key, &tts.voice, text).await?;
 
-    tts_resp_tx.send(bytes.to_vec())?;
+    send_wav(tts_resp_tx, wav_data).await?;
     Ok(())
 }
 
 async fn fish_tts(tts: &FishTTS, text: &str, tts_resp_tx: &TTSResponseTx) -> anyhow::Result<()> {
-    let bytes = crate::ai::tts::fish_tts(&tts.api_key, &tts.speaker, text).await?;
+    let wav_data = crate::ai::tts::fish_tts(&tts.api_key, &tts.speaker, text).await?;
 
-    tts_resp_tx.send(bytes.to_vec())?;
+    send_wav(tts_resp_tx, wav_data).await?;
     Ok(())
 }
 
@@ -374,6 +374,43 @@ async fn elevenlabs_tts(
                 .send(audio.to_vec())
                 .map_err(|e| anyhow::anyhow!("send audio error: {e}"))?;
         }
+    }
+
+    Ok(())
+}
+
+async fn send_wav(tts_resp_tx: &TTSResponseTx, wav_data: Bytes) -> anyhow::Result<()> {
+    let mut reader = wav_io::reader::Reader::from_vec(wav_data.into())
+        .map_err(|e| anyhow::anyhow!("wav_io reader error: {e}"))?;
+
+    let header = reader.read_header()?;
+    let mut samples = crate::util::get_samples_f32(&mut reader)
+        .map_err(|e| anyhow::anyhow!("get_samples_f32 error: {e}"))?;
+
+    let out_hz = 16000;
+
+    if header.sample_rate != out_hz {
+        // resample to 16000
+        log::debug!("resampling from {} to 16000", header.sample_rate);
+        samples = wav_io::resample::linear(samples, header.channels, header.sample_rate, out_hz);
+    }
+    let audio_16k = wav_io::convert_samples_f32_to_i16(&samples);
+
+    for chunk in audio_16k.chunks(5 * out_hz as usize / 10) {
+        let buff = if cfg!(target_endian = "big") {
+            let mut buff = Vec::with_capacity(chunk.len() * 2);
+            for i in chunk {
+                buff.extend_from_slice(&i.to_le_bytes());
+            }
+            buff
+        } else {
+            let chunk_bytes =
+                unsafe { std::slice::from_raw_parts(chunk.as_ptr() as *const u8, chunk.len() * 2) };
+            chunk_bytes.to_vec()
+        };
+
+        // std::mem::swap(&mut send_data, &mut buff);
+        tts_resp_tx.send(buff)?;
     }
 
     Ok(())
