@@ -4,7 +4,7 @@ use base64::prelude::*;
 use futures_util::{SinkExt, StreamExt};
 use reqwest_websocket::{RequestBuilderExt, WebSocket};
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Default, serde::Deserialize)]
 pub struct Alignment {
     pub chars: Vec<String>,
 }
@@ -29,7 +29,6 @@ impl Response {
     }
 
     pub fn get_audio_bytes(&self) -> Option<Vec<u8>> {
-        let _ = self.alignment.as_ref()?;
         self.audio
             .as_ref()
             .and_then(|audio_base64| BASE64_STANDARD.decode(audio_base64).ok())
@@ -186,7 +185,7 @@ impl ElevenlabsTTS {
                         ));
                     }
 
-                    if response.alignment.is_some() && response.audio.is_some() {
+                    if response.audio.is_some() {
                         log::trace!(
                             "Elevenlabs TTS audio chunk received, size: {}",
                             response.audio.as_ref().unwrap().len()
