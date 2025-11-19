@@ -32,6 +32,8 @@ pub struct LLMConfig {
     #[serde(default)]
     pub model: String,
     #[serde(default)]
+    pub prompts_url: String,
+    #[serde(default)]
     pub sys_prompts: Vec<Content>,
     #[serde(default)]
     pub dynamic_prompts: LinkedList<Content>,

@@ -3,6 +3,54 @@ use crate::ai::{llm::Content, ChatSession, StableLLMResponseChunk};
 pub type ChunksTx = tokio::sync::mpsc::UnboundedSender<(String, super::tts::TTSResponseRx)>;
 pub type ChunksRx = tokio::sync::mpsc::UnboundedReceiver<(String, super::tts::TTSResponseRx)>;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PromptParts {
+    pub sys_prompts: Vec<Content>,
+    pub dynamic_prompts: std::collections::LinkedList<Content>,
+}
+
+impl crate::config::LLMConfig {
+    pub async fn prompts(&self) -> PromptParts {
+        if !self.prompts_url.is_empty() {
+            match self.load_prompts().await {
+                Ok(prompt_parts) => prompt_parts,
+                Err(e) => {
+                    log::error!("error loading prompt from url {}: {}", self.prompts_url, e);
+                    PromptParts {
+                        sys_prompts: self.sys_prompts.clone(),
+                        dynamic_prompts: self.dynamic_prompts.clone(),
+                    }
+                }
+            }
+        } else {
+            PromptParts {
+                sys_prompts: self.sys_prompts.clone(),
+                dynamic_prompts: self.dynamic_prompts.clone(),
+            }
+        }
+    }
+
+    async fn load_prompts(&self) -> anyhow::Result<PromptParts> {
+        let prompt_url = &self.prompts_url;
+        let client = reqwest::Client::new();
+        let res = client.get(prompt_url).send().await?;
+        let status = res.status();
+        if status != 200 {
+            let body = res.text().await?;
+            return Err(anyhow::anyhow!(
+                "load prompt failed, status:{}, body:{}",
+                status,
+                body
+            ));
+        }
+        let prompt = res
+            .json()
+            .await
+            .map_err(|e| anyhow::anyhow!("error parsing prompt json from {}: {}", prompt_url, e))?;
+        Ok(prompt)
+    }
+}
+
 pub async fn chat(
     tts_tx: &mut super::tts::TTSRequestTx,
     chunks_tx: ChunksTx,

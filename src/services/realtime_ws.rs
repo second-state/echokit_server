@@ -94,8 +94,9 @@ async fn handle_socket(config: Arc<StableRealtimeConfig>, socket: WebSocket) {
         config.llm.history,
         crate::ai::openai::tool::ToolSet::default(),
     );
-    chat_session.system_prompts = config.llm.sys_prompts.clone();
-    chat_session.messages = config.llm.dynamic_prompts.clone();
+    let parts = config.llm.prompts().await;
+    chat_session.system_prompts = parts.sys_prompts;
+    chat_session.messages = parts.dynamic_prompts;
 
     // 创建新的 Realtime 会话
     let mut session = RealtimeSession::new(chat_session);

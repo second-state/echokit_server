@@ -278,8 +278,10 @@ pub async fn run_session_manager(
             llm.history,
             tools.clone(),
         );
-        chat_session.system_prompts = llm.sys_prompts.clone();
-        chat_session.messages = llm.dynamic_prompts.clone();
+
+        let part = llm.prompts().await;
+        chat_session.system_prompts = part.sys_prompts;
+        chat_session.messages = part.dynamic_prompts;
 
         sessions.insert(id.clone(), tx);
 
