@@ -56,7 +56,7 @@ pub struct FishTTS {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct StableTTS {
+pub struct GSVTTS {
     #[serde(default)]
     pub api_key: String,
     pub url: String,
@@ -65,12 +65,44 @@ pub struct StableTTS {
     pub timeout_sec: Option<u64>,
 }
 
+fn default_groq_tts_model() -> String {
+    "playai-tts".to_string()
+}
+
+fn default_groq_tts_model_url() -> String {
+    "https://api.groq.com/openai/v1/audio/speech".to_string()
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GroqTTS {
     pub api_key: String,
+    #[serde(default = "default_groq_tts_model")]
     pub model: String,
     pub voice: String,
-    #[serde(default)]
+    #[serde(default = "default_groq_tts_model_url")]
+    pub url: String,
+}
+
+fn default_openai_tts_model() -> String {
+    "gpt-4o-tts".to_string()
+}
+
+fn default_openai_tts_model_url() -> String {
+    "https://api.openai.com/v1/audio/speech".to_string()
+}
+
+fn default_openai_tts_voice() -> String {
+    "alloy".to_string()
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OpenaiTTS {
+    pub api_key: String,
+    #[serde(default = "default_openai_tts_model")]
+    pub model: String,
+    #[serde(default = "default_openai_tts_voice")]
+    pub voice: String,
+    #[serde(default = "default_openai_tts_model_url")]
     pub url: String,
 }
 
@@ -102,7 +134,9 @@ pub struct ElevenlabsTTS {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "platform")]
 pub enum TTSConfig {
-    Stable(StableTTS),
+    Openai(OpenaiTTS),
+    #[serde(alias = "Stable")]
+    GSV(GSVTTS),
     Fish(FishTTS),
     Groq(GroqTTS),
     StreamGSV(StreamGSV),
@@ -143,6 +177,7 @@ pub enum ASRConfig {
 pub struct Config {
     pub addr: String,
 
+    #[serde(default)]
     pub hello_wav: Option<String>,
 
     #[serde(default)]

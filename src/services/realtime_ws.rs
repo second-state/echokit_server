@@ -127,8 +127,9 @@ async fn handle_socket(config: Arc<StableRealtimeConfig>, socket: WebSocket) {
     );
 
     let tts_voice = match &config.tts {
-        TTSConfig::Stable(tts) => tts.speaker.clone(),
+        TTSConfig::GSV(tts) => tts.speaker.clone(),
         TTSConfig::Fish(fish) => fish.speaker.clone(),
+        TTSConfig::Openai(openai) => openai.voice.clone(),
         TTSConfig::Groq(groq) => groq.voice.clone(),
         TTSConfig::StreamGSV(stream_tts) => stream_tts.speaker.clone(),
         TTSConfig::CosyVoice(cosyvoice) => {
@@ -1171,7 +1172,7 @@ async fn tts_and_send(
 ) -> anyhow::Result<()> {
     let client = reqwest::Client::new();
     match tts_config {
-        crate::config::TTSConfig::Stable(tts) => {
+        crate::config::TTSConfig::GSV(tts) => {
             let wav_data =
                 crate::ai::tts::gsv(&client, &tts.url, &tts.speaker, &text, Some(24000)).await?;
             let duration_sec = send_wav(tx, response_id, item_id, text, wav_data).await?;
@@ -1182,6 +1183,20 @@ async fn tts_and_send(
             let wav_data = crate::ai::tts::fish_tts(&fish.api_key, &fish.speaker, &text).await?;
             let duration_sec = send_wav(tx, response_id, item_id, text, wav_data).await?;
             log::info!("Fish TTS duration: {:?}", duration_sec);
+            Ok(())
+        }
+        crate::config::TTSConfig::Openai(openai) => {
+            let wav_data = crate::ai::tts::openai_tts(
+                &client,
+                &openai.url,
+                &openai.model,
+                &openai.api_key,
+                &openai.voice,
+                &text,
+            )
+            .await?;
+            let duration_sec = send_wav(tx, response_id, item_id, text, wav_data).await?;
+            log::info!("OpenAI TTS duration: {:?}", duration_sec);
             Ok(())
         }
         crate::config::TTSConfig::Groq(groq) => {

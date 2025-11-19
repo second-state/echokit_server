@@ -300,7 +300,7 @@ async fn tts_and_send(
     let client = reqwest::Client::new();
 
     match tts_config {
-        crate::config::TTSConfig::Stable(tts) => {
+        crate::config::TTSConfig::GSV(tts) => {
             let timeout_sec = tts.timeout_sec.unwrap_or(15);
             let wav_data = retry_tts(
                 &tts.url,
@@ -321,6 +321,20 @@ async fn tts_and_send(
             log::info!("Fish TTS duration: {:?}", duration_sec);
             Ok(duration_sec)
         }
+        crate::config::TTSConfig::Openai(openai_tts) => {
+            let wav_data = crate::ai::tts::openai_tts(
+                &client,
+                &openai_tts.url,
+                &openai_tts.model,
+                &openai_tts.api_key,
+                &openai_tts.voice,
+                &text,
+            )
+            .await?;
+            let duration_sec = send_wav(tx, text, wav_data).await?;
+            log::info!("OpenAI TTS duration: {:?}", duration_sec);
+            Ok(duration_sec)
+        }
         crate::config::TTSConfig::Groq(groq) => {
             let wav_data = crate::ai::tts::groq(
                 &client,
@@ -335,6 +349,7 @@ async fn tts_and_send(
             log::info!("Groq TTS duration: {:?}", duration_sec);
             Ok(duration_sec)
         }
+
         crate::config::TTSConfig::StreamGSV(stream_tts) => {
             let resp = crate::ai::tts::stream_gsv(
                 &client,

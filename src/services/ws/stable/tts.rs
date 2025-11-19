@@ -1,6 +1,6 @@
 use bytes::{BufMut, Bytes};
 
-use crate::config::{ElevenlabsTTS, FishTTS, GroqTTS, StableTTS, StreamGSV};
+use crate::config::{ElevenlabsTTS, FishTTS, GroqTTS, OpenaiTTS, StreamGSV, GSVTTS};
 
 pub type TTSRequest = (String, TTSResponseTx);
 
@@ -12,11 +12,15 @@ pub type TTSResponseTx = tokio::sync::mpsc::UnboundedSender<Vec<u8>>;
 
 pub enum TTSSession {
     GsvStable {
-        config: StableTTS,
+        config: GSVTTS,
         client: reqwest::Client,
     },
     GsvStream {
         config: StreamGSV,
+        client: reqwest::Client,
+    },
+    OpenAI {
+        config: OpenaiTTS,
         client: reqwest::Client,
     },
     Groq {
@@ -40,12 +44,16 @@ pub enum TTSSession {
 impl TTSSession {
     pub async fn new_from_config(config: &crate::config::TTSConfig) -> anyhow::Result<Self> {
         match config {
-            crate::config::TTSConfig::Stable(stable_tts) => Ok(TTSSession::GsvStable {
+            crate::config::TTSConfig::GSV(stable_tts) => Ok(TTSSession::GsvStable {
                 config: stable_tts.clone(),
                 client: reqwest::Client::new(),
             }),
             crate::config::TTSConfig::Fish(fish_tts) => Ok(TTSSession::Fish {
                 config: fish_tts.clone(),
+            }),
+            crate::config::TTSConfig::Openai(openai_tts) => Ok(TTSSession::OpenAI {
+                config: openai_tts.clone(),
+                client: reqwest::Client::new(),
             }),
             crate::config::TTSConfig::Groq(groq_tts) => Ok(TTSSession::Groq {
                 config: groq_tts.clone(),
@@ -87,6 +95,9 @@ impl TTSSession {
             }
             TTSSession::Groq { config, client } => {
                 groq_tts(config, client, text, tts_resp_tx).await
+            }
+            TTSSession::OpenAI { config, client } => {
+                openai_tts(config, client, text, tts_resp_tx).await
             }
             TTSSession::Fish { config } => fish_tts(config, text, tts_resp_tx).await,
             TTSSession::CosyVoice {
@@ -211,7 +222,7 @@ async fn retry_gsv_tts(
 }
 
 async fn gsv_stable_tts(
-    tts: &StableTTS,
+    tts: &GSVTTS,
     client: &reqwest::Client,
     text: &str,
     tts_resp_tx: &TTSResponseTx,
@@ -308,6 +319,20 @@ async fn gsv_stream_tts(
         crate::ai::tts::stream_gsv(client, &tts.url, &tts.speaker, text, Some(16000)).await?;
 
     send_gsv_stream_chunk(tts_resp_tx, resp).await?;
+    Ok(())
+}
+
+async fn openai_tts(
+    tts: &OpenaiTTS,
+    client: &reqwest::Client,
+    text: &str,
+    tts_resp_tx: &TTSResponseTx,
+) -> anyhow::Result<()> {
+    let wav_data =
+        crate::ai::tts::openai_tts(client, &tts.url, &tts.model, &tts.api_key, &tts.voice, text)
+            .await?;
+
+    send_wav(tts_resp_tx, wav_data).await?;
     Ok(())
 }
 

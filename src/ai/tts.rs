@@ -129,6 +129,46 @@ async fn test_groq() {
     println!("samples len: {}", samples.len());
 }
 
+pub async fn openai_tts(
+    client: &reqwest::Client,
+    url: &str,
+    model: &str,
+    token: &str,
+    voice: &str,
+    text: &str,
+) -> anyhow::Result<Bytes> {
+    let url = if url.is_empty() {
+        "https://api.openai.com/v1/audio/speech"
+    } else {
+        url
+    };
+
+    log::debug!("openai tts. voice: {voice}, text: {text}, model: {model}, url: {url}");
+
+    let res = client
+        .post(url)
+        .bearer_auth(token)
+        .json(&serde_json::json!({
+            "model":model,
+            "voice": voice,
+            "input": text,
+            "response_format": "wav"
+        }))
+        .send()
+        .await?;
+    let status = res.status();
+    if status != 200 {
+        let body = res.text().await?;
+        return Err(anyhow::anyhow!(
+            "tts failed, status:{status}, body:{}",
+            body
+        ));
+    }
+    let bytes = res.bytes().await?;
+    log::info!("TTS response: {:?}", bytes.len());
+    Ok(bytes)
+}
+
 #[derive(Debug, serde::Serialize)]
 struct FishTTSRequest {
     text: String,
