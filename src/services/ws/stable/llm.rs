@@ -1,7 +1,33 @@
+use std::collections::HashMap;
+
+use lazy_regex::regex;
+
 use crate::ai::{llm::Content, ChatSession, StableLLMResponseChunk};
 
 pub type ChunksTx = tokio::sync::mpsc::UnboundedSender<(String, super::tts::TTSResponseRx)>;
 pub type ChunksRx = tokio::sync::mpsc::UnboundedReceiver<(String, super::tts::TTSResponseRx)>;
+
+use tokio::time::Duration;
+
+#[cached::proc_macro::cached(time = 60, size = 100, result = true)]
+async fn load_url_content(url: String) -> anyhow::Result<String> {
+    let client = reqwest::Client::new();
+    let res = client.get(&url).send().await?;
+    let status = res.status();
+    if status != 200 {
+        let body = res.text().await?;
+        return Err(anyhow::anyhow!(
+            "load url content failed, status:{}, body:{}",
+            status,
+            body
+        ));
+    }
+    let content = res
+        .text()
+        .await
+        .map_err(|e| anyhow::anyhow!("error reading content from {}: {}", url, e))?;
+    Ok(content)
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PromptParts {
@@ -13,18 +39,53 @@ impl crate::config::LLMConfig {
     pub async fn prompts(&self) -> PromptParts {
         if !self.prompts_url.is_empty() {
             match self.load_prompts().await {
-                Ok(prompt_parts) => prompt_parts,
+                Ok(prompt_parts) => return prompt_parts,
                 Err(e) => {
-                    log::error!("error loading prompt from url {}: {}", self.prompts_url, e);
-                    PromptParts {
-                        sys_prompts: self.sys_prompts.clone(),
-                        dynamic_prompts: self.dynamic_prompts.clone(),
-                    }
+                    log::warn!("error loading prompt from url {}: {}", self.prompts_url, e);
                 }
             }
-        } else {
+        }
+
+        let r = regex!(r"\{\{(?P<url>\s*https?://\S+?\s*)\}\}");
+
+        let mut urls = vec![];
+        let mut contents = HashMap::new();
+
+        let mut sys_prompts = self.sys_prompts.clone();
+        if let Some(sys_prompt) = sys_prompts.first_mut() {
+            if sys_prompt.role == crate::ai::llm::Role::System {
+                for cap in r.captures_iter(&sys_prompt.message) {
+                    if let Some(url) = cap.name("url") {
+                        let url = url.as_str().trim();
+                        urls.push(url.to_string());
+                    }
+                }
+                log::debug!("found urls in system prompt: {:?}", urls);
+
+                for url in urls {
+                    match load_url_content(url.clone()).await {
+                        Ok(content) => {
+                            contents.insert(url, content);
+                        }
+                        Err(e) => {
+                            log::warn!("error loading prompt content from {}: {}", url, e);
+                        }
+                    }
+                }
+
+                let new_message =
+                    r.replace_all(&sys_prompt.message, |caps: &lazy_regex::Captures| {
+                        let url = caps.name("url").unwrap().as_str().trim();
+                        contents.get(url).cloned().unwrap_or(url.to_string())
+                    });
+
+                sys_prompt.message = new_message.to_string();
+            }
+        }
+
+        {
             PromptParts {
-                sys_prompts: self.sys_prompts.clone(),
+                sys_prompts,
                 dynamic_prompts: self.dynamic_prompts.clone(),
             }
         }
@@ -49,6 +110,41 @@ impl crate::config::LLMConfig {
             .map_err(|e| anyhow::anyhow!("error parsing prompt json from {}: {}", prompt_url, e))?;
         Ok(prompt)
     }
+}
+
+#[tokio::test]
+async fn test_load_prompts() {
+    let message =
+        "You are a helpful assistant. {{ https://langchain-ai.github.io/langgraph/llms.txt?a=1 }}";
+
+    let llm_config = crate::config::LLMConfig {
+        model: "test-model".to_string(),
+        api_key: None,
+        sys_prompts: vec![Content {
+            role: crate::ai::llm::Role::System,
+            message: message.to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        }],
+        dynamic_prompts: std::collections::LinkedList::new(),
+        prompts_url: "".to_string(),
+        llm_chat_url: "".to_string(),
+        history: 5,
+        mcp_server: vec![],
+    };
+
+    let now = tokio::time::Instant::now();
+    let _prompts = llm_config.prompts().await;
+    let elapsed = now.elapsed();
+    println!("First Time elapsed to load prompts: {:?}", elapsed);
+
+    let now = tokio::time::Instant::now();
+    let prompts = llm_config.prompts().await;
+    let elapsed = now.elapsed();
+    println!("Second Time elapsed to load prompts: {:?}", elapsed);
+
+    assert!(!prompts.sys_prompts.first().unwrap().message.contains("{{"));
+    assert!(prompts.sys_prompts.first().unwrap().message.len() > message.len());
 }
 
 pub async fn chat(

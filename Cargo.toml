@@ -13,6 +13,8 @@ serde_json = "1.0"
 toml = "0.8"
 rmp-serde = "1"
 
+cached = { version = "0.56.0", features = ["async"] }
+
 anyhow = "1.0"
 
 axum = { version = "0.8.1", features = ["ws"] }
@@ -30,6 +32,8 @@ uuid = { version = "1.14", features = [
 ] }
 bytes = "1.10.0"
 aho-corasick = "1.1.3"
+lazy-regex = "3.4.2"
+
 hanconv = "0.3.4"
 fon = { git = "https://github.com/ardaku/fon.git", branch = "v1" }
 # opencc-rust = { version = "1.1.19", features = ["static-dictionaries"] }
