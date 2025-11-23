@@ -131,6 +131,10 @@ pub struct CosyVoiceTTS {
 pub struct ElevenlabsTTS {
     pub token: String,
     pub voice: String,
+    #[serde(default)]
+    pub model_id: String,
+    #[serde(default)]
+    pub language_code: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

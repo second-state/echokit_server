@@ -387,6 +387,8 @@ async fn elevenlabs_tts(
         elevenlabs_tts.token.clone(),
         elevenlabs_tts.voice.clone(),
         crate::ai::elevenlabs::tts::OutputFormat::Pcm16000,
+        &elevenlabs_tts.model_id,
+        &elevenlabs_tts.language_code,
     )
     .await?;
 

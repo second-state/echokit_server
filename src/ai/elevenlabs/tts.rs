@@ -76,7 +76,7 @@ pub struct ElevenlabsTTS {
     websocket: WebSocket,
 }
 
-const MODEL_ID: &str = "eleven_flash_v2_5";
+const DEFAULT_MODEL_ID: &str = "eleven_flash_v2_5";
 
 pub enum OutputFormat {
     Pcm16000,
@@ -97,9 +97,19 @@ impl ElevenlabsTTS {
         token: String,
         voice: String,
         output_format: OutputFormat,
+        model_id: &str,
+        language_code: &str,
     ) -> anyhow::Result<Self> {
         let client = reqwest::Client::new();
-        Self::new_with_client(&client, token, voice, output_format).await
+        Self::new_with_client(
+            &client,
+            token,
+            voice,
+            output_format,
+            model_id,
+            language_code,
+        )
+        .await
     }
 
     pub async fn new_with_client(
@@ -107,10 +117,26 @@ impl ElevenlabsTTS {
         token: String,
         voice: String,
         output_format: OutputFormat,
+        model_id: &str,
+        language_code: &str,
     ) -> anyhow::Result<Self> {
-        let url = format!(
-            "wss://api.elevenlabs.io/v1/text-to-speech/{voice}/stream-input?model_id={MODEL_ID}&output_format={output_format}",
+        let model_id = if model_id.is_empty() {
+            DEFAULT_MODEL_ID
+        } else {
+            model_id
+        };
+
+        let language_code = language_code.to_ascii_lowercase();
+
+        let mut url = format!(
+            "wss://api.elevenlabs.io/v1/text-to-speech/{voice}/stream-input?model_id={model_id}&output_format={output_format}",
         );
+
+        if !language_code.is_empty() {
+            url.push_str(&format!("&language_code={}", language_code));
+        }
+
+        log::debug!("Connect Elevenlabs TTS WebSocket URL: {}", url);
 
         let response = client
             .get(url)
@@ -217,7 +243,7 @@ async fn test_elevenlabs_tts() {
     let token = std::env::var("ELEVENLABS_API_KEY").unwrap();
     let voice = std::env::var("ELEVENLABS_VOICE_ID").unwrap();
 
-    let mut tts = ElevenlabsTTS::new(token, voice, OutputFormat::Pcm16000)
+    let mut tts = ElevenlabsTTS::new(token, voice, OutputFormat::Pcm16000, "", "")
         .await
         .expect("Failed to create ElevenlabsTTS");
 
@@ -247,4 +273,49 @@ async fn test_elevenlabs_tts() {
         },
     );
     std::fs::write("./resources/test/elevenlabs_out.wav", wav).unwrap();
+}
+
+// cargo test --package echokit_server --bin echokit_server -- ai::elevenlabs::tts::test_elevenlabs_tts_with_language_code --exact --show-output
+#[tokio::test]
+async fn test_elevenlabs_tts_with_language_code() {
+    env_logger::init();
+    let token = std::env::var("ELEVENLABS_API_KEY").unwrap();
+    let voice = std::env::var("ELEVENLABS_VOICE_ID").unwrap();
+
+    let mut tts = ElevenlabsTTS::new(
+        token,
+        voice,
+        OutputFormat::Pcm16000,
+        "eleven_multilingual_v2",
+        "ZH",
+    )
+    .await
+    .expect("Failed to create ElevenlabsTTS");
+
+    tts.send_text("你好，这里是 elevenlabs TTS 的测试。", true)
+        .await
+        .expect("Failed to send text");
+
+    tts.close_connection()
+        .await
+        .expect("Failed to close connection");
+
+    let mut samples = Vec::new();
+
+    while let Ok(Some(resp)) = tts.next_audio_response().await {
+        if let Some(audio) = resp.get_audio_bytes() {
+            println!("Received audio chunk of size: {}", audio.len());
+            samples.extend_from_slice(&audio);
+        }
+    }
+
+    let wav = crate::util::pcm_to_wav(
+        &samples,
+        crate::util::WavConfig {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+        },
+    );
+    std::fs::write("./resources/test/elevenlabs_out.zh.wav", wav).unwrap();
 }

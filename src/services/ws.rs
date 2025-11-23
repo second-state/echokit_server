@@ -397,6 +397,8 @@ async fn tts_and_send(
                 elevenlabs_tts.token.clone(),
                 elevenlabs_tts.voice.clone(),
                 elevenlabs::tts::OutputFormat::Pcm16000,
+                &elevenlabs_tts.model_id,
+                &elevenlabs_tts.language_code,
             )
             .await
             .map_err(|e| anyhow::anyhow!("Elevenlabs TTS init error: {e}"))?;
