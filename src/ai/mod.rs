@@ -433,6 +433,25 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
 
     let tool_choice = if tools.is_empty() { "" } else { "auto" };
 
+    let tool_name = tools
+        .iter()
+        .map(|t| t.function.name.as_str())
+        .collect::<Vec<_>>();
+
+    log::debug!(
+        "#### send to llm:\n{}\n#####",
+        serde_json::to_string_pretty(&serde_json::json!(
+            {
+                "stream": true,
+                "chat_id": chat_id,
+                "messages": messages,
+                "model": model.to_string(),
+                "tools": tool_name,
+                "tool_choice": tool_choice,
+            }
+        ))?
+    );
+
     let request = StableLlmRequest {
         stream: true,
         chat_id: chat_id.unwrap_or_default(),
@@ -441,11 +460,6 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
         tools,
         tool_choice,
     };
-
-    log::debug!(
-        "#### send to llm:\n{}\n#####",
-        serde_json::to_string_pretty(&request)?
-    );
 
     let response = response_builder
         .header(reqwest::header::USER_AGENT, "curl/7.81.0")

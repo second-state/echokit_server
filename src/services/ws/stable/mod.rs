@@ -64,6 +64,7 @@ async fn handle_socket(
             request_id,
             cmd_tx,
             client_rx,
+            is_reconnect: params.reconnect,
         })
         .map_err(|e| anyhow::anyhow!("send session error: {}", e))?;
 
@@ -76,6 +77,7 @@ pub struct Session {
     request_id: u128,
     cmd_tx: super::WsTx,
     client_rx: super::ClientRx,
+    is_reconnect: bool,
 }
 
 async fn run_session(
@@ -240,7 +242,10 @@ pub async fn run_session_manager(
     tools: &ToolSet<McpToolAdapter>,
     mut session_rx: tokio::sync::mpsc::UnboundedReceiver<Session>,
 ) -> anyhow::Result<()> {
-    let mut sessions: HashMap<String, tokio::sync::mpsc::UnboundedSender<Session>> = HashMap::new();
+    let mut sessions: HashMap<
+        String,
+        tokio::sync::mpsc::UnboundedSender<(Session, Option<llm::PromptParts>)>,
+    > = HashMap::new();
 
     let mut tts_session_pool = tts::TTSSessionPool::new(tts.clone(), 4);
     let (tts_req_tx, tts_req_rx) = tokio::sync::mpsc::channel(128);
@@ -252,22 +257,33 @@ pub async fn run_session_manager(
     });
 
     while let Some(session) = session_rx.recv().await {
-        let session = if let Some(tx) = sessions.get(&session.id) {
-            if let Err(e) = tx.send(session) {
+        let prompts;
+        if !session.is_reconnect {
+            prompts = Some(llm.prompts().await)
+        } else {
+            prompts = None
+        }
+        let (session, mut prompts) = if let Some(tx) = sessions.get(&session.id) {
+            if let Err(e) = tx.send((session, prompts)) {
                 e.0
             } else {
                 continue;
             }
         } else {
-            session
+            (session, prompts)
         };
+
+        // device reconnects but server restarted
+        if prompts.is_none() {
+            prompts = Some(llm.prompts().await);
+        }
 
         // run session
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         let id = session.id.clone();
         log::info!("Starting new session for id: {}", id);
-        let _ = tx.send(session);
+        let _ = tx.send((session, prompts));
         let asr = asr.clone();
 
         let mut chat_session = super::ChatSession::new(
@@ -279,10 +295,6 @@ pub async fn run_session_manager(
             tools.clone(),
         );
 
-        let part = llm.prompts().await;
-        chat_session.system_prompts = part.sys_prompts;
-        chat_session.messages = part.dynamic_prompts;
-
         sessions.insert(id.clone(), tx);
 
         let mut tts_req_tx = tts_req_tx.clone();
@@ -293,13 +305,17 @@ pub async fn run_session_manager(
                 anyhow::anyhow!("error creating asr session for id `{}`: {}", id, e)
             })?;
 
-            let mut session = rx
+            let (mut session, mut prompts) = rx
                 .recv()
                 .await
                 .ok_or_else(|| anyhow::anyhow!("no session received for id `{}`", id))?;
 
             loop {
                 log::info!("Running session for id `{}`", id);
+                if let Some(prompts) = prompts.take() {
+                    chat_session.system_prompts = prompts.sys_prompts;
+                    chat_session.messages = prompts.dynamic_prompts;
+                }
 
                 let run_fut = run_session(
                     &mut chat_session,
@@ -326,9 +342,10 @@ pub async fn run_session_manager(
                     Ok(Err(e)) => {
                         log::error!("session for id `{}` error: {}", id, e);
                     }
-                    Err(Some(new_session)) => {
+                    Err(Some((new_session, new_prompts))) => {
                         log::info!("received new session for id `{}`, restarting session", id);
                         session = new_session;
+                        prompts = new_prompts;
                         continue;
                     }
                     Err(None) => {
@@ -337,8 +354,11 @@ pub async fn run_session_manager(
                     }
                 }
 
-                session = match rx.recv().await {
-                    Some(s) => s,
+                match rx.recv().await {
+                    Some(s) => {
+                        session = s.0;
+                        prompts = s.1;
+                    }
                     None => {
                         log::info!("no more sessions for id `{}`, exiting", id);
                         break;
