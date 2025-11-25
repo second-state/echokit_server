@@ -176,9 +176,22 @@ impl TTSSessionPool {
     }
 
     pub async fn run_loop(&mut self, mut rx: TTSRequestRx) -> anyhow::Result<()> {
+        let mut sucess_workers = 0;
         for i in 0..self.workers {
-            let session = self.create_session().await?;
-            tokio::spawn(Self::run_session(i as u128, session, self.tx.clone()));
+            match self.create_session().await {
+                Ok(session) => {
+                    tokio::spawn(Self::run_session(i as u128, session, self.tx.clone()));
+                    sucess_workers += 1;
+                }
+                Err(e) => {
+                    log::error!("create tts session[{i}] error: {}", e);
+                    continue;
+                }
+            };
+        }
+
+        if sucess_workers == 0 {
+            return Err(anyhow::anyhow!("no available tts session worker"));
         }
 
         while let Some(tts_req) = rx.recv().await {

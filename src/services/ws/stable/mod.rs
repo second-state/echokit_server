@@ -152,13 +152,21 @@ async fn run_session(
         let llm_fut = llm::chat(tts_req_tx, chunks_tx, chat_session, text);
         let send_audio_fut = handle_tts_requests(chunks_rx, session);
 
-        let _ = tokio::try_join!(llm_fut, send_audio_fut)?;
-
-        log::info!(
-            "{}:{:x} session processing done for this input",
-            session.id,
-            session.request_id
-        );
+        let r = tokio::try_join!(llm_fut, send_audio_fut);
+        if let Err(e) = r {
+            log::error!(
+                "{}:{:x} error during llm or tts handling: {}",
+                session.id,
+                session.request_id,
+                e
+            );
+        } else {
+            log::info!(
+                "{}:{:x} session processing done for this input",
+                session.id,
+                session.request_id
+            );
+        }
 
         session
             .cmd_tx
