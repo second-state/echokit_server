@@ -17,12 +17,23 @@ pub trait Tool: Send + Sync {
 
 pub struct McpToolAdapter {
     tool: McpTool,
+    call_mcp_message: String,
     server: ServerSink,
 }
 
 impl McpToolAdapter {
-    pub fn new(tool: McpTool, server: ServerSink) -> Self {
-        Self { tool, server }
+    pub fn new(tool: McpTool, call_mcp_message: String, server: ServerSink) -> Self {
+        Self {
+            tool,
+            call_mcp_message,
+            server,
+        }
+    }
+}
+
+impl McpToolAdapter {
+    pub fn call_mcp_message(&self) -> &str {
+        &self.call_mcp_message
     }
 }
 

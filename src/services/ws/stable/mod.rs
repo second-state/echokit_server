@@ -210,6 +210,10 @@ async fn handle_tts_requests(mut chunks_rx: ChunksRx, session: &mut Session) -> 
                 tts_chunk.len()
             );
 
+            if tts_chunk.is_empty() {
+                continue;
+            }
+
             session
                 .cmd_tx
                 .send(super::WsCommand::Audio(tts_chunk))

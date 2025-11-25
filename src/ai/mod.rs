@@ -682,6 +682,11 @@ impl ChatSession {
         Ok(response)
     }
 
+    pub fn get_tool_call_message(&self, tool_call: &llm::ToolCall) -> Option<String> {
+        let tool = self.tools.get_tool(tool_call.function.name.as_str())?;
+        Some(tool.call_mcp_message().to_string())
+    }
+
     pub async fn execute_tool(&mut self, tool_call: &llm::ToolCall) -> anyhow::Result<()> {
         use crate::ai::openai::tool::Tool;
 
@@ -775,6 +780,7 @@ pub async fn load_sse_tools(
         rmcp::service::RunningService<rmcp::RoleClient, rmcp::model::InitializeRequestParam>,
     >,
     mcp_servers_url: &str,
+    call_mcp_message: &str,
 ) -> anyhow::Result<()> {
     // load MCP
     let transport = SseClientTransport::start(mcp_servers_url).await?;
@@ -794,7 +800,11 @@ pub async fn load_sse_tools(
     for tool in tools {
         let server = client.peer().clone();
         log::info!("add tool: {}", tool.name);
-        tool_set.add_tool(McpToolAdapter::new(tool, server));
+        tool_set.add_tool(McpToolAdapter::new(
+            tool,
+            call_mcp_message.to_string(),
+            server,
+        ));
     }
     clients.push(client);
     Ok(())
@@ -806,6 +816,7 @@ pub async fn load_http_streamable_tools(
         rmcp::service::RunningService<rmcp::RoleClient, rmcp::model::InitializeRequestParam>,
     >,
     mcp_servers_url: &str,
+    call_mcp_message: &str,
 ) -> anyhow::Result<()> {
     // load MCP
     let transport = StreamableHttpClientTransport::from_uri(mcp_servers_url);
@@ -825,7 +836,11 @@ pub async fn load_http_streamable_tools(
     for tool in tools {
         let server = client.peer().clone();
         log::info!("add tool: {}", tool.name);
-        tool_set.add_tool(McpToolAdapter::new(tool, server));
+        tool_set.add_tool(McpToolAdapter::new(
+            tool,
+            call_mcp_message.to_string(),
+            server,
+        ));
     }
 
     clients.push(client);
@@ -857,7 +872,7 @@ async fn test_chat_session() {
     let mut clients = vec![];
 
     let mut tools = ToolSet::default();
-    load_http_streamable_tools(&mut tools, &mut clients, "http://localhost:8000/mcp")
+    load_http_streamable_tools(&mut tools, &mut clients, "http://localhost:8000/mcp", "")
         .await
         .unwrap();
 

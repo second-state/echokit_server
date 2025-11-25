@@ -66,16 +66,25 @@ async fn routes(
             for server in &llm.mcp_server {
                 match server.type_ {
                     config::MCPType::SSE => {
-                        if let Err(e) =
-                            ai::load_sse_tools(&mut tool_set, clients, &server.server).await
+                        if let Err(e) = ai::load_sse_tools(
+                            &mut tool_set,
+                            clients,
+                            &server.server,
+                            &server.call_mcp_message,
+                        )
+                        .await
                         {
                             log::error!("Failed to load tools from {}: {}", &server.server, e);
                         }
                     }
                     config::MCPType::HttpStreamable => {
-                        if let Err(e) =
-                            ai::load_http_streamable_tools(&mut tool_set, clients, &server.server)
-                                .await
+                        if let Err(e) = ai::load_http_streamable_tools(
+                            &mut tool_set,
+                            clients,
+                            &server.server,
+                            &server.call_mcp_message,
+                        )
+                        .await
                         {
                             log::error!("Failed to load tools from {}: {}", &server.server, e);
                         }

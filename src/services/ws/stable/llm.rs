@@ -204,6 +204,19 @@ pub async fn chat(
                 log::info!("llm functions: {:#?}", functions);
                 chat_session.add_assistant_tool_call(functions.clone());
                 for function in functions {
+                    if let Some(message) = chat_session.get_tool_call_message(&function) {
+                        log::info!("tool {} call message: {}", &function.function.name, message);
+                        if !message.is_empty() {
+                            let (tts_resp_tx, tts_resp_rx) = tokio::sync::mpsc::unbounded_channel();
+                            drop(tts_resp_tx);
+
+                            chunks_tx.send((message, tts_resp_rx)).map_err(|e| {
+                                anyhow::anyhow!(
+                                    "error sending tts chunks receiver for llm chunk: {e}"
+                                )
+                            })?;
+                        }
+                    }
                     chat_session.execute_tool(&function).await?
                 }
                 resp = chat_session.complete().await?;

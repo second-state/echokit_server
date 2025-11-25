@@ -22,6 +22,8 @@ pub struct MCPServerConfig {
     pub api_key: String,
     #[serde(rename = "type", default)]
     pub type_: MCPType,
+    #[serde(default)]
+    pub call_mcp_message: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
