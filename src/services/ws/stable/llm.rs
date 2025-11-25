@@ -208,7 +208,13 @@ pub async fn chat(
                         log::info!("tool {} call message: {}", &function.function.name, message);
                         if !message.is_empty() {
                             let (tts_resp_tx, tts_resp_rx) = tokio::sync::mpsc::unbounded_channel();
-                            drop(tts_resp_tx);
+
+                            tts_tx
+                                .send((message.to_string(), tts_resp_tx))
+                                .await
+                                .map_err(|e| {
+                                    anyhow::anyhow!("error sending tts request for llm chunk: {e}")
+                                })?;
 
                             chunks_tx.send((message, tts_resp_rx)).map_err(|e| {
                                 anyhow::anyhow!(
