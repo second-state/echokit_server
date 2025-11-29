@@ -29,6 +29,7 @@ history = 10
 [[llm.mcp_server]]
 server = "http://localhost:8000/mcp"
 type = "http_streamable"
+call_mcp_message = "Please hold on a few seconds while I am searching for an answer!"
 
 [[llm.sys_prompts]]
 role = "system"
