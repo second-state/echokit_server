@@ -131,6 +131,7 @@ async fn test_load_prompts() {
         llm_chat_url: "".to_string(),
         history: 5,
         mcp_server: vec![],
+        extra: None,
     };
 
     let now = tokio::time::Instant::now();

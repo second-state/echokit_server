@@ -302,7 +302,7 @@ pub async fn run_session_manager(
             llm.llm_chat_url.clone(),
             llm.api_key.clone().unwrap_or_default(),
             llm.model.clone(),
-            None,
+            llm.extra.clone(),
             llm.history,
             tools.clone(),
         );

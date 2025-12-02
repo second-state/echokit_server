@@ -42,6 +42,8 @@ pub struct LLMConfig {
     pub history: usize,
     #[serde(default)]
     pub mcp_server: Vec<MCPServerConfig>,
+    #[serde(default)]
+    pub extra: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

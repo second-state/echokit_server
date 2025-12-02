@@ -128,9 +128,8 @@ async fn test_groq_asr() {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StableLlmRequest {
     stream: bool,
-    #[serde(rename = "chatId")]
-    #[serde(skip_serializing_if = "String::is_empty")]
-    chat_id: String,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    extra: Option<serde_json::Value>,
     messages: Vec<llm::Content>,
     #[serde(skip_serializing_if = "String::is_empty")]
     model: String,
@@ -138,6 +137,23 @@ pub struct StableLlmRequest {
     tools: Vec<llm::Tool>,
     #[serde(skip_serializing_if = "str::is_empty")]
     tool_choice: &'static str,
+}
+
+#[test]
+fn test_stable_llm_request_json() {
+    let request = StableLlmRequest {
+        stream: true,
+        extra: Some(serde_json::json!({
+            "chat_id": "test-chat-id",
+        })),
+        messages: vec![],
+        model: "test-model".to_string(),
+        tools: vec![],
+        tool_choice: "",
+    };
+
+    let json_str = serde_json::to_string_pretty(&request).unwrap();
+    println!("StableLlmRequest json: {}", json_str);
 }
 
 pub enum StableLLMResponseChunk {
@@ -417,7 +433,7 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
     llm_url: &str,
     token: &str,
     model: &str,
-    chat_id: Option<String>,
+    extra: Option<serde_json::Value>,
     prompts: I,
     tools: Vec<llm::Tool>,
 ) -> anyhow::Result<StableLlmResponse> {
@@ -443,10 +459,10 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
         serde_json::to_string_pretty(&serde_json::json!(
             {
                 "stream": true,
-                "chat_id": chat_id,
                 "messages": messages,
                 "model": model.to_string(),
                 "tools": tool_name,
+                "extra": extra,
                 "tool_choice": tool_choice,
             }
         ))?
@@ -454,11 +470,11 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
 
     let request = StableLlmRequest {
         stream: true,
-        chat_id: chat_id.unwrap_or_default(),
         messages,
         model: model.to_string(),
         tools,
         tool_choice,
+        extra,
     };
 
     let response = response_builder
@@ -549,7 +565,7 @@ async fn test_stable_llm() {
 pub struct ChatSession {
     pub api_key: String,
     pub model: String,
-    pub chat_id: Option<String>,
+    pub extra: Option<serde_json::Value>,
     pub url: String,
 
     pub history: usize,
@@ -564,7 +580,7 @@ impl ChatSession {
         url: String,
         api_key: String,
         model: String,
-        chat_id: Option<String>,
+        extra: Option<serde_json::Value>,
         history: usize,
         tools: ToolSet<McpToolAdapter>,
     ) -> Self {
@@ -572,7 +588,7 @@ impl ChatSession {
             api_key,
             model,
             url,
-            chat_id,
+            extra,
             history,
             system_prompts: Vec::new(),
             messages: LinkedList::new(),
@@ -673,7 +689,7 @@ impl ChatSession {
             self.url.as_str(),
             &self.api_key,
             &self.model,
-            self.chat_id.clone(),
+            self.extra.clone(),
             prompts,
             tools,
         )
