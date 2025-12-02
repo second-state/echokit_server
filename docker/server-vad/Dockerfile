@@ -5,7 +5,7 @@ FROM debian:bookworm-slim
 WORKDIR /app
 
 ARG TARGETPLATFORM
-ARG ECHOKIT_VERSION=0.1.0
+ARG ECHOKIT_VERSION=0.2.2
 ARG VAD_VERSION=0.1.0
 
 RUN set -eux; \
@@ -114,5 +114,7 @@ wait || true
 EOF
 
 ENV RUST_LOG=info
+
+EXPOSE 8080
 
 CMD ["/usr/local/bin/start_servers.sh"]
