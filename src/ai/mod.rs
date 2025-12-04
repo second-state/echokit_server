@@ -128,13 +128,13 @@ async fn test_groq_asr() {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StableLlmRequest {
     stream: bool,
-    #[serde(flatten, skip_serializing_if = "Option::is_none")]
-    extra: Option<serde_json::Value>,
+    #[serde(flatten)]
+    extra: serde_json::Value,
     messages: Vec<llm::Content>,
     #[serde(skip_serializing_if = "String::is_empty")]
     model: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    tools: Vec<llm::Tool>,
+    // #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    // tools: Vec<llm::Tool>,
     #[serde(skip_serializing_if = "str::is_empty")]
     tool_choice: &'static str,
 }
@@ -143,12 +143,11 @@ pub struct StableLlmRequest {
 fn test_stable_llm_request_json() {
     let request = StableLlmRequest {
         stream: true,
-        extra: Some(serde_json::json!({
+        extra: serde_json::json!({
             "chat_id": "test-chat-id",
-        })),
+        }),
         messages: vec![],
         model: "test-model".to_string(),
-        tools: vec![],
         tool_choice: "",
     };
 
@@ -447,8 +446,6 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
         response_builder = response_builder.bearer_auth(token);
     };
 
-    let tool_choice = if tools.is_empty() { "" } else { "auto" };
-
     let tool_name = tools
         .iter()
         .map(|t| t.function.name.as_str())
@@ -463,16 +460,42 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
                 "model": model.to_string(),
                 "tools": tool_name,
                 "extra": extra,
-                "tool_choice": tool_choice,
             }
         ))?
     );
+
+    let mut tool_choice = "";
+
+    let tools = tools
+        .iter()
+        .map(|t| serde_json::to_value(&t).unwrap())
+        .collect::<Vec<_>>();
+
+    let mut extra = extra.unwrap_or(serde_json::json!({}));
+    if let Some(extra) = extra.as_object_mut() {
+        match extra.entry("tools") {
+            serde_json::map::Entry::Vacant(e) => {
+                if !tools.is_empty() {
+                    e.insert(serde_json::Value::Array(tools));
+                    tool_choice = "auto";
+                }
+            }
+            serde_json::map::Entry::Occupied(mut e) => {
+                if let serde_json::Value::Array(arr) = e.get_mut() {
+                    tool_choice = "auto";
+
+                    if !tools.is_empty() {
+                        arr.extend(tools);
+                    }
+                }
+            }
+        }
+    }
 
     let request = StableLlmRequest {
         stream: true,
         messages,
         model: model.to_string(),
-        tools,
         tool_choice,
         extra,
     };
