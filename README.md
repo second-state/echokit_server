@@ -105,7 +105,8 @@ Configure WiFi and server
 * WiFi password (e.g., `MyPassword`)
 * Web Socket server URL for `echokit_server`
     * US: `ws://indie.echokit.dev/ws/`
-    * Asia: `ws://hk.echokit.dev/ws/`
+    * Taiwan: `ws://tw.echokit.dev/ws/`
+    * Rest of the world: `ws://edge.echokit.dev/ws/`
 
 ![Configure Wifi](https://hackmd.io/_uploads/HJkh5ZjVee.png)
 
