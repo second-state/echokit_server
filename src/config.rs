@@ -144,6 +144,7 @@ pub struct ElevenlabsTTS {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "platform")]
 pub enum TTSConfig {
+    #[serde(alias = "OpenAI")]
     Openai(OpenaiTTS),
     #[serde(alias = "Stable")]
     GSV(GSVTTS),
