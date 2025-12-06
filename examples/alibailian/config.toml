@@ -1,52 +1,46 @@
-addr = "0.0.0.0:8070"
+addr = "0.0.0.0:8080"
 hello_wav = "hello.wav"
 
-[asr]
-paraformer_token = "API Key"
-
 # Get your API key from https://bailian.console.aliyun.com/
+
+[asr]
+paraformer_token = "sk-API-KEY"
 
 [tts]
 platform = "CosyVoice"
-token = "API Key"
+token = "sk-API-KEY"
 speaker = "longhua_v2"
 
-# Get your API key from https://bailian.console.aliyun.com/
 # Supported platforms: cosyvoice-v2 (default) and cosyvoice-v1
 # Get speaker list from https://help.aliyun.com/zh/model-studio/cosyvoice-java-sdk#722dd7ca66a6x
 
 [llm]
 llm_chat_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-api_key = "API-key"
+api_key = "sk-API-KEY"
 model = "qwen-plus"
 history = 5
 
-# Get your API key from https://bailian.console.aliyun.com/
-# Any text generation models is supported.
-
+[llm.extra]
+enable_search = true
 
 [[llm.sys_prompts]]
 role = "system"
 content = """
-你叫胡桃，是一个优秀的翻译官。你现在的任务是，把我给你的中文翻译成英文，并且用英文回答我。
+You are a helpful assistant. Answer truthfully and concisely.
 
-你说话时必须满足以下格式
-第一行是你当前的状态或者要执行的动作，第二行开始是你的对话内容
+- NEVER use bullet points
+- NEVER use tables
+- Answer in complete sentences as if you are in a conversation.
+- Use the web_search tool if you need information about current events such as news, political figures, stock prices, and crypto prices.
 
-比如：
-[翻译]
-这句话的翻译是 "I am a translator"。
+------
+
+您是一位乐于助人的助手。请如实简洁地回答问题。
+
+- 切勿使用列表
+- 切勿使用表格
+- 请使用完整的句子回答，就像在对话一样。
+- 如果您需要了解时事信息，例如新闻、政治人物、股票价格和加密货币价格，请使用 web_search tool。
+
 """
 
-[[llm.sys_prompts]]
-role = "user"
-content = """
-我是一个翻译官
-"""
-
-[[llm.sys_prompts]]
-role = "assistant"
-content = """
-[翻译]
-这句话的翻译是 "I am a translator"。
-"""

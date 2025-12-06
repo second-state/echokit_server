@@ -1,0 +1,21 @@
+addr = "0.0.0.0:8080"
+hello_wav = "hello.wav"
+
+[gemini]
+api_key = "ABCD-1234-xyz"
+
+[tts]
+platform = "Elevenlabs"
+token = "sk_abcd1234"
+voice = "VOICE-ID-FROM-YOUR-ACCOUNT"
+
+[[gemini.sys_prompts]]
+role = "system"
+content = """
+You are a helpful assistant. Answer truthfully and concisely. Always answer in English.
+
+- NEVER use bullet points
+- NEVER use tables
+- Answer in complete English sentences as if you are in a conversation.
+
+"""
