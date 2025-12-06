@@ -18,13 +18,21 @@ vad_url = "http://localhost:9093/v1/audio/vad"
 # vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [llm]
-llm_chat_url = "https://api.groq.com/openai/v1/chat/completions"
+llm_chat_url = "https://api.groq.com/openai/v1/chat/responses"
 api_key = "gsk_ABCD"
 model = "openai/gpt-oss-20b"
-history = 5
+
+[[llm.extra.tools]]
+type = "browser_search"
 
 [[llm.sys_prompts]]
 role = "system"
 content = """
-You are a helpful assistant. Answer truthfully and concisely.
+You are a helpful assistant. Answer truthfully and concisely. Always answer in English.
+
+- NEVER use bullet points
+- NEVER use tables
+- Answer in complete English sentences as if you are in a conversation.
+- Use the browser_search tool if you need information about current events such as news, political figures, stock prices, and crypto prices.
+
 """
