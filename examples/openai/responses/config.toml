@@ -3,6 +3,7 @@ hello_wav = "hello.wav"
 
 [tts]
 platform = "OpenAI"
+url = "https://api.openai.com/v1/audio/speech"
 model = "gpt-4o-mini-tts"
 api_key = "sk_ABCD"
 voice = "ash"
@@ -17,7 +18,7 @@ vad_url = "http://localhost:9093/v1/audio/vad"
 # vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [llm]
-llm_chat_url = "https://api.openai.com/v1/responses"
+llm_responses_url = "https://api.openai.com/v1/responses"
 api_key = "sk_ABCD"
 model = "gpt-5-nano"
 
