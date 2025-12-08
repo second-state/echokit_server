@@ -9,6 +9,7 @@ api_key = "sk_ABCD"
 voice = "ash"
 
 [asr]
+platform = "OpenAI"
 url = "https://api.openai.com/v1/audio/transcriptions"
 api_key = "sk_ABCD"
 model = "gpt-4o-mini-transcribe"
