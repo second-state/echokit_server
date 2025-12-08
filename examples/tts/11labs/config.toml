@@ -3,17 +3,16 @@ hello_wav = "hello.wav"
 
 [tts]
 platform = "Elevenlabs"
+url = "wss://api.elevenlabs.io/v1/text-to-speech/"
 token = "sk_1234"
 voice = "YOUR-VOICE-ID"
 
 [asr]
-url = "https://api.openai.com/v1/audio/transcriptions"
+platform = "Elevenlabs"
+url = "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
 api_key = "sk_ABCD"
 model = "gpt-4o-mini-transcribe"
 lang = "en"
-# Optional: requires a local Silero VAD server: https://github.com/second-state/silero_vad_server
-vad_url = "http://localhost:9093/v1/audio/vad"
-# vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [llm]
 llm_chat_url = "https://api.openai.com/v1/chat/completions"
