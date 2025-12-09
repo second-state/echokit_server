@@ -68,7 +68,7 @@ async fn handle_socket(
         })
         .map_err(|e| anyhow::anyhow!("send session error: {}", e))?;
 
-    super::process_socket_io(&mut cmd_rx, client_tx, &mut socket).await?;
+    super::process_socket_io(&mut cmd_rx, client_tx, &mut socket, params.opus).await?;
     Ok(())
 }
 

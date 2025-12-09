@@ -80,6 +80,8 @@ impl WsSetting {
 pub struct ConnectQueryParams {
     #[serde(default)]
     pub reconnect: bool,
+    #[serde(default)]
+    pub opus: bool,
 }
 
 pub async fn ws_handler(
@@ -929,14 +931,20 @@ async fn process_socket_io(
     rx: &mut WsRx,
     audio_tx: ClientTx,
     socket: &mut WebSocket,
+    enable_opus: bool,
 ) -> anyhow::Result<()> {
+    let mut opus_encoder =
+        opus::Encoder::new(SAMPLE_RATE, opus::Channels::Mono, opus::Application::Voip)
+            .map_err(|e| anyhow::anyhow!("opus encoder error: {e}"))?;
+    let mut ret_audio = Vec::new();
+
     loop {
         let r = tokio::select! {
             cmd = rx.recv() => {
                 cmd.map(|cmd| WsEvent::Command(cmd))
             }
             message = socket.recv() => {
-                message.map(|message| match message{
+                message.map(|message| match message {
                     Ok(message) => WsEvent::Message(Ok(message)),
                     Err(e) => WsEvent::Message(Err(anyhow::anyhow!("recv ws error: {e}"))),
                 })
@@ -944,7 +952,14 @@ async fn process_socket_io(
         };
 
         match r {
-            Some(WsEvent::Command(cmd)) => process_command(socket, cmd).await?,
+            Some(WsEvent::Command(cmd)) => {
+                if enable_opus {
+                    process_command_with_opus(socket, cmd, &mut opus_encoder, &mut ret_audio)
+                        .await?
+                } else {
+                    process_command(socket, cmd).await?
+                }
+            }
             Some(WsEvent::Message(Ok(msg))) => match process_message(msg) {
                 ProcessMessageResult::Audio(d) => audio_tx
                     .send(ClientMsg::AudioChunk(d))
@@ -1213,13 +1228,19 @@ async fn handle_socket(
     }
 
     log::info!("`{}` starting socket io processing", id);
-    process_socket_io(&mut cmd_rx, audio_tx, &mut socket).await?;
+    process_socket_io(&mut cmd_rx, audio_tx, &mut socket, connect_params.opus).await?;
 
     Ok(())
 }
 
 pub const SAMPLE_RATE: u32 = 16000;
 pub const SAMPLE_RATE_BUFFER_SIZE: usize = 2 * (SAMPLE_RATE as usize) / 10;
+
+pub const fn sample_120ms(sample_rate: u32) -> usize {
+    (sample_rate as usize) * 12 / 100
+}
+
+pub const SAMPLE_RATE_120MS: usize = sample_120ms(SAMPLE_RATE);
 
 async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<()> {
     match cmd {
@@ -1255,6 +1276,86 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
         }
         WsCommand::EndAudio => {
             log::trace!("EndAudio");
+            let end_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndAudio)
+                .expect("Failed to serialize EndAudio ServerEvent");
+            ws.send(Message::binary(end_audio)).await?;
+        }
+        WsCommand::Video(_) => {
+            log::warn!("video command is not implemented yet");
+        }
+        WsCommand::EndResponse => {
+            log::debug!("EndResponse");
+            let end_response = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndResponse)
+                .expect("Failed to serialize JsonCommand");
+            ws.send(Message::binary(end_response)).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn process_command_with_opus(
+    ws: &mut WebSocket,
+    cmd: WsCommand,
+    opus_encode: &mut opus::Encoder,
+    ret_audio: &mut Vec<i16>,
+) -> anyhow::Result<()> {
+    match cmd {
+        WsCommand::AsrResult(texts) => {
+            let asr = rmp_serde::to_vec(&crate::protocol::ServerEvent::ASR {
+                text: texts.join("\n"),
+            })
+            .expect("Failed to serialize ASR ServerEvent");
+            ws.send(Message::binary(asr)).await?;
+        }
+
+        WsCommand::Action { action } => {
+            let action = rmp_serde::to_vec(&crate::protocol::ServerEvent::Action { action })
+                .expect("Failed to serialize Action ServerEvent");
+            ws.send(Message::binary(action)).await?;
+        }
+        WsCommand::StartAudio(text) => {
+            log::trace!("StartAudio: {text:?}");
+            opus_encode
+                .reset_state()
+                .map_err(|e| anyhow::anyhow!("opus reset state error: {e}"))?;
+            let start_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::StartAudio { text })
+                .expect("Failed to serialize StartAudio ServerEvent");
+            ws.send(Message::binary(start_audio)).await?;
+        }
+        WsCommand::Audio(data) => {
+            log::trace!("Audio chunk size: {}", data.len());
+            for chunk in data.chunks_exact(2) {
+                let sample = i16::from_le_bytes([chunk[0], chunk[1]]);
+                ret_audio.push(sample);
+            }
+
+            // 120ms per chunk
+            for chunk in ret_audio.chunks(sample_120ms(SAMPLE_RATE)) {
+                if chunk.len() < sample_120ms(SAMPLE_RATE) {
+                    *ret_audio = chunk.to_vec();
+                    break;
+                }
+                let data = opus_encode.encode_vec(chunk, 2 * sample_120ms(SAMPLE_RATE) / 3)?;
+
+                let audio_chunk =
+                    rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunk { data })
+                        .expect("Failed to serialize AudioChunk ServerEvent");
+                ws.send(Message::binary(audio_chunk)).await?;
+            }
+        }
+        WsCommand::EndAudio => {
+            log::trace!("EndAudio");
+            if !ret_audio.is_empty() {
+                let padded_audio_len = sample_120ms(SAMPLE_RATE) - ret_audio.len();
+                ret_audio.extend(vec![0i16; padded_audio_len]);
+                let data = opus_encode.encode_vec(&ret_audio, 2 * sample_120ms(SAMPLE_RATE) / 3)?;
+                let audio_chunk =
+                    rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunk { data })
+                        .expect("Failed to serialize AudioChunk ServerEvent");
+                log::info!("Sending final audio chunk of size: {}", audio_chunk.len());
+                ws.send(Message::binary(audio_chunk)).await?;
+                ret_audio.clear();
+            }
             let end_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndAudio)
                 .expect("Failed to serialize EndAudio ServerEvent");
             ws.send(Message::binary(end_audio)).await?;

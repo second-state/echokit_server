@@ -17,6 +17,8 @@ pub struct ConnectQueryParams {
     reconnect: bool,
     #[serde(default)]
     record: bool,
+    #[serde(default)]
+    opus: bool,
 }
 
 pub async fn mixed_handler(
@@ -37,6 +39,7 @@ pub async fn mixed_handler(
             Path(id),
             Query(ws::ConnectQueryParams {
                 reconnect: params.reconnect,
+                opus: params.opus,
             }),
         )
         .await
@@ -62,6 +65,7 @@ pub async fn v2_mixed_handler(
             Path(id),
             Query(ws::ConnectQueryParams {
                 reconnect: params.reconnect,
+                opus: params.opus,
             }),
         )
         .await
