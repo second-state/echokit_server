@@ -210,7 +210,7 @@ pub struct ParaformerV2AsrConfig {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "platform")]
 pub enum ASRConfig {
-    #[serde(alias = "whisper")]
+    #[serde(alias = "whisper", alias = "openai", alias = "OpenAI")]
     Whisper(WhisperASRConfig),
     #[serde(alias = "paraformer_v2")]
     ParaformerV2(ParaformerV2AsrConfig),
