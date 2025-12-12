@@ -2,11 +2,14 @@ addr = "0.0.0.0:8070"
 hello_wav = "hello.wav"
 
 [asr]
+# platform = "paraformer_v2"
+platform = "ParaformerV2"
 paraformer_token = "API Key"
 
 # Get your API key from https://bailian.console.aliyun.com/
 
 [tts]
+# platform = "cosyvoice"
 platform = "CosyVoice"
 token = "API Key"
 speaker = "longhua_v2"

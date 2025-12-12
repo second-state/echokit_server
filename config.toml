@@ -27,6 +27,7 @@ speaker = "speaker2"
 # vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [asr]
+platform = "whisper"
 url = "https://whisper.gaia.domains/v1/audio/transcriptions"
 lang = "auto"
 prompt = "Hello\n你好\n(noise)\n(bgm)\n(silence)\n"

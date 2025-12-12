@@ -8,6 +8,7 @@ api_key = "gsk_ABCD"
 voice = "Fritz-PlayAI"
 
 [asr]
+platform = "whisper"
 url = "https://api.groq.com/openai/v1/audio/transcriptions"
 api_key = "gsk_ABCD"
 model = "whisper-large-v3"

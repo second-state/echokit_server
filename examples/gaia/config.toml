@@ -9,6 +9,7 @@ speaker = "cooper"
 
 # Requires a local Whisper API server at port 9092: https://llamaedge.com/docs/ai-models/speech-to-text/quick-start-whisper
 [asr]
+platform = "whisper"
 url = "http://localhost:9092/v1/audio/transcriptions"
 lang = "auto"
 # Requires a local Silero VAD server at port 9093: https://github.com/second-state/silero_vad_server
