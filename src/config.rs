@@ -55,8 +55,14 @@ pub struct GeminiConfig {
     pub sys_prompts: Vec<Content>,
 }
 
+fn default_fish_tts_url() -> String {
+    "https://api.fish.audio/v1/tts".to_string()
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FishTTS {
+    #[serde(default = "default_fish_tts_url")]
+    pub url: String,
     pub api_key: String,
     pub speaker: String,
 }

@@ -1181,7 +1181,8 @@ async fn tts_and_send(
             Ok(())
         }
         crate::config::TTSConfig::Fish(fish) => {
-            let wav_data = crate::ai::tts::fish_tts(&fish.api_key, &fish.speaker, &text).await?;
+            let wav_data =
+                crate::ai::tts::fish_tts(&fish.url, &fish.api_key, &fish.speaker, &text).await?;
             let duration_sec = send_wav(tx, response_id, item_id, text, wav_data).await?;
             log::info!("Fish TTS duration: {:?}", duration_sec);
             Ok(())

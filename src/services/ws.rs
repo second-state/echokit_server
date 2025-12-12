@@ -318,7 +318,8 @@ async fn tts_and_send(
             Ok(duration_sec)
         }
         crate::config::TTSConfig::Fish(fish) => {
-            let wav_data = crate::ai::tts::fish_tts(&fish.api_key, &fish.speaker, &text).await?;
+            let wav_data =
+                crate::ai::tts::fish_tts(&fish.url, &fish.api_key, &fish.speaker, &text).await?;
             let duration_sec = send_wav(tx, text, wav_data).await?;
             log::info!("Fish TTS duration: {:?}", duration_sec);
             Ok(duration_sec)
@@ -397,6 +398,7 @@ async fn tts_and_send(
         }
         crate::config::TTSConfig::Elevenlabs(elevenlabs_tts) => {
             let mut tts = elevenlabs::tts::ElevenlabsTTS::new(
+                &elevenlabs_tts.url,
                 elevenlabs_tts.token.clone(),
                 elevenlabs_tts.voice.clone(),
                 elevenlabs::tts::OutputFormat::Pcm16000,
@@ -465,6 +467,10 @@ async fn recv_audio_to_wav(
             bits_per_sample: 16,
         },
     );
+
+    if let Err(e) = std::fs::write("./recv_wav.wav", &wav_audio) {
+        log::error!("write recv_wav.wav error: {e}");
+    }
 
     Ok(wav_audio)
 }

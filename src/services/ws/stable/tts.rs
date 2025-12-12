@@ -100,7 +100,7 @@ impl TTSSession {
             TTSSession::OpenAI { config, client } => {
                 openai_tts(config, client, text, tts_resp_tx).await
             }
-            TTSSession::Fish { config } => fish_tts(config, text, tts_resp_tx).await,
+            TTSSession::Fish { config } => fish_tts(&config.url, config, text, tts_resp_tx).await,
             TTSSession::CosyVoice {
                 session,
                 version,
@@ -363,8 +363,13 @@ async fn groq_tts(
     Ok(())
 }
 
-async fn fish_tts(tts: &FishTTS, text: &str, tts_resp_tx: &TTSResponseTx) -> anyhow::Result<()> {
-    let wav_data = crate::ai::tts::fish_tts(&tts.api_key, &tts.speaker, text).await?;
+async fn fish_tts(
+    url: &str,
+    tts: &FishTTS,
+    text: &str,
+    tts_resp_tx: &TTSResponseTx,
+) -> anyhow::Result<()> {
+    let wav_data = crate::ai::tts::fish_tts(url, &tts.api_key, &tts.speaker, text).await?;
 
     send_wav(tts_resp_tx, wav_data).await?;
     Ok(())

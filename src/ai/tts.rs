@@ -194,10 +194,15 @@ impl FishTTSRequest {
     }
 }
 
-pub async fn fish_tts(token: &str, speaker: &str, text: &str) -> anyhow::Result<Bytes> {
+pub async fn fish_tts(url: &str, token: &str, speaker: &str, text: &str) -> anyhow::Result<Bytes> {
     let client = reqwest::Client::new();
+    let url = if url.is_empty() {
+        "https://api.fish.audio/v1/tts"
+    } else {
+        url
+    };
     let res = client
-        .post("https://api.fish.audio/v1/tts")
+        .post(url)
         .header("content-type", "application/msgpack")
         .header("authorization", &format!("Bearer {}", token))
         .body(rmp_serde::to_vec_named(&FishTTSRequest::new(
@@ -233,6 +238,6 @@ async fn test_fish_tts() {
     ));
     println!("{:x?}", r);
 
-    let wav_audio = fish_tts(&token, speaker, text).await.unwrap();
+    let wav_audio = fish_tts("", &token, speaker, text).await.unwrap();
     std::fs::write("./resources/test/out.wav", wav_audio).unwrap();
 }
