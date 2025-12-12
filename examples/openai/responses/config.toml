@@ -2,14 +2,14 @@ addr = "0.0.0.0:9090"
 hello_wav = "hello.wav"
 
 [tts]
-platform = "OpenAI"
+platform = "openai"
 url = "https://api.openai.com/v1/audio/speech"
 model = "gpt-4o-mini-tts"
 api_key = "sk_ABCD"
 voice = "ash"
 
 [asr]
-platform = "OpenAI"
+platform = "openai"
 url = "https://api.openai.com/v1/audio/transcriptions"
 api_key = "sk_ABCD"
 model = "gpt-4o-mini-transcribe"
@@ -19,7 +19,8 @@ vad_url = "http://localhost:9093/v1/audio/vad"
 # vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [llm]
-llm_responses_url = "https://api.openai.com/v1/responses"
+platform = "openai_responses"
+url = "https://api.openai.com/v1/responses"
 api_key = "sk_ABCD"
 model = "gpt-5-nano"
 

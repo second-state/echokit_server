@@ -5,11 +5,13 @@ hello_wav = "hello.wav"
 
 [asr]
 platform = "paraformer_v2"
+url = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
 paraformer_token = "sk-API-KEY"
 
 
 [tts]
 platform = "cosyvoice"
+url = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
 token = "sk-API-KEY"
 speaker = "longhua_v2"
 

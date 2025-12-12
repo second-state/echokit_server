@@ -2,20 +2,21 @@ addr = "0.0.0.0:8080"
 hello_wav = "hello.wav"
 
 [tts]
-platform = "Elevenlabs"
+platform = "elevenlabs"
 url = "wss://api.elevenlabs.io/v1/text-to-speech/"
 token = "sk_1234"
 voice = "YOUR-VOICE-ID"
 
 [asr]
-platform = "Elevenlabs"
+platform = "elevenlabs"
 url = "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
 api_key = "sk_ABCD"
 model = "gpt-4o-mini-transcribe"
 lang = "en"
 
 [llm]
-llm_chat_url = "https://api.openai.com/v1/chat/completions"
+platform = "openai_chat"
+url = "https://api.openai.com/v1/chat/completions"
 api_key = "sk_ABCD"
 model = "gpt-5-nano"
 history = 5

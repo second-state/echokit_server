@@ -5,7 +5,8 @@ hello_wav = "hello.wav"
 api_key = "ABCD-1234-xyz"
 
 [tts]
-platform = "Elevenlabs"
+platform = "elevenlabs"
+url = "wss://api.elevenlabs.io/v1/text-to-speech"
 token = "sk_abcd1234"
 voice = "VOICE-ID-FROM-YOUR-ACCOUNT"
 

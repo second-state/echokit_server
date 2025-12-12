@@ -3,11 +3,13 @@ hello_wav = "hello.wav"
 
 # Get API key from: https://bailian.console.aliyun.com/
 [tts]
-platform = "CosyVoice"
+platform = "cosyvoice"
+url = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
 token = "sk-API-KEY"
 speaker = "longhua_v2"
 
 [asr]
+platform = "openai"
 url = "https://api.openai.com/v1/audio/transcriptions"
 api_key = "sk_ABCD"
 model = "gpt-4o-mini-transcribe"
@@ -17,7 +19,8 @@ vad_url = "http://localhost:9093/v1/audio/vad"
 # vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [llm]
-llm_chat_url = "https://api.openai.com/v1/chat/completions"
+platform = "openai_chat"
+url = "https://api.openai.com/v1/chat/completions"
 api_key = "sk_ABCD"
 model = "gpt-5-nano"
 history = 5
