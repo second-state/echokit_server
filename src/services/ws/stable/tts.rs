@@ -397,6 +397,7 @@ async fn elevenlabs_tts(
     tts_resp_tx: &TTSResponseTx,
 ) -> anyhow::Result<()> {
     let mut session = crate::ai::elevenlabs::tts::ElevenlabsTTS::new_with_client(
+        &elevenlabs_tts.url,
         client,
         elevenlabs_tts.token.clone(),
         elevenlabs_tts.voice.clone(),

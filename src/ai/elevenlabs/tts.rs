@@ -94,6 +94,7 @@ impl Display for OutputFormat {
 
 impl ElevenlabsTTS {
     pub async fn new(
+        url: &str,
         token: String,
         voice: String,
         output_format: OutputFormat,
@@ -102,6 +103,7 @@ impl ElevenlabsTTS {
     ) -> anyhow::Result<Self> {
         let client = reqwest::Client::new();
         Self::new_with_client(
+            url,
             &client,
             token,
             voice,
@@ -113,6 +115,7 @@ impl ElevenlabsTTS {
     }
 
     pub async fn new_with_client(
+        url: &str,
         client: &reqwest::Client,
         token: String,
         voice: String,
@@ -126,11 +129,20 @@ impl ElevenlabsTTS {
             model_id
         };
 
+        let mut url = if url.is_empty() {
+            "wss://api.elevenlabs.io/v1/text-to-speech".to_string()
+        } else {
+            url.to_string()
+        };
+
+        if !url.ends_with('/') {
+            url.push('/');
+        }
+
         let language_code = language_code.to_ascii_lowercase();
 
-        let mut url = format!(
-            "wss://api.elevenlabs.io/v1/text-to-speech/{voice}/stream-input?model_id={model_id}&output_format={output_format}",
-        );
+        let mut url =
+            format!("{url}{voice}/stream-input?model_id={model_id}&output_format={output_format}");
 
         if !language_code.is_empty() {
             url.push_str(&format!("&language_code={}", language_code));
@@ -243,7 +255,7 @@ async fn test_elevenlabs_tts() {
     let token = std::env::var("ELEVENLABS_API_KEY").unwrap();
     let voice = std::env::var("ELEVENLABS_VOICE_ID").unwrap();
 
-    let mut tts = ElevenlabsTTS::new(token, voice, OutputFormat::Pcm16000, "", "")
+    let mut tts = ElevenlabsTTS::new("", token, voice, OutputFormat::Pcm16000, "", "")
         .await
         .expect("Failed to create ElevenlabsTTS");
 
@@ -283,6 +295,7 @@ async fn test_elevenlabs_tts_with_language_code() {
     let voice = std::env::var("ELEVENLABS_VOICE_ID").unwrap();
 
     let mut tts = ElevenlabsTTS::new(
+        "",
         token,
         voice,
         OutputFormat::Pcm16000,

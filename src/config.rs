@@ -137,8 +137,14 @@ pub struct CosyVoiceTTS {
     pub version: CosyVoiceVersion,
 }
 
+fn default_elevenlabs_tts_url() -> String {
+    "wss://api.elevenlabs.io/v1/text-to-speech".to_string()
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ElevenlabsTTS {
+    #[serde(default = "default_elevenlabs_tts_url")]
+    pub url: String,
     pub token: String,
     pub voice: String,
     #[serde(default)]

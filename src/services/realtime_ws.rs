@@ -1256,6 +1256,7 @@ async fn tts_and_send(
         }
         crate::config::TTSConfig::Elevenlabs(elevenlabs_tts) => {
             let mut tts = elevenlabs::tts::ElevenlabsTTS::new(
+                &elevenlabs_tts.url,
                 elevenlabs_tts.token.clone(),
                 elevenlabs_tts.voice.clone(),
                 elevenlabs::tts::OutputFormat::Pcm24000,
