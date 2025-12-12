@@ -4,10 +4,12 @@ hello_wav = "hello.wav"
 # Get your API key from https://bailian.console.aliyun.com/
 
 [asr]
+platform = "paraformer_v2"
 paraformer_token = "sk-API-KEY"
 
+
 [tts]
-platform = "CosyVoice"
+platform = "cosyvoice"
 token = "sk-API-KEY"
 speaker = "longhua_v2"
 
@@ -15,7 +17,8 @@ speaker = "longhua_v2"
 # Get speaker list from https://help.aliyun.com/zh/model-studio/cosyvoice-java-sdk#722dd7ca66a6x
 
 [llm]
-llm_chat_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+platform = "openai_chat"
+url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 api_key = "sk-API-KEY"
 model = "qwen-plus"
 history = 5

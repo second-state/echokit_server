@@ -89,7 +89,8 @@ jobs:
             build-essential \
             git \
             curl \
-            unzip
+            unzip \
+            cmake
 
       - name: Check out repository
         uses: actions/checkout@v4

@@ -89,6 +89,7 @@ impl AsrSession {
             )),
             crate::config::ASRConfig::ParaformerV2(paraformer_config) => {
                 let session = ParaformerASRSession::connect(
+                    &paraformer_config.url,
                     paraformer_config.paraformer_token.clone(),
                     16000,
                 )

@@ -1,6 +1,6 @@
 [package]
 name = "echokit_server"
-version = "0.2.0"
+version = "0.2.5"
 edition = "2021"
 
 [dependencies]
@@ -23,8 +23,11 @@ axum-extra = { version = "0.10.0", features = ["typed-header"] }
 tokio = { version = "1", features = ["full"] }
 
 reqwest = { version = "0.12", features = ["multipart", "json", "stream"] }
+
 hound = "3.5.1"
 wav_io = "0.1.15"
+opus = "0.3.0"
+
 rand = "0.9.0"
 uuid = { version = "1.14", features = [
     "v4",       # Lets you generate random UUIDs

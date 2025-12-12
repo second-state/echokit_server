@@ -28,6 +28,7 @@ pub struct MCPServerConfig {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LLMConfig {
+    #[serde(alias = "url")]
     pub llm_chat_url: String,
     #[serde(default)]
     pub api_key: Option<String>,
@@ -55,8 +56,14 @@ pub struct GeminiConfig {
     pub sys_prompts: Vec<Content>,
 }
 
+fn default_fish_tts_url() -> String {
+    "https://api.fish.audio/v1/tts".to_string()
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FishTTS {
+    #[serde(default = "default_fish_tts_url")]
+    pub url: String,
     pub api_key: String,
     pub speaker: String,
 }
@@ -120,10 +127,16 @@ pub struct StreamGSV {
     pub speaker: String,
 }
 
-pub use crate::ai::bailian::cosyvoice::CosyVoiceVersion;
+pub use crate::ai::bailian::cosyvoice::{CosyVoiceTTS as CosyVoice, CosyVoiceVersion};
+
+fn default_cosyvoice_tts_url() -> String {
+    CosyVoice::WEBSOCKET_URL.to_string()
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CosyVoiceTTS {
+    #[serde(default = "default_cosyvoice_tts_url")]
+    pub url: String,
     pub token: String,
     #[serde(default)]
     pub speaker: Option<String>,
@@ -131,8 +144,14 @@ pub struct CosyVoiceTTS {
     pub version: CosyVoiceVersion,
 }
 
+fn default_elevenlabs_tts_url() -> String {
+    "wss://api.elevenlabs.io/v1/text-to-speech".to_string()
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ElevenlabsTTS {
+    #[serde(default = "default_elevenlabs_tts_url")]
+    pub url: String,
     pub token: String,
     pub voice: String,
     #[serde(default)]
@@ -144,14 +163,19 @@ pub struct ElevenlabsTTS {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "platform")]
 pub enum TTSConfig {
-    #[serde(alias = "OpenAI")]
+    #[serde(alias = "OpenAI", alias = "openai")]
     Openai(OpenaiTTS),
-    #[serde(alias = "Stable")]
+    #[serde(alias = "Stable", alias = "gsv")]
     GSV(GSVTTS),
+    #[serde(alias = "fish")]
     Fish(FishTTS),
+    #[serde(alias = "groq")]
     Groq(GroqTTS),
+    #[serde(alias = "stream_gsv")]
     StreamGSV(StreamGSV),
+    #[serde(alias = "cosyvoice")]
     CosyVoice(CosyVoiceTTS),
+    #[serde(alias = "elevenlabs")]
     Elevenlabs(ElevenlabsTTS),
 }
 
@@ -172,15 +196,23 @@ pub struct WhisperASRConfig {
     pub vad_realtime_url: Option<String>,
 }
 
+fn default_paraformer_v2_url() -> String {
+    "wss://dashscope.aliyuncs.com/api-ws/v1/inference".to_string()
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ParaformerV2AsrConfig {
+    #[serde(default = "default_paraformer_v2_url")]
+    pub url: String,
     pub paraformer_token: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
+#[serde(tag = "platform")]
 pub enum ASRConfig {
+    #[serde(alias = "whisper", alias = "openai", alias = "OpenAI")]
     Whisper(WhisperASRConfig),
+    #[serde(alias = "paraformer_v2")]
     ParaformerV2(ParaformerV2AsrConfig),
 }
 

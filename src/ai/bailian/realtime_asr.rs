@@ -45,7 +45,7 @@ pub struct ResponsePayloadOutputSentence {
 }
 
 pub struct ParaformerRealtimeV2Asr {
-    #[allow(unused)]
+    url: String,
     token: String,
     task_id: String,
     sample_rate: u32,
@@ -53,8 +53,12 @@ pub struct ParaformerRealtimeV2Asr {
 }
 
 impl ParaformerRealtimeV2Asr {
-    pub async fn connect(token: String, sample_rate: u32) -> anyhow::Result<Self> {
-        let url = format!("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
+    pub async fn connect(url: &str, token: String, sample_rate: u32) -> anyhow::Result<Self> {
+        let url = if url.is_empty() {
+            "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
+        } else {
+            url
+        };
 
         let client = reqwest::Client::new();
         let response = client
@@ -68,6 +72,7 @@ impl ParaformerRealtimeV2Asr {
         let task_id = String::new();
 
         Ok(Self {
+            url: url.to_string(),
             token,
             task_id,
             sample_rate,
@@ -76,11 +81,9 @@ impl ParaformerRealtimeV2Asr {
     }
 
     pub async fn reconnect(&mut self) -> anyhow::Result<()> {
-        let url = format!("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
-
         let client = reqwest::Client::new();
         let response = client
-            .get(url)
+            .get(&self.url)
             .bearer_auth(&self.token)
             .header("X-DashScope-DataInspection", "enable")
             .upgrade()
@@ -220,7 +223,7 @@ async fn test_paraformer_asr() {
     let samples = crate::util::convert_samples_f32_to_i16_bytes(&samples);
     let audio_data = bytes::Bytes::from(samples);
 
-    let mut asr = ParaformerRealtimeV2Asr::connect(token, head.sample_rate)
+    let mut asr = ParaformerRealtimeV2Asr::connect("", token, head.sample_rate)
         .await
         .unwrap();
     asr.start_pcm_recognition().await.unwrap();

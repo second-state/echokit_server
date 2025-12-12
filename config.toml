@@ -27,6 +27,7 @@ speaker = "speaker2"
 # vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [asr]
+platform = "whisper"
 url = "https://whisper.gaia.domains/v1/audio/transcriptions"
 lang = "auto"
 prompt = "Hello\n你好\n(noise)\n(bgm)\n(silence)\n"
@@ -39,8 +40,9 @@ vad_url = "http://localhost:9093/v1/audio/vad"
 # history = 1
 
 [llm]
-prompts_url = "http://localhost:8001/default_dynamic_prompts.json"
-llm_chat_url = "https://0xb2962131564bc854ece7b0f7c8c9a8345847abfb.gaia.domains/v1/chat/completions"
+platform = "chat"
+url = "https://0xb2962131564bc854ece7b0f7c8c9a8345847abfb.gaia.domains/v1/chat/completions"
+#prompts_url = "http://localhost:8001/default_dynamic_prompts.json"
 api_key = "gaia-1234"
 history = 5
 

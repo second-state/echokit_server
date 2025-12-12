@@ -1181,7 +1181,8 @@ async fn tts_and_send(
             Ok(())
         }
         crate::config::TTSConfig::Fish(fish) => {
-            let wav_data = crate::ai::tts::fish_tts(&fish.api_key, &fish.speaker, &text).await?;
+            let wav_data =
+                crate::ai::tts::fish_tts(&fish.url, &fish.api_key, &fish.speaker, &text).await?;
             let duration_sec = send_wav(tx, response_id, item_id, text, wav_data).await?;
             log::info!("Fish TTS duration: {:?}", duration_sec);
             Ok(())
@@ -1229,7 +1230,8 @@ async fn tts_and_send(
             Ok(())
         }
         crate::config::TTSConfig::CosyVoice(cosyvoice) => {
-            let mut tts = cosyvoice::CosyVoiceTTS::connect(cosyvoice.token.clone()).await?;
+            let mut tts =
+                cosyvoice::CosyVoiceTTS::connect(&cosyvoice.url, cosyvoice.token.clone()).await?;
 
             tts.start_synthesis(
                 cosyvoice.version,
@@ -1255,6 +1257,7 @@ async fn tts_and_send(
         }
         crate::config::TTSConfig::Elevenlabs(elevenlabs_tts) => {
             let mut tts = elevenlabs::tts::ElevenlabsTTS::new(
+                &elevenlabs_tts.url,
                 elevenlabs_tts.token.clone(),
                 elevenlabs_tts.voice.clone(),
                 elevenlabs::tts::OutputFormat::Pcm24000,
