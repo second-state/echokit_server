@@ -162,14 +162,19 @@ pub struct ElevenlabsTTS {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "platform")]
 pub enum TTSConfig {
-    #[serde(alias = "OpenAI")]
+    #[serde(alias = "OpenAI", alias = "openai")]
     Openai(OpenaiTTS),
-    #[serde(alias = "Stable")]
+    #[serde(alias = "Stable", alias = "gsv")]
     GSV(GSVTTS),
+    #[serde(alias = "fish")]
     Fish(FishTTS),
+    #[serde(alias = "groq")]
     Groq(GroqTTS),
+    #[serde(alias = "stream_gsv")]
     StreamGSV(StreamGSV),
+    #[serde(alias = "cosyvoice")]
     CosyVoice(CosyVoiceTTS),
+    #[serde(alias = "elevenlabs")]
     Elevenlabs(ElevenlabsTTS),
 }
 
