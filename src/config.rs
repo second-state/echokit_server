@@ -190,15 +190,23 @@ pub struct WhisperASRConfig {
     pub vad_realtime_url: Option<String>,
 }
 
+fn default_paraformer_v2_url() -> String {
+    "wss://dashscope.aliyuncs.com/api-ws/v1/inference".to_string()
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ParaformerV2AsrConfig {
+    #[serde(default = "default_paraformer_v2_url")]
+    pub url: String,
     pub paraformer_token: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
+#[serde(tag = "platform")]
 pub enum ASRConfig {
+    #[serde(alias = "whisper")]
     Whisper(WhisperASRConfig),
+    #[serde(alias = "paraformer_v2")]
     ParaformerV2(ParaformerV2AsrConfig),
 }
 

@@ -468,8 +468,10 @@ async fn recv_audio_to_wav(
         },
     );
 
-    if let Err(e) = std::fs::write("./recv_wav.wav", &wav_audio) {
-        log::error!("write recv_wav.wav error: {e}");
+    if std::option_env!("DEBUG_WAV").is_some() {
+        if let Err(e) = std::fs::write("./recv_wav.wav", &wav_audio) {
+            log::error!("write recv_wav.wav error: {e}");
+        }
     }
 
     Ok(wav_audio)
@@ -542,6 +544,7 @@ pub async fn get_paraformer_v2_text(
     audio: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
 ) -> anyhow::Result<String> {
     let paraformer_token = asr.paraformer_token.clone();
+    let paraformer_url = asr.url.clone();
     let mut asr: Option<crate::ai::bailian::realtime_asr::ParaformerRealtimeV2Asr> = None;
     loop {
         while let Some(chunk) = audio.recv().await {
@@ -563,6 +566,7 @@ pub async fn get_paraformer_v2_text(
                     log::info!("`{id}` starting paraformer asr");
                     let mut paraformer_asr =
                         crate::ai::bailian::realtime_asr::ParaformerRealtimeV2Asr::connect(
+                            &paraformer_url,
                             paraformer_token.clone(),
                             16000,
                         )
