@@ -120,10 +120,16 @@ pub struct StreamGSV {
     pub speaker: String,
 }
 
-pub use crate::ai::bailian::cosyvoice::CosyVoiceVersion;
+pub use crate::ai::bailian::cosyvoice::{CosyVoiceTTS as CosyVoice, CosyVoiceVersion};
+
+fn default_cosyvoice_tts_url() -> String {
+    CosyVoice::WEBSOCKET_URL.to_string()
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CosyVoiceTTS {
+    #[serde(default = "default_cosyvoice_tts_url")]
+    pub url: String,
     pub token: String,
     #[serde(default)]
     pub speaker: Option<String>,

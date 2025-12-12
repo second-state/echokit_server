@@ -31,7 +31,7 @@ impl ResponseMessage {
 }
 
 pub struct CosyVoiceTTS {
-    #[allow(unused)]
+    url: String,
     token: String,
     websocket: WebSocket,
     synthesis_started: bool,
@@ -59,14 +59,18 @@ impl Default for CosyVoiceVersion {
 }
 
 impl CosyVoiceTTS {
-    const WEBSOCKET_URL: &str = "wss://dashscope.aliyuncs.com/api-ws/v1/inference";
+    pub const WEBSOCKET_URL: &str = "wss://dashscope.aliyuncs.com/api-ws/v1/inference";
 
-    pub async fn connect(token: String) -> anyhow::Result<Self> {
-        let url = Self::WEBSOCKET_URL;
+    pub async fn connect(url: &str, token: String) -> anyhow::Result<Self> {
+        let url = if url.is_empty() {
+            Self::WEBSOCKET_URL.to_string()
+        } else {
+            url.to_string()
+        };
 
         let client = reqwest::Client::new();
         let response = client
-            .get(url)
+            .get(&url)
             .bearer_auth(&token)
             .header("X-DashScope-DataInspection", "enable")
             .upgrade()
@@ -75,6 +79,7 @@ impl CosyVoiceTTS {
         let websocket = response.into_websocket().await?;
 
         Ok(Self {
+            url,
             token,
             websocket,
             synthesis_started: false,
@@ -82,11 +87,9 @@ impl CosyVoiceTTS {
     }
 
     pub async fn reconnect(&mut self) -> anyhow::Result<()> {
-        let url = Self::WEBSOCKET_URL;
-
         let client = reqwest::Client::new();
         let response = client
-            .get(url)
+            .get(&self.url)
             .bearer_auth(&self.token)
             .header("X-DashScope-DataInspection", "enable")
             .upgrade()
@@ -222,7 +225,7 @@ async fn test_cosyvoice_tts() {
     let token = std::env::var("COSYVOICE_TOKEN").unwrap();
     let text = "你好,我是CosyVoice V2";
 
-    let mut tts = CosyVoiceTTS::connect(token).await.unwrap();
+    let mut tts = CosyVoiceTTS::connect("", token).await.unwrap();
     tts.start_synthesis(CosyVoiceVersion::V2, None, Some(24000), text)
         .await
         .unwrap();

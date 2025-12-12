@@ -65,6 +65,7 @@ impl TTSSession {
             }),
             crate::config::TTSConfig::CosyVoice(cosy_voice_tts) => {
                 let tts = crate::ai::bailian::cosyvoice::CosyVoiceTTS::connect(
+                    &cosy_voice_tts.url,
                     cosy_voice_tts.token.clone(),
                 )
                 .await?;

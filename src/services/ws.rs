@@ -370,7 +370,8 @@ async fn tts_and_send(
             Ok(std::time::Duration::from_secs_f32(duration_sec))
         }
         crate::config::TTSConfig::CosyVoice(cosyvoice) => {
-            let mut tts = cosyvoice::CosyVoiceTTS::connect(cosyvoice.token.clone()).await?;
+            let mut tts =
+                cosyvoice::CosyVoiceTTS::connect(&cosyvoice.url, cosyvoice.token.clone()).await?;
 
             tts.start_synthesis(
                 cosyvoice.version,
