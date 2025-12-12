@@ -97,7 +97,7 @@ pub async fn ws_handler(
         let id = id.clone();
         let pool = pool.clone();
         if let Err(e) = handle_socket(socket, &id, pool.clone(), params).await {
-            log::error!("{id}:{request_id:x} handle_socket error: {e}");
+            log::warn!("{id}:{request_id:x} handle_socket error: {e}");
         };
         log::info!("{id}:{request_id:x} disconnected.");
     })
