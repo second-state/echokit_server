@@ -14,7 +14,8 @@ lang = "auto"
 vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [llm]
-llm_chat_url = "http://localhost:9091/v1/chat/completions"
+platform = "chat"
+url = "http://localhost:9091/v1/chat/completions"
 api_key = "Bearer gaia-1234"
 history = 5
 

@@ -19,7 +19,8 @@ vad_url = "http://localhost:9093/v1/audio/vad"
 # vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [llm]
-llm_chat_url = "https://api.groq.com/openai/v1/chat/completions"
+platform = "chat"
+url = "https://api.groq.com/openai/v1/chat/completions"
 api_key = "gsk_ABCD"
 model = "openai/gpt-oss-20b"
 history = 5

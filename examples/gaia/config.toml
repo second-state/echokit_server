@@ -18,7 +18,8 @@ vad_url = "http://localhost:9093/v1/audio/vad"
 
 # Requires a local LlamaEdge API server at port 9091: https://llamaedge.com/docs/ai-models/llm/quick-start-llm
 [llm]
-llm_chat_url = "http://localhost:9091/v1/chat/completions"
+platform = "chat"
+url = "http://localhost:9091/v1/chat/completions"
 api_key = "Bearer gaia-1234"
 model = "default"
 history = 5

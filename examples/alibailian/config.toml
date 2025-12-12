@@ -19,7 +19,8 @@ speaker = "longhua_v2"
 # Get speaker list from https://help.aliyun.com/zh/model-studio/cosyvoice-java-sdk#722dd7ca66a6x
 
 [llm]
-llm_chat_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+platform = "chat"
+url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 api_key = "API-key"
 model = "qwen-plus"
 history = 5

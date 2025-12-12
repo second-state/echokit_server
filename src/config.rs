@@ -28,6 +28,7 @@ pub struct MCPServerConfig {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LLMConfig {
+    #[serde(alias = "url")]
     pub llm_chat_url: String,
     #[serde(default)]
     pub api_key: Option<String>,

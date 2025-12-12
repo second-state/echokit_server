@@ -21,7 +21,8 @@ vad_url = "http://localhost:9093/v1/audio/vad"
 
 # Use Groq for fast LLM here
 [llm]
-llm_chat_url = "https://api.groq.com/openai/v1/chat/completions"
+platform = "chat"
+url = "https://api.groq.com/openai/v1/chat/completions"
 api_key = "gsk_ABCD"
 model = "openai/gpt-oss-20b"
 history = 10
