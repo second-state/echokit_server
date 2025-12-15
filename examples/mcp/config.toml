@@ -3,13 +3,13 @@ hello_wav = "hello.wav"
 
 # Requires a local gsv_tts server at port 9094: https://github.com/second-state/gsv_tts
 [tts]
-platform = "StreamGSV"
+platform = "stream_gsv"
 url = "http://localhost:9094/v1/audio/stream_speech"
 speaker = "cooper"
 
 # Use Groq for fast ASR here
 [asr]
-platform = "whisper"
+platform = "openai"
 url = "https://api.groq.com/openai/v1/audio/transcriptions"
 api_key = "gsk_ABCD"
 model = "whisper-large-v3"
@@ -21,7 +21,7 @@ vad_url = "http://localhost:9093/v1/audio/vad"
 
 # Use Groq for fast LLM here
 [llm]
-platform = "chat"
+platform = "openai_chat"
 url = "https://api.groq.com/openai/v1/chat/completions"
 api_key = "gsk_ABCD"
 model = "openai/gpt-oss-20b"

@@ -3,13 +3,13 @@ hello_wav = "hello.wav"
 
 # Requires a local gsv_tts server at port 9094: https://github.com/second-state/gsv_tts
 [tts]
-platform = "StreamGSV"
+platform = "stream_gsv"
 url = "http://localhost:9094/v1/audio/stream_speech"
 speaker = "cooper"
 
 # Requires a local Whisper API server at port 9092: https://llamaedge.com/docs/ai-models/speech-to-text/quick-start-whisper
 [asr]
-platform = "whisper"
+platform = "openai"
 url = "http://localhost:9092/v1/audio/transcriptions"
 lang = "auto"
 # Requires a local Silero VAD server at port 9093: https://github.com/second-state/silero_vad_server
@@ -18,7 +18,7 @@ vad_url = "http://localhost:9093/v1/audio/vad"
 
 # Requires a local LlamaEdge API server at port 9091: https://llamaedge.com/docs/ai-models/llm/quick-start-llm
 [llm]
-platform = "chat"
+platform = "openai_chat"
 url = "http://localhost:9091/v1/chat/completions"
 api_key = "Bearer gaia-1234"
 model = "default"

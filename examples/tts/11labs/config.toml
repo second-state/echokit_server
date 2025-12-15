@@ -1,0 +1,33 @@
+addr = "0.0.0.0:8080"
+hello_wav = "hello.wav"
+
+[tts]
+platform = "elevenlabs"
+url = "wss://api.elevenlabs.io/v1/text-to-speech/"
+token = "sk_1234"
+voice = "YOUR-VOICE-ID"
+
+[asr]
+platform = "elevenlabs"
+url = "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
+api_key = "sk_ABCD"
+model = "gpt-4o-mini-transcribe"
+lang = "en"
+
+[llm]
+platform = "openai_chat"
+url = "https://api.openai.com/v1/chat/completions"
+api_key = "sk_ABCD"
+model = "gpt-5-nano"
+history = 5
+
+[[llm.sys_prompts]]
+role = "system"
+content = """
+You are a helpful assistant. Answer truthfully and concisely. Always answer in English.
+
+- NEVER use bullet points
+- NEVER use tables
+- Answer in complete English sentences as if you are in a conversation.
+
+"""
