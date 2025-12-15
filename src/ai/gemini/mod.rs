@@ -63,7 +63,7 @@ impl LiveClient {
 
     pub async fn receive(&mut self) -> anyhow::Result<types::ServerContent> {
         if let Some(msg) = self.ws.next().await {
-            log::debug!("Received message: {:?}", msg);
+            log::trace!("Received message: {:?}", msg);
             let msg = msg?;
             match msg {
                 Message::Text(text) => {
@@ -79,7 +79,7 @@ impl LiveClient {
                         serde_json::from_slice(&bin).map_err(|e| {
                             anyhow::anyhow!("Failed to parse binary message: {} {:?}", e, bin)
                         })?;
-                    log::debug!("Parsed binary message: {:?}", server_content);
+                    log::trace!("Parsed binary message: {:?}", server_content);
                     Ok(server_content.server_content)
                 }
                 Message::Close { code, reason } => Err(anyhow::anyhow!(
@@ -113,7 +113,7 @@ mod test {
         cfg.response_modalities = Some(vec![types::Modality::TEXT]);
 
         let setup = types::Setup {
-            model: "models/gemini-2.0-flash-live-001".to_string(),
+            model: "models/gemini-2.0-flash-exp".to_string(),
             generation_config: Some(cfg),
             system_instruction: Some(types::Content {
                 parts: vec![types::Parts::Text(

@@ -859,7 +859,7 @@ async fn submit_to_gemini(
     let mut buff = Vec::with_capacity(5 * 1600 * 2);
 
     loop {
-        log::info!("waiting gemini response");
+        log::debug!("waiting gemini response");
         match client.receive().await? {
             gemini::types::ServerContent::ModelTurn(turn) => {
                 for item in turn.parts {
@@ -1033,7 +1033,7 @@ async fn handle_audio(
             let model = gemini
                 .model
                 .clone()
-                .unwrap_or("models/gemini-2.0-flash-live-001".to_string());
+                .unwrap_or("models/gemini-2.0-flash-exp".to_string());
 
             let mut generation_config = GenerationConfig::default();
             generation_config.response_modalities = Some(vec![gemini::types::Modality::TEXT]);
@@ -1061,7 +1061,7 @@ async fn handle_audio(
             let model = gemini
                 .model
                 .clone()
-                .unwrap_or("models/gemini-2.0-flash-live-001".to_string());
+                .unwrap_or("models/gemini-2.0-flash-exp".to_string());
 
             let mut generation_config = GenerationConfig::default();
             generation_config.response_modalities = Some(vec![gemini::types::Modality::AUDIO]);

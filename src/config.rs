@@ -47,10 +47,14 @@ pub struct LLMConfig {
     pub extra: Option<serde_json::Value>,
 }
 
+fn default_gemini_model() -> Option<String> {
+    Some("models/gemini-2.0-flash-exp".to_string())
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GeminiConfig {
     pub api_key: String,
-    #[serde(default)]
+    #[serde(default = "default_gemini_model")]
     pub model: Option<String>,
     #[serde(default)]
     pub sys_prompts: Vec<Content>,

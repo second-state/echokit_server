@@ -647,7 +647,7 @@ impl ChatSession {
                     gemini
                         .model
                         .clone()
-                        .unwrap_or("models/gemini-2.0-flash-live-001".to_string()),
+                        .unwrap_or("models/gemini-2.0-flash-exp".to_string()),
                     None,
                     20,
                     tools,
