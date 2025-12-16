@@ -76,7 +76,7 @@ pub fn get_samples_f32(reader: &mut wav_io::reader::Reader) -> Result<Vec<f32>, 
         let size = reader.read_u32().unwrap_or(0) as u64;
         // todo: check tag
         // println!("[info] tag={:?}::{}", chunk_tag, size);
-        if size == 0 {
+        if size == 0 && chunk_tag != "data" {
             continue;
         }
         // data?
@@ -87,7 +87,7 @@ pub fn get_samples_f32(reader: &mut wav_io::reader::Reader) -> Result<Vec<f32>, 
         // read wav data
         let h = &reader.header.clone().unwrap();
 
-        let bytes_to_read = if size == 0xFFFFFFFF {
+        let bytes_to_read = if size == 0xFFFFFFFF || size == 0 {
             let current_pos = reader.cur.position();
             let file_len = reader.cur.get_ref().len() as u64;
             file_len.saturating_sub(current_pos)
@@ -184,7 +184,7 @@ pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, 
         let size = reader.read_u32().unwrap_or(0) as u64;
         // todo: check tag
         // println!("[info] tag={:?}::{}", chunk_tag, size);
-        if size == 0 {
+        if size == 0 && chunk_tag != "data" {
             continue;
         }
         // data?
@@ -195,7 +195,7 @@ pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, 
         // read wav data
         let h = &reader.header.clone().unwrap();
 
-        let bytes_to_read = if size == 0xFFFFFFFF {
+        let bytes_to_read = if size == 0xFFFFFFFF || size == 0 {
             let current_pos = reader.cur.position();
             let file_len = reader.cur.get_ref().len() as u64;
             file_len.saturating_sub(current_pos)
