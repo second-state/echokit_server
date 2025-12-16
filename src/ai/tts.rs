@@ -204,6 +204,7 @@ pub async fn fish_tts(url: &str, token: &str, speaker: &str, text: &str) -> anyh
     let res = client
         .post(url)
         .header("content-type", "application/msgpack")
+        .header("model", "s1")
         .header("authorization", &format!("Bearer {}", token))
         .body(rmp_serde::to_vec_named(&FishTTSRequest::new(
             speaker.to_string(),
