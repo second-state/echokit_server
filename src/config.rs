@@ -59,6 +59,7 @@ pub struct ChatConfig {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ResponsesConfig {
     #[serde(alias = "url")]
+    #[serde(default = "ResponsesConfig::default_responses_url")]
     pub llm_responses_url: String,
     #[serde(default = "ResponsesConfig::default_model")]
     pub model: String,
@@ -80,6 +81,10 @@ impl ResponsesConfig {
 
     fn default_instructions() -> String {
         "You are a helpful assistant.".to_string()
+    }
+
+    fn default_responses_url() -> String {
+        "https://api.openai.com/v1/responses".to_string()
     }
 }
 
