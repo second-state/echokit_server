@@ -8,7 +8,7 @@ use axum::{
 
 use crate::{
     ai::openai::tool::{McpToolAdapter, ToolSet},
-    config::{ASRConfig, ChatConfig, LLMConfig, TTSConfig},
+    config::{ASRConfig, LLMConfig, TTSConfig},
     services::ws::stable::{
         llm::{ChunksRx, LLMConfigExt, LLMExt},
         tts::TTSRequestTx,
@@ -16,6 +16,7 @@ use crate::{
 };
 
 mod asr;
+pub mod gemini;
 mod llm;
 mod tts;
 

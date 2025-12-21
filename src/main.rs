@@ -118,9 +118,10 @@ async fn routes(
         .layer(axum::Extension(ws_setting.clone()))
         .layer(axum::Extension(record_config.clone()));
 
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
     match config.config {
         config::AIConfig::Stable { llm, tts, asr } => {
-            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
             // let tool_set = tool_set;
             tokio::spawn(async move {
                 if let Err(e) = crate::services::ws::stable::run_session_manager(
@@ -131,20 +132,43 @@ async fn routes(
                     log::error!("Stable session manager exited with error: {}", e);
                 }
             });
-
-            router = router
-                .route("/ws/{id}", any(services::v2_mixed_handler))
-                .route("/v2/stable_ws/{id}", any(services::ws::stable::ws_handler))
-                .layer(axum::Extension(Arc::new(
-                    services::ws::stable::StableWsSetting {
-                        sessions: tx,
-                        hello_wav,
-                    },
-                )))
-                .layer(axum::Extension(record_config.clone()));
         }
-        _ => {}
+        config::AIConfig::GeminiAndTTS { gemini, tts } => {
+            tokio::spawn(async move {
+                if let Err(e) = crate::services::ws::stable::gemini::run_session_manager(
+                    &gemini,
+                    Some(&tts),
+                    rx,
+                )
+                .await
+                {
+                    log::error!("Gemini session manager exited with error: {}", e);
+                }
+            });
+        }
+        config::AIConfig::Gemini { gemini } => {
+            // let tool_set = tool_set;
+            tokio::spawn(async move {
+                if let Err(e) =
+                    crate::services::ws::stable::gemini::run_session_manager(&gemini, None, rx)
+                        .await
+                {
+                    log::error!("Gemini session manager exited with error: {}", e);
+                }
+            });
+        }
     }
+
+    router = router
+        .route("/ws/{id}", any(services::v2_mixed_handler))
+        .route("/v2/stable_ws/{id}", any(services::ws::stable::ws_handler))
+        .layer(axum::Extension(Arc::new(
+            services::ws::stable::StableWsSetting {
+                sessions: tx,
+                hello_wav,
+            },
+        )))
+        .layer(axum::Extension(record_config.clone()));
 
     if let Some(real_config) = real_config {
         log::info!(

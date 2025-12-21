@@ -756,6 +756,9 @@ async fn submit_to_gemini_and_tts(
                     tx.send(WsCommand::AsrResult(vec![asr_text.clone()]))?;
                     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                 }
+                gemini::types::ServerContent::OutputTranscription { text } => {
+                    todo!("Handle output transcription: {text}");
+                }
                 gemini::types::ServerContent::Timeout => {}
                 gemini::types::ServerContent::GoAway {} => {
                     log::warn!("gemini GoAway");
@@ -885,6 +888,9 @@ async fn submit_to_gemini(
                 log::info!("gemini input transcription: {message}");
                 // If the input transcription is not empty, we can use it as the ASR result
                 tx.send(WsCommand::AsrResult(vec![message]))?;
+            }
+            gemini::types::ServerContent::OutputTranscription { text } => {
+                todo!()
             }
             gemini::types::ServerContent::Timeout => {
                 log::warn!("gemini timeout");
@@ -1027,6 +1033,8 @@ async fn handle_audio(
                 generation_config: Some(generation_config),
                 system_instruction,
                 input_audio_transcription: Some(gemini::types::AudioTranscriptionConfig {}),
+                output_audio_transcription: None,
+                realtime_input_config: None,
             };
 
             submit_to_gemini_and_tts(&pool, &mut client, &mut ws_tx, setup, rx).await?;
@@ -1055,6 +1063,8 @@ async fn handle_audio(
                 generation_config: Some(generation_config),
                 system_instruction,
                 input_audio_transcription: Some(gemini::types::AudioTranscriptionConfig {}),
+                output_audio_transcription: None,
+                realtime_input_config: None,
             };
 
             client.setup(setup).await?;

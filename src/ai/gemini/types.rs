@@ -25,6 +25,19 @@ pub struct AudioTranscriptionConfig {}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AutomaticActivityDetectionConfig {
+    pub disabled: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RealtimeInputConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub automatic_activity_detection: Option<AutomaticActivityDetectionConfig>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Setup {
     pub model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -33,6 +46,10 @@ pub struct Setup {
     pub system_instruction: Option<Content>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_audio_transcription: Option<AudioTranscriptionConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_audio_transcription: Option<AudioTranscriptionConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub realtime_input_config: Option<RealtimeInputConfig>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -70,7 +87,7 @@ impl Default for Modality {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Blob(Vec<u8>);
 impl Blob {
     pub fn new(data: Vec<u8>) -> Self {
@@ -81,6 +98,13 @@ impl Blob {
         self.0
     }
 }
+
+impl std::fmt::Debug for Blob {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Blob(len={})", self.0.len())
+    }
+}
+
 impl serde::Serialize for Blob {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -111,6 +135,10 @@ pub enum RealtimeInput {
     Text(String),
     #[serde(rename = "audioStreamEnd")]
     AudioStreamEnd(bool),
+    #[serde(rename = "activityEnd")]
+    ActivityEnd {},
+    #[serde(rename = "activityStart")]
+    ActivityStart {},
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -124,6 +152,8 @@ pub struct RealtimeAudio {
 pub enum ServerContent {
     #[serde(rename = "inputTranscription")]
     InputTranscription { text: String },
+    #[serde(rename = "outputTranscription")]
+    OutputTranscription { text: String },
     #[serde(rename = "modelTurn")]
     ModelTurn(Content),
     #[serde(rename = "generationComplete")]
@@ -178,6 +208,8 @@ mod test {
                 )],
             }),
             input_audio_transcription: None,
+            output_audio_transcription: None,
+            realtime_input_config: None,
         };
         let serialized = serde_json::to_string(&setup).unwrap();
         assert!(serialized.contains("gemini-2.0-flash-live-001"));
