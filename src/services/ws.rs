@@ -1205,7 +1205,11 @@ async fn process_command_with_opus(
             ws.send(Message::binary(start_audio)).await?;
         }
         WsCommand::Audio(data) => {
-            log::trace!("Audio chunk size: {}", data.len());
+            log::trace!(
+                "Audio chunk size: {}, ret_audio size: {}",
+                data.len(),
+                ret_audio.len()
+            );
             for chunk in data.chunks_exact(2) {
                 let sample = i16::from_le_bytes([chunk[0], chunk[1]]);
                 ret_audio.push(sample);
@@ -1224,6 +1228,8 @@ async fn process_command_with_opus(
                         .expect("Failed to serialize AudioChunk ServerEvent");
                 ws.send(Message::binary(audio_chunk)).await?;
             }
+
+            ret_audio.clear();
         }
         WsCommand::EndAudio => {
             log::trace!("EndAudio");
