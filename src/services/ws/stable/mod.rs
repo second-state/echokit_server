@@ -8,8 +8,11 @@ use axum::{
 
 use crate::{
     ai::openai::tool::{McpToolAdapter, ToolSet},
-    config::{ASRConfig, LLMConfig, TTSConfig},
-    services::ws::stable::{llm::ChunksRx, tts::TTSRequestTx},
+    config::{ASRConfig, ChatConfig, LLMConfig, TTSConfig},
+    services::ws::stable::{
+        llm::{ChunksRx, LLMConfigExt, LLMExt},
+        tts::TTSRequestTx,
+    },
 };
 
 mod asr;
@@ -80,8 +83,8 @@ pub struct Session {
     is_reconnect: bool,
 }
 
-async fn run_session(
-    chat_session: &mut super::ChatSession,
+async fn run_session<S: llm::LLMExt + Send + 'static>(
+    llm_session: &mut S,
     tts_req_tx: &mut TTSRequestTx,
     asr_session: &mut asr::AsrSession,
     session: &mut Session,
@@ -149,7 +152,8 @@ async fn run_session(
             session.request_id
         );
 
-        let llm_fut = llm::chat(tts_req_tx, chunks_tx, chat_session, text);
+        // let llm_fut = llm::chat(tts_req_tx, chunks_tx, llm_session, text);
+        let llm_fut = llm_session.handle_asr_result(tts_req_tx, chunks_tx, text);
         let send_audio_fut = handle_tts_requests(chunks_rx, session);
 
         let r = tokio::try_join!(llm_fut, send_audio_fut);
@@ -256,7 +260,7 @@ pub async fn run_session_manager(
 ) -> anyhow::Result<()> {
     let mut sessions: HashMap<
         String,
-        tokio::sync::mpsc::UnboundedSender<(Session, Option<llm::PromptParts>)>,
+        tokio::sync::mpsc::UnboundedSender<(Session, Option<llm::MixPrompts>)>,
     > = HashMap::new();
 
     let mut tts_session_pool = tts::TTSSessionPool::new(tts.clone(), 4);
@@ -271,7 +275,7 @@ pub async fn run_session_manager(
     while let Some(session) = session_rx.recv().await {
         let prompts;
         if !session.is_reconnect {
-            prompts = Some(llm.prompts().await)
+            prompts = Some(llm.get_prompts().await)
         } else {
             prompts = None
         }
@@ -284,10 +288,11 @@ pub async fn run_session_manager(
         } else {
             (session, prompts)
         };
+        // start new session
 
         // device reconnects but server restarted
         if prompts.is_none() {
-            prompts = Some(llm.prompts().await);
+            prompts = Some(llm.get_prompts().await);
         }
 
         // run session
@@ -298,14 +303,7 @@ pub async fn run_session_manager(
         let _ = tx.send((session, prompts));
         let asr = asr.clone();
 
-        let mut chat_session = super::ChatSession::new(
-            llm.llm_chat_url.clone(),
-            llm.api_key.clone().unwrap_or_default(),
-            llm.model.clone(),
-            llm.extra.clone(),
-            llm.history,
-            tools.clone(),
-        );
+        let mut chat_session = llm::LLMSession::init_session(&llm, tools.clone());
 
         sessions.insert(id.clone(), tx);
 
@@ -324,9 +322,9 @@ pub async fn run_session_manager(
 
             loop {
                 log::info!("Running session for id `{}`", id);
+                // If prompts exist, set them to chat session. This case is happening when reconnect is false.
                 if let Some(prompts) = prompts.take() {
-                    chat_session.system_prompts = prompts.sys_prompts;
-                    chat_session.messages = prompts.dynamic_prompts;
+                    chat_session.set_prompts(prompts);
                 }
 
                 let run_fut = run_session(
@@ -336,10 +334,12 @@ pub async fn run_session_manager(
                     &mut session,
                 );
 
+                // Wait for either the session to complete or a new connection for the same id (interrupt)
                 let result = tokio::select! {
                     res = run_fut => {
                         Ok(res)
                     },
+                    // interrupted by new session
                     new_session = rx.recv() => {
                         Err(new_session)
                     }

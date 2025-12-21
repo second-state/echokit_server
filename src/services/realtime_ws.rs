@@ -63,7 +63,7 @@ impl RealtimeSession {
 
 #[derive(Debug, Clone)]
 pub struct StableRealtimeConfig {
-    pub llm: LLMConfig,
+    pub llm: ChatConfig,
     pub tts: TTSConfig,
     pub asr: WhisperASRConfig,
 }
@@ -294,7 +294,7 @@ async fn handle_client_message(
     client_event: RealtimeEvent,
     session: &mut RealtimeSession,
     tx: &mpsc::Sender<ServerEvent>,
-    llm: &LLMConfig,
+    llm: &ChatConfig,
     tts: &TTSConfig,
     asr: &WhisperASRConfig,
 ) -> anyhow::Result<()> {

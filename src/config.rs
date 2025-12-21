@@ -27,7 +27,16 @@ pub struct MCPServerConfig {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct LLMConfig {
+#[serde(tag = "platform")]
+pub enum LLMConfig {
+    #[serde(alias = "openai_chat")]
+    OpenAIChat(ChatConfig),
+    #[serde(alias = "openai_responses")]
+    OpenAIResponses(ResponsesConfig),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChatConfig {
     #[serde(alias = "url")]
     pub llm_chat_url: String,
     #[serde(default)]
@@ -45,6 +54,33 @@ pub struct LLMConfig {
     pub mcp_server: Vec<MCPServerConfig>,
     #[serde(default)]
     pub extra: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ResponsesConfig {
+    #[serde(alias = "url")]
+    pub llm_responses_url: String,
+    #[serde(default = "ResponsesConfig::default_model")]
+    pub model: String,
+    #[serde(default = "ResponsesConfig::default_instructions")]
+    pub instructions: String,
+    #[serde(default)]
+    pub api_key: String,
+    // local mcp servers
+    #[serde(default)]
+    pub mcp_server: Vec<MCPServerConfig>,
+    #[serde(default)]
+    pub extra: Option<serde_json::Value>,
+}
+
+impl ResponsesConfig {
+    fn default_model() -> String {
+        "gpt-4.1".to_string()
+    }
+
+    fn default_instructions() -> String {
+        "You are a helpful assistant.".to_string()
+    }
 }
 
 fn default_gemini_model() -> Option<String> {
