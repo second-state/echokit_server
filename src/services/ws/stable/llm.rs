@@ -451,6 +451,7 @@ impl LLMExt for ResponsesSession {
 
     fn set_prompts(&mut self, prompts: Self::Prompts) {
         self.instructions = prompts;
+        self.previous_response_id.clear();
     }
 
     fn init_session(
@@ -525,11 +526,10 @@ impl LLMExt for LLMSession {
     fn set_prompts(&mut self, prompts: Self::Prompts) {
         match (self, prompts) {
             (LLMSession::Chat(chat_session), MixPrompts::Chat(prompt_parts)) => {
-                chat_session.system_prompts = prompt_parts.sys_prompts;
-                chat_session.messages = prompt_parts.dynamic_prompts;
+                chat_session.set_prompts(prompt_parts);
             }
             (LLMSession::Responses(responses_session), MixPrompts::Responses(instructions)) => {
-                responses_session.instructions = instructions;
+                responses_session.set_prompts(instructions);
             }
             _ => {
                 #[cfg(debug_assertions)]

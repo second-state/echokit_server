@@ -1486,7 +1486,7 @@ impl ResponsesLLmResponse {
                     // log::debug!("llm response chunk: {:#?}", chunk);
                     match chunk {
                         ResponsesChunk::Completed { response } => {
-                            log::debug!("llm response completed: {:#?}", response);
+                            log::debug!("llm response completed: {}", serde_json::to_string_pretty(&response).unwrap());
                             self.previous_response_id = response.id;
                             // self.stopped = true;
                             return;
@@ -1526,17 +1526,17 @@ impl ResponsesLLmResponse {
                                 }
                                 ResponsesOutputItem::Message { id, role, content } => {
                                     log::info!(
-                                        "llm response message: id={}, role={}, content={:#?}",
+                                        "llm response message: id={}, role={}, content={}",
                                         id,
                                         role,
-                                        content
+                                        serde_json::to_string_pretty(&content).unwrap(),
                                     );
                                 }
                                 ResponsesOutputItem::Other => {
                                     log::warn!("llm response output item other: {:#?}", s_);
                                 }
                                 other => {
-                                    log::warn!("llm response output item not handled: {}", serde_json::to_string_pretty(&other).unwrap());
+                                    log::trace!("llm response output item not handled: {}", serde_json::to_string_pretty(&other).unwrap());
                                 }
                             }
                         }
@@ -1544,7 +1544,7 @@ impl ResponsesLLmResponse {
                             log::error!("llm response unknown chunk: {:#?}", s_);
                         }
                         other => {
-                            log::warn!("llm response output item not handled: {}", serde_json::to_string_pretty(&other).unwrap());
+                            log::trace!("llm response output item not handled: {}", serde_json::to_string_pretty(&other).unwrap());
                             return;
                         }
                     };
