@@ -1510,8 +1510,10 @@ impl ResponsesLLmResponse {
 
                         ResponsesChunk::OutputItemDone {
                             item,
+                            #[cfg(debug_assertions)]
                             item_done_response,
                         } => {
+                            #[cfg(debug_assertions)]
                             log::debug!("llm response output item done: {:#?}", item_done_response);
                             match item {
                                 ResponsesOutputItem::Function {
