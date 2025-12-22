@@ -133,10 +133,6 @@ pub struct StableLlmRequest {
     messages: Vec<llm::Content>,
     #[serde(skip_serializing_if = "String::is_empty")]
     model: String,
-    // #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    // tools: Vec<llm::Tool>,
-    #[serde(skip_serializing_if = "str::is_empty")]
-    tool_choice: &'static str,
 }
 
 #[test]
@@ -148,7 +144,6 @@ fn test_stable_llm_request_json() {
         }),
         messages: vec![],
         model: "test-model".to_string(),
-        tool_choice: "",
     };
 
     let json_str = serde_json::to_string_pretty(&request).unwrap();
@@ -403,6 +398,7 @@ pub mod llm {
         pub type_: String,
         pub function: ToolFunction,
     }
+
     #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
     pub struct ToolFunction {
         pub name: String,
@@ -425,6 +421,39 @@ pub mod llm {
         let json_str = r#"{"role":"user","content":null}"#;
         let content = serde_json::from_str::<Content>(json_str);
         println!("content: {:#?}", content);
+    }
+}
+
+fn merge_tool_into_extra(extra: &mut serde_json::Value, tools: &[llm::Tool]) {
+    let mut tool_choice = "";
+
+    let tools = tools
+        .iter()
+        .map(|t| serde_json::to_value(&t).unwrap())
+        .collect::<Vec<_>>();
+
+    if let Some(extra) = extra.as_object_mut() {
+        match extra.entry("tools") {
+            serde_json::map::Entry::Vacant(e) => {
+                if !tools.is_empty() {
+                    e.insert(serde_json::Value::Array(tools));
+                    tool_choice = "auto";
+                }
+            }
+            serde_json::map::Entry::Occupied(mut e) => {
+                if let serde_json::Value::Array(arr) = e.get_mut() {
+                    tool_choice = "auto";
+
+                    if !tools.is_empty() {
+                        arr.extend(tools);
+                    }
+                }
+            }
+        }
+
+        if !tool_choice.is_empty() {
+            extra.insert("tool_choice".to_string(), serde_json::json!(tool_choice));
+        }
     }
 }
 
@@ -464,39 +493,14 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
         ))?
     );
 
-    let mut tool_choice = "";
-
-    let tools = tools
-        .iter()
-        .map(|t| serde_json::to_value(&t).unwrap())
-        .collect::<Vec<_>>();
-
     let mut extra = extra.unwrap_or(serde_json::json!({}));
-    if let Some(extra) = extra.as_object_mut() {
-        match extra.entry("tools") {
-            serde_json::map::Entry::Vacant(e) => {
-                if !tools.is_empty() {
-                    e.insert(serde_json::Value::Array(tools));
-                    tool_choice = "auto";
-                }
-            }
-            serde_json::map::Entry::Occupied(mut e) => {
-                if let serde_json::Value::Array(arr) = e.get_mut() {
-                    tool_choice = "auto";
 
-                    if !tools.is_empty() {
-                        arr.extend(tools);
-                    }
-                }
-            }
-        }
-    }
+    merge_tool_into_extra(&mut extra, &tools);
 
     let request = StableLlmRequest {
         stream: true,
         messages,
         model: model.to_string(),
-        tool_choice,
         extra,
     };
 
@@ -616,46 +620,6 @@ impl ChatSession {
             system_prompts: Vec::new(),
             messages: LinkedList::new(),
             tools,
-        }
-    }
-
-    pub fn create_from_config(
-        config: &crate::config::AIConfig,
-        tools: ToolSet<McpToolAdapter>,
-    ) -> Self {
-        match config {
-            crate::config::AIConfig::Stable { llm, .. } => {
-                let mut session = ChatSession::new(
-                    llm.llm_chat_url.clone(),
-                    llm.api_key.clone().unwrap_or_default(),
-                    llm.model.clone(),
-                    None,
-                    llm.history,
-                    tools,
-                );
-
-                session.system_prompts = llm.sys_prompts.clone();
-                session.messages = llm.dynamic_prompts.clone();
-
-                session
-            }
-            crate::config::AIConfig::GeminiAndTTS { gemini, .. }
-            | crate::config::AIConfig::Gemini { gemini } => {
-                let mut session = ChatSession::new(
-                    String::new(),
-                    gemini.api_key.clone(),
-                    gemini
-                        .model
-                        .clone()
-                        .unwrap_or("models/gemini-2.0-flash-exp".to_string()),
-                    None,
-                    20,
-                    tools,
-                );
-
-                session.system_prompts = gemini.sys_prompts.clone();
-                session
-            }
         }
     }
 
@@ -957,6 +921,914 @@ async fn test_chat_session() {
             Err(e) => {
                 log::info!("error: {:#?}", e);
                 break;
+            }
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ResponsesChatRequest<'a> {
+    pub model: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    pub previous_response_id: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    pub instructions: &'a str,
+    pub input: &'a str,
+    #[serde(flatten)]
+    pub extra: serde_json::Value,
+    pub stream: bool,
+}
+
+pub struct ResponsesSession {
+    pub api_key: String,
+    pub model: String,
+    pub url: String,
+
+    pub instructions: String,
+    pub previous_response_id: String,
+
+    pub extra: Option<serde_json::Value>,
+    pub tools: ToolSet<McpToolAdapter>,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "type")]
+pub enum ResponsesChunk {
+    #[serde(rename = "response.created")]
+    Created {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        created_response: serde_json::Value,
+    },
+    #[serde(rename = "response.in_progress")]
+    InProgress {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        in_progress_response: serde_json::Value,
+    },
+    #[serde(rename = "response.output_item.added")]
+    OutputItemAdded {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        item_added_response: serde_json::Value,
+    },
+    #[serde(rename = "response.content_part.added")]
+    ContentPartAdded {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        part_added_response: serde_json::Value,
+    },
+    #[serde(rename = "response.output_text.delta")]
+    OutputTextDelta {
+        delta: String,
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        output_text_delta_response: serde_json::Value,
+    },
+    #[serde(rename = "response.output_text.annotation.added")]
+    OutputTextAnnotationAdded {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        output_text_annotation_added_response: serde_json::Value,
+    },
+    #[serde(rename = "response.output_text.done")]
+    OutputTextDone {
+        text: String,
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        output_text_done_response: serde_json::Value,
+    },
+    #[serde(rename = "response.content_part.done")]
+    ContentPartDone {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        part_done_response: serde_json::Value,
+    },
+    #[serde(rename = "response.output_item.done")]
+    OutputItemDone {
+        item: ResponsesOutputItem,
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        item_done_response: serde_json::Value,
+    },
+    #[serde(rename = "response.web_search_call.in_progress")]
+    WebSearchCallInProgress {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        web_search_call_in_progress_response: serde_json::Value,
+    },
+    #[serde(rename = "response.web_search_call.searching")]
+    WebSearchCallSearching {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        web_search_call_searching_response: serde_json::Value,
+    },
+    #[serde(rename = "response.web_search_call.completed")]
+    WebSearchCallCompleted {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        web_search_call_completed_response: serde_json::Value,
+    },
+
+    #[serde(rename = "response.mcp_call_arguments.delta")]
+    McpCallArgumentsDelta {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        mcp_call_arguments_delta_response: serde_json::Value,
+    },
+    #[serde(rename = "response.mcp_call_arguments.done")]
+    McpCallArgumentsDone {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        mcp_call_arguments_done_response: serde_json::Value,
+    },
+    #[serde(rename = "response.mcp_call.completed")]
+    McpCallCompleted {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        mcp_call_completed_response: serde_json::Value,
+    },
+    #[serde(rename = "response.mcp_call.failed")]
+    McpCallFailed {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        mcp_call_failed_response: serde_json::Value,
+    },
+    #[serde(rename = "response.mcp_call.in_progress")]
+    McpCallInProgress {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        mcp_call_in_progress_response: serde_json::Value,
+    },
+    #[serde(rename = "response.mcp_list_tools.completed")]
+    McpListToolsCompleted {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        mcp_list_tools_completed_response: serde_json::Value,
+    },
+    #[serde(rename = "response.mcp_list_tools.failed")]
+    McpListToolsFailed {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        mcp_list_tools_failed_response: serde_json::Value,
+    },
+    #[serde(rename = "response.mcp_list_tools.in_progress")]
+    McpListToolsInProgress {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        mcp_list_tools_in_progress_response: serde_json::Value,
+    },
+    #[serde(rename = "response.function_call_arguments.delta")]
+    FunctionCallDelta {
+        #[serde(flatten)]
+        function_call_response: serde_json::Value,
+    },
+    #[serde(rename = "response.function_call_arguments.done")]
+    FunctionCallDone {
+        #[serde(flatten)]
+        function_call_done_response: serde_json::Value,
+    },
+    #[serde(rename = "response.queued")]
+    Queued {
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        queued_response: serde_json::Value,
+    },
+    #[serde(rename = "response.completed")]
+    Completed {
+        #[serde(default)]
+        response: ResponsesCompleted,
+    },
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "type")]
+pub enum ResponsesOutputItem {
+    #[serde(rename = "function_call")]
+    Function {
+        id: String,
+        arguments: String,
+        call_id: String,
+        name: String,
+    },
+    #[serde(rename = "message")]
+    Message {
+        id: String,
+        role: llm::Role,
+        content: serde_json::Value,
+    },
+    #[serde(rename = "web_search_call")]
+    WebSearch {
+        id: String,
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        web_search_response: serde_json::Value,
+    },
+    #[serde(rename = "mcp_call")]
+    McpCall {
+        id: String,
+        name: String,
+        arguments: String,
+        approval_request_id: String,
+        status: String,
+        #[serde(default)]
+        output: String,
+        #[serde(default)]
+        error: String,
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        mcp_call_response: serde_json::Value,
+    },
+    #[serde(rename = "mcp_list_tools")]
+    McpListTools {
+        id: String,
+        #[serde(default)]
+        error: String,
+        #[serde(default)]
+        tools: Vec<serde_json::Value>,
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        mcp_list_tools_response: serde_json::Value,
+    },
+    #[serde(rename = "mcp_approval_request")]
+    McpCallApprovalRequest {
+        id: String,
+        name: String,
+        arguments: String,
+        #[cfg(debug_assertions)]
+        #[serde(flatten)]
+        mcp_approval_request_response: serde_json::Value,
+    },
+
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct ResponsesCompleted {
+    pub id: String,
+    #[cfg(debug_assertions)]
+    #[serde(flatten)]
+    pub completed_response: serde_json::Value,
+}
+
+impl ResponsesSession {
+    pub fn new(
+        url: String,
+        api_key: String,
+        model: String,
+        instructions: String,
+        extra: Option<serde_json::Value>,
+        tools: ToolSet<McpToolAdapter>,
+    ) -> Self {
+        let model = if model.is_empty() {
+            "gpt-4.1".to_string()
+        } else {
+            model
+        };
+
+        Self {
+            api_key,
+            model,
+            url,
+            previous_response_id: String::new(),
+            instructions,
+            extra,
+            tools,
+        }
+    }
+
+    pub async fn submit_text(&mut self, input: &str) -> anyhow::Result<ResponsesLLmResponse> {
+        use crate::ai::openai::tool::Tool;
+
+        let tools = self
+            .tools
+            .tools()
+            .iter()
+            .map(|tool| {
+                llm::Function {
+                    name: tool.name().to_string(),
+                    description: tool.description().to_string(),
+                    parameters: tool.parameters().clone(),
+                }
+                .into()
+            })
+            .collect::<Vec<llm::Tool>>();
+
+        let mut extra = self.extra.clone().unwrap_or(serde_json::json!({}));
+        merge_tool_into_extra(&mut extra, &tools);
+
+        let req = ResponsesChatRequest {
+            model: &self.model,
+            instructions: &self.instructions,
+            previous_response_id: &self.previous_response_id,
+            input,
+            extra,
+            stream: true,
+        };
+
+        log::debug!(
+            "#### send to responses llm:\n{}\n#####",
+            serde_json::to_string_pretty(&req)?
+        );
+
+        let mut response_builder = reqwest::Client::new().post(&self.url);
+        if !self.api_key.is_empty() {
+            response_builder = response_builder.bearer_auth(&self.api_key);
+        }
+        let response = response_builder
+            .header(reqwest::header::USER_AGENT, "curl/7.81.0")
+            .json(&req)
+            .send()
+            .await?;
+
+        Ok(ResponsesLLmResponse {
+            stopped: false,
+            response,
+            string_buffer: String::new(),
+            previous_response_id: String::new(),
+        })
+    }
+
+    pub async fn submit_function_output(
+        &mut self,
+        function_outputs: &[serde_json::Value],
+    ) -> anyhow::Result<ResponsesLLmResponse> {
+        use crate::ai::openai::tool::Tool;
+
+        let tools = self
+            .tools
+            .tools()
+            .iter()
+            .map(|tool| {
+                llm::Function {
+                    name: tool.name().to_string(),
+                    description: tool.description().to_string(),
+                    parameters: tool.parameters().clone(),
+                }
+                .into()
+            })
+            .collect::<Vec<llm::Tool>>();
+
+        let mut extra = self.extra.clone().unwrap_or(serde_json::json!({}));
+        merge_tool_into_extra(&mut extra, &tools);
+
+        let req = ResponsesChatRequest {
+            model: &self.model,
+            instructions: &self.instructions,
+            previous_response_id: &self.previous_response_id,
+            input: "",
+            extra,
+            stream: true,
+        };
+
+        let mut req = serde_json::to_value(req)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize request: {}", e))?;
+
+        let obj = req.as_object_mut().unwrap();
+        obj.insert("input".to_string(), serde_json::json!(function_outputs));
+
+        // obj.insert(
+        //     "input".to_string(),
+        //     serde_json::json!([{
+        //         "type": "function_call_output",
+        //         "call_id": call_id,
+        //         "output": output,
+        //     }]),
+        // );
+
+        log::debug!(
+            "#### send to responses llm:\n{}\n#####",
+            serde_json::to_string_pretty(&req)?
+        );
+
+        let mut response_builder = reqwest::Client::new().post(&self.url);
+        if !self.api_key.is_empty() {
+            response_builder = response_builder.bearer_auth(&self.api_key);
+        }
+        let response = response_builder
+            .header(reqwest::header::USER_AGENT, "curl/7.81.0")
+            .json(&req)
+            .send()
+            .await?;
+
+        Ok(ResponsesLLmResponse {
+            stopped: false,
+            response,
+            string_buffer: String::new(),
+            previous_response_id: String::new(),
+        })
+    }
+
+    pub fn get_tool_call_message(&self, tool_call: &llm::ToolCall) -> Option<String> {
+        let tool = self.tools.get_tool(tool_call.function.name.as_str())?;
+        Some(tool.call_mcp_message().to_string())
+    }
+
+    pub async fn execute_tool(&mut self, tool_call: &llm::ToolCall) -> serde_json::Value {
+        use crate::ai::openai::tool::Tool;
+
+        let tool = self.tools.get_tool(tool_call.function.name.as_str());
+
+        if let Some(tool) = tool {
+            let args: serde_json::Value =
+                serde_json::from_str(&tool_call.function.arguments).unwrap_or_default();
+            let result = tool.call(args).await;
+            if let Err(e) = &result {
+                log::error!(
+                    "Tool call {} failed with error: {:?}",
+                    tool_call.function.name,
+                    e
+                );
+                return serde_json::json!({
+                    "type": "function_call_output",
+                    "call_id": &tool_call.id,
+                    "output": format!("Error: Tool call {} failed with error: {:?}", tool_call.function.name, e)
+                });
+            }
+            let result = result.unwrap();
+            log::debug!("Tool call {} result: {:?}", tool_call.function.name, result);
+            if result.is_error.is_some_and(|b| b) {
+                log::error!("Tool call {} failed", tool_call.function.name,);
+                serde_json::json!({
+                    "type": "function_call_output",
+                    "call_id": &tool_call.id,
+                    "output": format!("Error: Tool call {} failed", tool_call.function.name)
+                })
+            } else {
+                log::debug!("Tool call {} succeeded", tool_call.function.name);
+                let content = result
+                    .content
+                    .iter()
+                    .map(|content| {
+                        if let Some(content_text) = content.as_text() {
+                            content_text.text.clone()
+                        } else {
+                            "".to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                serde_json::json!({
+                    "type": "function_call_output",
+                    "call_id": &tool_call.id,
+                    "output": content
+                })
+            }
+        } else {
+            log::error!(
+                "Tool call {} failed, tool not found",
+                tool_call.function.name
+            );
+            serde_json::json!({
+                "type": "function_call_output",
+                "call_id": &tool_call.id,
+                "output": format!("Error: Tool call {} failed, tool not found", tool_call.function.name)
+            })
+        }
+    }
+}
+
+pub enum LLMResponsesChunk {
+    Functions(Vec<llm::ToolCall>),
+    Text(String),
+
+    Stop(String),
+}
+
+pub struct ResponsesLLmResponse {
+    previous_response_id: String,
+    stopped: bool,
+    response: reqwest::Response,
+    string_buffer: String,
+}
+
+impl ResponsesLLmResponse {
+    const CHUNK_SIZE: usize = 50;
+
+    fn return_string_buffer(&mut self) -> anyhow::Result<LLMResponsesChunk> {
+        self.stopped = true;
+        if !self.string_buffer.is_empty() {
+            let mut new_str = String::new();
+            std::mem::swap(&mut new_str, &mut self.string_buffer);
+            return Ok(LLMResponsesChunk::Text(new_str));
+        } else {
+            return Ok(LLMResponsesChunk::Stop(self.previous_response_id.clone()));
+        }
+    }
+
+    fn push_str(string_buffer: &mut String, s: &str) -> Option<String> {
+        let mut ret = s;
+
+        loop {
+            if let Some(i) = ret.find(&['.', '!', '?', ';', '。', '！', '？', '；', '\n']) {
+                let ((chunk, ret_), char_len) = if ret.is_char_boundary(i + 1) {
+                    (ret.split_at(i + 1), 1)
+                } else {
+                    (ret.split_at(i + 3), 3)
+                };
+
+                string_buffer.push_str(chunk);
+                ret = ret_;
+                if ret.chars().next().is_some_and(|c| c.is_numeric()) {
+                    continue;
+                }
+                if char_len == 1 && ret.len() > 0 && !ret.starts_with(&[' ', '\n']) {
+                    continue;
+                }
+
+                if string_buffer.len() > Self::CHUNK_SIZE || string_buffer.ends_with("\n") {
+                    let mut new_str = ret.to_string();
+                    std::mem::swap(&mut new_str, string_buffer);
+                    return Some(new_str);
+                }
+            } else {
+                string_buffer.push_str(ret);
+                return None;
+            }
+        }
+    }
+
+    pub async fn next_chunk(&mut self) -> anyhow::Result<LLMResponsesChunk> {
+        let mut chunk_ret = String::new();
+        loop {
+            if self.stopped {
+                return Ok(LLMResponsesChunk::Stop(self.previous_response_id.clone()));
+            }
+
+            let body = self.response.chunk().await?;
+            if body.is_none() {
+                return self.return_string_buffer();
+            }
+            let body = body.unwrap();
+            let body = if chunk_ret.is_empty() {
+                String::from_utf8_lossy(&body).to_string()
+            } else {
+                chunk_ret.push_str(&String::from_utf8_lossy(&body));
+                let new_body = chunk_ret;
+                chunk_ret = String::new();
+                new_body
+            };
+            log::trace!("llm response chunk body: {body}");
+
+            let mut chunks = String::new();
+            let mut tools = Vec::new();
+            body.split("event: ").for_each(|s| {
+                if s.is_empty() || s.starts_with("[DONE]") {
+                    return;
+                }
+
+                let s_ = s.split_once("data: ");
+                let s_ = if let Some((_, data)) = s_ {
+                    data
+                } else {
+                    chunk_ret.push_str("event: ");
+                    chunk_ret.push_str(s);
+                    return;
+                };
+                log::trace!("llm response body.split: {s_}");
+
+                if let Ok(chunk) = serde_json::from_str::<ResponsesChunk>(s_.trim()) {
+                    // log::debug!("llm response chunk: {:#?}", chunk);
+                    match chunk {
+                        ResponsesChunk::Completed { response } => {
+                            log::debug!("llm response completed: {}", serde_json::to_string_pretty(&response).unwrap());
+                            self.previous_response_id = response.id;
+                            // self.stopped = true;
+                            return;
+                        }
+                        ResponsesChunk::OutputTextDelta { delta, .. } => {
+                            log::trace!("llm response delta: {}", delta);
+                            chunks.push_str(&delta);
+                        }
+                        ResponsesChunk::OutputTextDone { text, .. } => {
+                            log::trace!("llm response text done: {}", text);
+                        }
+
+                        ResponsesChunk::OutputItemDone {
+                            item,
+                            #[cfg(debug_assertions)]
+                            item_done_response,
+                        } => {
+                            #[cfg(debug_assertions)]
+                            log::debug!("llm response output item done: {:#?}", item_done_response);
+                            match item {
+                                ResponsesOutputItem::Function {
+                                    id,
+                                    name,
+                                    arguments,
+                                    call_id,
+                                } => {
+                                    log::info!(
+                                        "llm response function call: id={}, call_id={}, name={}, arguments={}",
+                                        id,
+                                        call_id,
+                                        name,
+                                        arguments
+                                    );
+                                    tools.push(llm::ToolCall {
+                                        id: call_id,
+                                        type_: "function".to_string(),
+                                        function: llm::ToolFunction { name, arguments },
+                                    });
+                                }
+                                ResponsesOutputItem::Message { id, role, content } => {
+                                    log::info!(
+                                        "llm response message: id={}, role={}, content={}",
+                                        id,
+                                        role,
+                                        serde_json::to_string_pretty(&content).unwrap(),
+                                    );
+                                }
+                                ResponsesOutputItem::Other => {
+                                    log::warn!("llm response output item other: {:#?}", s_);
+                                }
+                                other => {
+                                    log::trace!("llm response output item not handled: {}", serde_json::to_string_pretty(&other).unwrap());
+                                }
+                            }
+                        }
+                        ResponsesChunk::Unknown => {
+                            log::error!("llm response unknown chunk: {:#?}", s_);
+                        }
+                        other => {
+                            log::trace!("llm response output item not handled: {}", serde_json::to_string_pretty(&other).unwrap());
+                            return;
+                        }
+                    };
+                } else {
+                    chunk_ret.push_str("event: ");
+                    chunk_ret.push_str(s);
+                }
+            });
+
+            log::trace!("llm response chunks: {chunks}");
+            log::trace!("llm response tools: {:#?}", tools);
+
+            if tools.is_empty() {
+                if let Some(new_str) = Self::push_str(&mut self.string_buffer, &chunks) {
+                    log::trace!("llm response text: {new_str}");
+                    return Ok(LLMResponsesChunk::Text(new_str));
+                }
+            } else {
+                log::trace!("llm response tools: {:#?}", tools);
+                return Ok(LLMResponsesChunk::Functions(tools));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_responses_llm_previous_response_id() {
+        env_logger::init();
+        let token = std::env::var("OPENAI_API_KEY").unwrap();
+
+        log::info!("token: {:#?}", token);
+
+        let mut responses_session = ResponsesSession::new(
+            "https://api.openai.com/v1/responses".to_string(),
+            token,
+            "gpt-4.1".to_string(),
+            "You are a helpful assistant. Your name is Echokit.".to_string(),
+            None,
+            ToolSet::default(),
+        );
+
+        let mut tools = vec![];
+
+        for q in &["Hello, who are you?", "What is last thing I asked you?"] {
+            let mut resp = responses_session.submit_text(q).await.unwrap();
+
+            let mut chunk_i = 0;
+
+            loop {
+                match resp.next_chunk().await {
+                    Ok(LLMResponsesChunk::Text(chunk)) => {
+                        println!("{chunk_i}:{}", chunk);
+                        chunk_i += 1;
+                    }
+                    Ok(LLMResponsesChunk::Functions(functions)) => {
+                        for function in functions {
+                            println!("Tool call: {:#?}", function);
+                            tools.push(function);
+                        }
+                    }
+                    Ok(LLMResponsesChunk::Stop(previous_response_id)) => {
+                        responses_session.previous_response_id = previous_response_id;
+                        break;
+                    }
+                    Err(e) => {
+                        println!("error: {:#?}", e);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_responses_llm_function_call() {
+        env_logger::init();
+        let token = std::env::var("OPENAI_API_KEY").unwrap();
+
+        let mut responses_session = ResponsesSession::new(
+            "https://api.openai.com/v1/responses".to_string(),
+            token,
+            "gpt-4.1".to_string(),
+            "You are a helpful assistant. Your name is Echokit.".to_string(),
+            Some(serde_json::json!({
+                    "tools": [
+              {
+                "type": "function",
+                "name": "get_current_weather",
+                "description": "Get the current weather in a given location",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "location": {
+                      "type": "string",
+                      "description": "The city and state, e.g. San Francisco, CA"
+                    },
+                    "unit": {
+                      "type": "string",
+                      "enum": ["celsius", "fahrenheit"]
+                    }
+                  },
+                  "required": ["location", "unit"]
+                }
+              }
+            ],
+                })),
+            ToolSet::default(),
+        );
+
+        let mut tools = vec![];
+
+        let mut resp = responses_session
+            .submit_text("What is the weather like in Boston today?")
+            .await
+            .unwrap();
+
+        let mut chunk_i = 0;
+
+        loop {
+            match resp.next_chunk().await {
+                Ok(LLMResponsesChunk::Text(chunk)) => {
+                    println!("{chunk_i}:{}", chunk);
+                    chunk_i += 1;
+                }
+                Ok(LLMResponsesChunk::Functions(functions)) => {
+                    for function in functions {
+                        println!("Tool call: {:#?}", function);
+                        tools.push(function);
+                    }
+                }
+                Ok(LLMResponsesChunk::Stop(previous_response_id)) => {
+                    responses_session.previous_response_id = previous_response_id;
+                    break;
+                }
+                Err(e) => {
+                    println!("error: {:#?}", e);
+                    break;
+                }
+            }
+        }
+
+        let mut resp = responses_session
+            .submit_function_output(&[serde_json::json!({
+                "type": "function_call_output",
+                "call_id": &tools[0].id,
+                "output": serde_json::to_string_pretty(&serde_json::json!({
+                    "temperature": "22",
+                    "unit": "celsius",
+                    "condition": "sunny"
+                }))
+                .unwrap(),
+            })])
+            .await
+            .unwrap();
+
+        let mut chunk_i = 0;
+
+        loop {
+            match resp.next_chunk().await {
+                Ok(LLMResponsesChunk::Text(chunk)) => {
+                    println!("{chunk_i}:{}", chunk);
+                    chunk_i += 1;
+                }
+                Ok(LLMResponsesChunk::Functions(functions)) => {
+                    for function in functions {
+                        println!("Tool call: {:#?}", function);
+                    }
+                }
+                Ok(LLMResponsesChunk::Stop(previous_response_id)) => {
+                    responses_session.previous_response_id = previous_response_id;
+                    break;
+                }
+                Err(e) => {
+                    println!("error: {:#?}", e);
+                    break;
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_responses_llm_web_search() {
+        env_logger::init();
+        let token = std::env::var("OPENAI_API_KEY").unwrap();
+        let mut responses_session = ResponsesSession::new(
+            "https://api.openai.com/v1/responses".to_string(),
+            token,
+            "gpt-4.1".to_string(),
+            "You are a helpful assistant. Your name is Echokit.".to_string(),
+            Some(serde_json::json!({
+                "tools": [{"type": "web_search"}],
+            })),
+            ToolSet::default(),
+        );
+
+        let mut resp = responses_session
+            .submit_text("What is Echokit")
+            .await
+            .unwrap();
+
+        let mut chunk_i = 0;
+        loop {
+            match resp.next_chunk().await {
+                Ok(LLMResponsesChunk::Text(chunk)) => {
+                    println!("{chunk_i}:{}", chunk);
+                    chunk_i += 1;
+                }
+                Ok(LLMResponsesChunk::Functions(functions)) => {
+                    for function in functions {
+                        println!("Tool call: {:#?}", function);
+                    }
+                }
+                Ok(LLMResponsesChunk::Stop(previous_response_id)) => {
+                    responses_session.previous_response_id = previous_response_id;
+                    break;
+                }
+                Err(e) => {
+                    println!("error: {:#?}", e);
+                    break;
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_responses_llm_mcp_call() {
+        env_logger::init();
+        let token = std::env::var("OPENAI_API_KEY").unwrap();
+        let mut responses_session = ResponsesSession::new(
+            "https://api.openai.com/v1/responses".to_string(),
+            token,
+            "gpt-4.1".to_string(),
+            "You are a helpful assistant. Your name is Echokit.".to_string(),
+            Some(serde_json::json!({
+                "tools": [{
+                    "type": "mcp",
+                    "server_label": "tavily",
+                    "server_url": "https://mcp.tavily.com/mcp/?tavilyApiKey=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",
+                    "require_approval": "never"
+                }],
+            })),
+            ToolSet::default(),
+        );
+
+        let mut resp = responses_session
+            .submit_text("What is Echokit")
+            .await
+            .unwrap();
+
+        let mut chunk_i = 0;
+        loop {
+            match resp.next_chunk().await {
+                Ok(LLMResponsesChunk::Text(chunk)) => {
+                    println!("{chunk_i}:{}", chunk);
+                    chunk_i += 1;
+                }
+                Ok(LLMResponsesChunk::Functions(functions)) => {
+                    for function in functions {
+                        println!("Tool call: {:#?}", function);
+                    }
+                }
+                Ok(LLMResponsesChunk::Stop(previous_response_id)) => {
+                    responses_session.previous_response_id = previous_response_id;
+                    break;
+                }
+                Err(e) => {
+                    println!("error: {:#?}", e);
+                    break;
+                }
             }
         }
     }

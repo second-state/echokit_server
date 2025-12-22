@@ -2,12 +2,7 @@ use std::{collections::HashMap, sync::Arc, vec};
 
 use axum::{
     body::Bytes,
-    extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
-        Path, Query,
-    },
-    response::IntoResponse,
-    Extension,
+    extract::ws::{Message, WebSocket},
 };
 
 use bytes::BufMut;
@@ -82,25 +77,6 @@ pub struct ConnectQueryParams {
     pub reconnect: bool,
     #[serde(default)]
     pub opus: bool,
-}
-
-pub async fn ws_handler(
-    Extension(pool): Extension<Arc<WsSetting>>,
-    ws: WebSocketUpgrade,
-    Path(id): Path<String>,
-    Query(params): Query<ConnectQueryParams>,
-) -> impl IntoResponse {
-    let request_id = uuid::Uuid::new_v4().as_u128();
-    log::info!("[Chat] {id}:{request_id:x} connected. {:?}", params);
-
-    ws.on_upgrade(move |socket| async move {
-        let id = id.clone();
-        let pool = pool.clone();
-        if let Err(e) = handle_socket(socket, &id, pool.clone(), params).await {
-            log::warn!("{id}:{request_id:x} handle_socket error: {e}");
-        };
-        log::info!("{id}:{request_id:x} disconnected.");
-    })
 }
 
 enum WsEvent {
@@ -780,6 +756,9 @@ async fn submit_to_gemini_and_tts(
                     tx.send(WsCommand::AsrResult(vec![asr_text.clone()]))?;
                     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                 }
+                gemini::types::ServerContent::OutputTranscription { text } => {
+                    todo!("Handle output transcription: {text}");
+                }
                 gemini::types::ServerContent::Timeout => {}
                 gemini::types::ServerContent::GoAway {} => {
                     log::warn!("gemini GoAway");
@@ -910,6 +889,9 @@ async fn submit_to_gemini(
                 // If the input transcription is not empty, we can use it as the ASR result
                 tx.send(WsCommand::AsrResult(vec![message]))?;
             }
+            gemini::types::ServerContent::OutputTranscription { text } => {
+                todo!()
+            }
             gemini::types::ServerContent::Timeout => {
                 log::warn!("gemini timeout");
                 tx.send(WsCommand::AsrResult(vec![]))?;
@@ -947,7 +929,7 @@ async fn process_socket_io(
     let mut opus_encoder =
         opus::Encoder::new(SAMPLE_RATE, opus::Channels::Mono, opus::Application::Voip)
             .map_err(|e| anyhow::anyhow!("opus encoder error: {e}"))?;
-    let mut ret_audio = Vec::new();
+    let mut ret_audio = Vec::with_capacity(sample_120ms(SAMPLE_RATE));
 
     loop {
         let r = tokio::select! {
@@ -1051,6 +1033,8 @@ async fn handle_audio(
                 generation_config: Some(generation_config),
                 system_instruction,
                 input_audio_transcription: Some(gemini::types::AudioTranscriptionConfig {}),
+                output_audio_transcription: None,
+                realtime_input_config: None,
             };
 
             submit_to_gemini_and_tts(&pool, &mut client, &mut ws_tx, setup, rx).await?;
@@ -1079,6 +1063,8 @@ async fn handle_audio(
                 generation_config: Some(generation_config),
                 system_instruction,
                 input_audio_transcription: Some(gemini::types::AudioTranscriptionConfig {}),
+                output_audio_transcription: None,
+                realtime_input_config: None,
             };
 
             client.setup(setup).await?;
@@ -1125,121 +1111,6 @@ async fn send_hello_wav(socket: &mut WebSocket, hello: &[u8]) -> anyhow::Result<
     let hello_end = rmp_serde::to_vec(&crate::protocol::ServerEvent::HelloEnd)
         .expect("Failed to serialize HelloEnd ServerEvent");
     socket.send(Message::binary(hello_end)).await?;
-
-    Ok(())
-}
-
-async fn handle_socket(
-    mut socket: WebSocket,
-    id: &str,
-    pool: Arc<WsSetting>,
-    connect_params: ConnectQueryParams,
-) -> anyhow::Result<()> {
-    if let Some(hello_wav) = &pool.hello_wav {
-        if !hello_wav.is_empty() && !connect_params.reconnect {
-            send_hello_wav(&mut socket, hello_wav).await?;
-        }
-    }
-
-    let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<ClientMsg>(128);
-    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<WsCommand>();
-
-    let ctrl_rx = {
-        let mut session = pool.sessions.lock().await;
-
-        let new_ctrl_channel = if let Some(ctrl_tx_) = session.get(&id.to_string()) {
-            if ctrl_tx_.is_closed() {
-                let (ctrl_tx, ctrl_rx) = tokio::sync::mpsc::channel(1);
-                ctrl_tx.send((cmd_tx, audio_rx)).await.map_err(|_| {
-                    anyhow::anyhow!("`{}` error sending initial cmd_tx to ctrl channel.", id)
-                })?;
-                Err((ctrl_tx, ctrl_rx))
-            } else {
-                if let Err(_) = ctrl_tx_.send((cmd_tx, audio_rx)).await {
-                    log::error!("`{}` error sending reconnect cmd_tx", id);
-                    return Err(anyhow::anyhow!("error sending reconnect cmd_tx"));
-                }
-                Ok(())
-            }
-        } else {
-            let (ctrl_tx, ctrl_rx) = tokio::sync::mpsc::channel(1);
-            ctrl_tx.send((cmd_tx, audio_rx)).await.map_err(|_| {
-                anyhow::anyhow!("`{}` error sending initial cmd_tx to ctrl channel.", id)
-            })?;
-            Err((ctrl_tx, ctrl_rx))
-        };
-
-        if let Err((ctrl_tx, ctrl_rx)) = new_ctrl_channel {
-            session.insert(id.to_string(), ctrl_tx);
-            Some(ctrl_rx)
-        } else {
-            None
-        }
-    };
-
-    if let Some(ctrl_rx) = ctrl_rx {
-        log::info!("`{}` starting audio handler task", id);
-        let id_ = id.to_string();
-        let pool_ = pool.clone();
-        let mut chat_session = ChatSession::create_from_config(&pool.config, pool.tool_set.clone());
-
-        tokio::spawn(async move {
-            let mut ctrl_rx = ctrl_rx;
-            let r = ctrl_rx.recv().await;
-            if r.is_none() {
-                log::error!(
-                    "`{}` ctrl channel closed immediately, exiting audio handler",
-                    id_
-                );
-                return;
-            }
-            let (mut cmd_tx, mut audio_rx) = r.unwrap();
-
-            loop {
-                let f = handle_audio(
-                    id_.clone(),
-                    pool_.clone(),
-                    &mut chat_session,
-                    &mut audio_rx,
-                    cmd_tx,
-                );
-
-                tokio::select! {
-                    r = f =>{
-                        if let Err(e) = r {
-                            log::error!("`{id_}` handle audio error: {e}");
-                        }
-
-                    }
-                    Some((cmd_tx_, audio_rx_)) = ctrl_rx.recv() =>{
-                        log::info!("`{id_}` received new ctrl channel, switching audio handler");
-                        cmd_tx = cmd_tx_;
-                        audio_rx = audio_rx_;
-                        continue;
-                    }
-                    else =>{
-                        log::error!("`{}` ctrl channel closed, exiting audio handler", id_);
-                        break;
-                    }
-                }
-
-                match ctrl_rx.recv().await {
-                    Some((cmd_tx_, audio_rx_)) => {
-                        log::info!("`{id_}` received new ctrl channel, switching audio handler");
-                        cmd_tx = cmd_tx_;
-                        audio_rx = audio_rx_;
-                    }
-                    None => {
-                        log::error!("`{}` ctrl channel closed, exiting audio handler", id_);
-                        break;
-                    }
-                }
-            }
-        });
-    }
-
-    log::info!("`{}` starting socket io processing", id);
-    process_socket_io(&mut cmd_rx, audio_tx, &mut socket, connect_params.opus).await?;
 
     Ok(())
 }
@@ -1334,7 +1205,11 @@ async fn process_command_with_opus(
             ws.send(Message::binary(start_audio)).await?;
         }
         WsCommand::Audio(data) => {
-            log::trace!("Audio chunk size: {}", data.len());
+            log::trace!(
+                "Audio chunk size: {}, ret_audio size: {}",
+                data.len(),
+                ret_audio.len()
+            );
             for chunk in data.chunks_exact(2) {
                 let sample = i16::from_le_bytes([chunk[0], chunk[1]]);
                 ret_audio.push(sample);
@@ -1353,12 +1228,14 @@ async fn process_command_with_opus(
                         .expect("Failed to serialize AudioChunk ServerEvent");
                 ws.send(Message::binary(audio_chunk)).await?;
             }
+
+            ret_audio.clear();
         }
         WsCommand::EndAudio => {
             log::trace!("EndAudio");
             if !ret_audio.is_empty() {
                 let padded_audio_len = sample_120ms(SAMPLE_RATE) - ret_audio.len();
-                ret_audio.extend(vec![0i16; padded_audio_len]);
+                ret_audio.extend(std::iter::repeat(0i16).take(padded_audio_len));
                 let data = opus_encode.encode_vec(&ret_audio, 2 * sample_120ms(SAMPLE_RATE) / 3)?;
                 let audio_chunk =
                     rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunk { data })

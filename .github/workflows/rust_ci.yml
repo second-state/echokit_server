@@ -1,0 +1,43 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/README.md"
+      - ".github/workflows/**"
+      - "setup/**"
+      - "workshops/**"
+      - "*.sh"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-x86_64:
+    name: Build (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install base dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates \
+            pkg-config \
+            libssl-dev \
+            build-essential \
+            git \
+            curl \
+            unzip
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binary
+        run: cargo build --release

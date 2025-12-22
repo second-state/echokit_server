@@ -100,7 +100,7 @@ mod test {
     use super::types;
     use super::*;
 
-    // cargo test --package esp_assistant --bin esp_assistant -- ai::gemini::test::test_live_client --exact --show-output
+    // cargo test --package echokit_server --bin echokit_server -- ai::gemini::test::test_live_client --exact --show-output
     #[tokio::test]
     async fn test_live_client() -> anyhow::Result<()> {
         env_logger::init();
@@ -121,23 +121,95 @@ mod test {
                 )],
             }),
             input_audio_transcription: Some(types::AudioTranscriptionConfig {}),
+            output_audio_transcription: None,
+            realtime_input_config: Some(types::RealtimeInputConfig {
+                automatic_activity_detection: Some(types::AutomaticActivityDetectionConfig {
+                    disabled: true,
+                }),
+            }),
         };
         client.setup(setup).await?;
         log::info!("Setup completed");
 
         // let submit_data = std::fs::read("sample.pcm").unwrap();
-        let data = std::fs::read("asr.fc012ccfcd71.wav").unwrap();
+        let data = std::fs::read("tmp.wav").unwrap();
         let mut reader = wav_io::reader::Reader::from_vec(data).unwrap();
         let header = reader.read_header().unwrap();
         log::info!("WAV Header: {:?}", header);
-        let x = reader.get_samples_f32().unwrap();
+        let x = crate::util::get_samples_f32(&mut reader).unwrap();
         let x = wav_io::resample::linear(x, 1, header.sample_rate, 16000);
-        let data = wav_io::convert_samples_f32_to_i16(&x);
+        let submit_data = crate::util::convert_samples_f32_to_i16_bytes(&x);
 
-        let mut submit_data = Vec::with_capacity(data.len() * 2);
-        for sample in data {
-            submit_data.extend_from_slice(&sample.to_le_bytes());
+        // let input = types::RealtimeInput {
+        //     audio: None,
+        //     text: Some("你是谁".to_string()),
+        // };
+        client
+            .send_realtime_input(types::RealtimeInput::ActivityStart {})
+            .await?;
+
+        let input = types::RealtimeInput::Audio(types::RealtimeAudio {
+            data: types::Blob::new(submit_data),
+            mime_type: "audio/pcm;rate=16000".to_string(),
+        });
+        log::info!("Sending realtime input");
+        client.send_realtime_input(input).await?;
+        log::info!("Sent realtime input");
+        // client
+        //     .send_realtime_input(types::RealtimeInput::AudioStreamEnd(true))
+        //     .await?;
+        client
+            .send_realtime_input(types::RealtimeInput::ActivityEnd {})
+            .await?;
+
+        log::info!("Sent realtime input");
+        loop {
+            let content = client.receive().await?;
+            log::info!("Received content: {:?}", content);
+            if let types::ServerContent::TurnComplete(true) = content {
+                log::info!("Generation complete");
+                break;
+            }
         }
+
+        Ok(())
+    }
+
+    // cargo test --package echokit_server --bin echokit_server -- ai::gemini::test::test_live_client_audio --exact --show-output
+    #[tokio::test]
+    async fn test_live_client_audio() -> anyhow::Result<()> {
+        env_logger::init();
+        let api_key = std::env::var("GEMINI_API_KEY").unwrap();
+        log::info!("api_key={api_key}");
+        let mut client = LiveClient::connect(&api_key).await?;
+        log::info!("Connected to Gemini Live Client");
+
+        let mut cfg = types::GenerationConfig::default();
+        cfg.response_modalities = Some(vec![types::Modality::AUDIO]);
+
+        let setup = types::Setup {
+            model: "models/gemini-2.0-flash-exp".to_string(),
+            generation_config: Some(cfg),
+            system_instruction: Some(types::Content {
+                parts: vec![types::Parts::Text(
+                    "You are a helpful assistant and answer in a friendly tone.".to_string(),
+                )],
+            }),
+            input_audio_transcription: Some(types::AudioTranscriptionConfig {}),
+            output_audio_transcription: Some(types::AudioTranscriptionConfig {}),
+            realtime_input_config: None,
+        };
+        client.setup(setup).await?;
+        log::info!("Setup completed");
+
+        // let submit_data = std::fs::read("sample.pcm").unwrap();
+        let data = std::fs::read("tmp.wav").unwrap();
+        let mut reader = wav_io::reader::Reader::from_vec(data).unwrap();
+        let header = reader.read_header().unwrap();
+        log::info!("WAV Header: {:?}", header);
+        let x = crate::util::get_samples_f32(&mut reader).unwrap();
+        let x = wav_io::resample::linear(x, 1, header.sample_rate, 16000);
+        let submit_data = crate::util::convert_samples_f32_to_i16_bytes(&x);
 
         // let input = types::RealtimeInput {
         //     audio: None,
@@ -147,12 +219,14 @@ mod test {
             data: types::Blob::new(submit_data),
             mime_type: "audio/pcm;rate=16000".to_string(),
         });
+        log::info!("Sending realtime input");
         client.send_realtime_input(input).await?;
+        log::info!("Sent realtime input");
         client
             .send_realtime_input(types::RealtimeInput::AudioStreamEnd(true))
             .await?;
 
-        log::info!("Sent realtime input");
+        log::info!("Sent realtime AudioStreamEnd");
         loop {
             let content = client.receive().await?;
             log::info!("Received content: {:?}", content);
