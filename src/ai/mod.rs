@@ -931,6 +931,8 @@ pub struct ResponsesChatRequest<'a> {
     pub model: &'a str,
     #[serde(skip_serializing_if = "str::is_empty")]
     pub previous_response_id: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    pub instructions: &'a str,
     pub input: &'a str,
     #[serde(flatten)]
     pub extra: serde_json::Value,
@@ -1220,11 +1222,17 @@ impl ResponsesSession {
 
         let req = ResponsesChatRequest {
             model: &self.model,
+            instructions: &self.instructions,
             previous_response_id: &self.previous_response_id,
             input,
             extra,
             stream: true,
         };
+
+        log::debug!(
+            "#### send to responses llm:\n{}\n#####",
+            serde_json::to_string_pretty(&req)?
+        );
 
         let mut response_builder = reqwest::Client::new().post(&self.url);
         if !self.api_key.is_empty() {
@@ -1269,6 +1277,7 @@ impl ResponsesSession {
 
         let req = ResponsesChatRequest {
             model: &self.model,
+            instructions: &self.instructions,
             previous_response_id: &self.previous_response_id,
             input: "",
             extra,

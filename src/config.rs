@@ -72,6 +72,9 @@ pub struct ResponsesConfig {
     pub mcp_server: Vec<MCPServerConfig>,
     #[serde(default)]
     pub extra: Option<serde_json::Value>,
+
+    #[serde(default)]
+    pub sys_prompts: Vec<Content>,
 }
 
 impl ResponsesConfig {

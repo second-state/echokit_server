@@ -318,9 +318,21 @@ impl crate::config::ResponsesConfig {
     pub async fn instructions(&self) -> String {
         let r = regex!(r"\{\{(?P<url>\s*https?://\S+?\s*)\}\}");
 
+        let instructions;
+
+        if let Some(system) = self.sys_prompts.first() {
+            if system.role == crate::ai::llm::Role::System {
+                instructions = &system.message;
+            } else {
+                instructions = &self.instructions;
+            }
+        } else {
+            instructions = &self.instructions;
+        }
+
         let mut urls = vec![];
         let mut contents = HashMap::new();
-        for cap in r.captures_iter(&self.instructions) {
+        for cap in r.captures_iter(&instructions) {
             if let Some(url) = cap.name("url") {
                 let url = url.as_str().trim();
                 urls.push(url.to_string());
@@ -338,7 +350,7 @@ impl crate::config::ResponsesConfig {
             }
         }
 
-        let new_instructions = r.replace_all(&self.instructions, |caps: &lazy_regex::Captures| {
+        let new_instructions = r.replace_all(&instructions, |caps: &lazy_regex::Captures| {
             let url = caps.name("url").unwrap().as_str().trim();
             contents.get(url).cloned().unwrap_or(url.to_string())
         });
