@@ -1,0 +1,1800 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="silk">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Configuration Editor</title>
+
+  <!-- <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script> -->
+
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+
+  <script type="module">
+    import smolToml from 'https://cdn.jsdelivr.net/npm/smol-toml@1.6.0/+esm'
+    window.toml = smolToml;
+  </script>
+</head>
+
+<body>
+  <div class="container mx-auto p-6 max-w-4xl">
+
+    <form id="configForm" class="space-y-6">
+      <!-- Basic Configuration -->
+      <div class="card bg-base-200">
+        <div class="card-body">
+          <h2 class="card-title mb-4">Basic Configuration</h2>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">Server Address *</legend>
+            <input type="text" name="addr" data-required="true" placeholder="0.0.0.0:8080"
+              class="input input-bordered w-full" />
+          </fieldset>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">Welcome Audio File (Optional)</legend>
+            <input type="text" name="hello_wav" placeholder="hello.wav" class="input input-bordered w-full" />
+          </fieldset>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">Recording Callback URL (Optional)</legend>
+            <input type="text" name="record.callback_url" placeholder="http://example.com/callback"
+              class="input input-bordered w-full" />
+          </fieldset>
+        </div>
+      </div>
+
+      <!-- AI Configuration Type Selection -->
+      <div class="tabs tabs-box">
+        <input type="radio" name="ai_config_type" value="stable" class="tab" aria-label="Standard (LLM + TTS + ASR)"
+          checked="checked" />
+        <div class="tab-content bg-base-100 border-base-300 p-6">
+          <!-- LLM Configuration -->
+          <div class="collapse collapse-arrow bg-base-100 border border-base-300 mb-2">
+            <input type="checkbox" name="llm_collapse" checked="checked" />
+            <div class="collapse-title font-semibold text-lg">LLM Configuration</div>
+            <div class="collapse-content">
+              <div id="llm_config">
+                <fieldset class="fieldset mb-4">
+                  <legend class="fieldset-legend">Platform Type *</legend>
+                  <select name="llm.platform" data-required="llm" class="select select-bordered w-full">
+                    <option value="openai_chat">OpenAI Chat</option>
+                    <option value="openai_responses">OpenAI Responses</option>
+                  </select>
+                </fieldset>
+
+                <fieldset class="fieldset mb-4">
+                  <legend class="fieldset-legend">API URL *</legend>
+                  <input type="text" name="llm.url" data-required="llm"
+                    placeholder="https://api.openai.com/v1/chat/completions" class="input input-bordered w-full" />
+                </fieldset>
+
+                <fieldset class="fieldset mb-4">
+                  <legend class="fieldset-legend">API Key *</legend>
+                  <input type="password" name="llm.api_key" data-required="llm" placeholder="sk-..."
+                    class="input input-bordered w-full" />
+                </fieldset>
+
+                <fieldset class="fieldset mb-4">
+                  <legend class="fieldset-legend">Model *</legend>
+                  <input type="text" name="llm.model" data-required="llm" placeholder="gpt-4o-mini"
+                    class="input input-bordered w-full" />
+                </fieldset>
+
+                <div id="llm_chat_fields">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">History Count</legend>
+                    <input type="number" name="llm.history" value="5" class="input input-bordered w-full" min="0" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">额外参数 Extra (可选，JSON 格式)</legend>
+                    <textarea name="llm.extra" class="textarea textarea-bordered w-full font-mono" rows="3"
+                      placeholder='{"enable_search": true}' onblur="formatExtraJSON(this)"></textarea>
+                  </fieldset>
+                </div>
+
+                <div id="llm_responses_fields" class="hidden">
+                  <div class="mb-4">
+                    <label class="label cursor-pointer justify-start gap-4">
+                      <input type="radio" name="llm_prompt_type" value="instructions" class="radio radio-primary"
+                        checked />
+                      <span class="label-text">Use Instructions</span>
+                    </label>
+                    <label class="label cursor-pointer justify-start gap-4">
+                      <input type="radio" name="llm_prompt_type" value="sys_prompts" class="radio radio-primary" />
+                      <span class="label-text">Use Prompts</span>
+                    </label>
+                  </div>
+
+                  <fieldset class="fieldset mb-4" id="instructions_field">
+                    <legend class="fieldset-legend">Instructions</legend>
+                    <textarea name="llm.instructions" class="textarea textarea-bordered w-full" rows="3"
+                      placeholder="You are a helpful assistant."></textarea>
+                  </fieldset>
+
+                  <div id="responses_sys_prompts_field" class="hidden">
+                    <div class="divider">Prompt List</div>
+                    <div class="card bg-base-300 mb-4">
+                      <div class="card-body">
+                        <h3 class="card-title text-sm mb-2">Prompt #1</h3>
+
+                        <fieldset class="fieldset mb-4">
+                          <legend class="fieldset-legend">Role</legend>
+                          <select name="llm.responses.sys_prompt.role" class="select select-bordered select-sm w-full"
+                            disabled>
+                            <option value="system">system</option>
+                          </select>
+                        </fieldset>
+
+                        <fieldset class="fieldset mb-4">
+                          <legend class="fieldset-legend">Content</legend>
+                          <textarea name="llm.responses.sys_prompt.content" class="textarea textarea-bordered w-full"
+                            rows="3" placeholder="Enter prompt content..."></textarea>
+                        </fieldset>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="chat_sys_prompts_field">
+                  <div class="divider">Prompt List</div>
+                  <div id="chat_prompts_container"></div>
+                  <button type="button" class="btn btn-secondary btn-sm w-full" onclick="addChatPrompt()">
+                    Add Prompt
+                  </button>
+                </div>
+
+                <div class="divider">MCP Servers (Optional)</div>
+
+                <div id="mcp_servers_container"></div>
+
+                <button type="button" class="btn btn-secondary btn-sm" onclick="addMCPServer()">
+                  Add MCP Server
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- TTS Configuration -->
+          <div class="collapse collapse-arrow bg-base-100 border border-base-300 mb-2">
+            <input type="checkbox" name="tts_collapse" />
+            <div class="collapse-title font-semibold text-lg">TTS Configuration</div>
+            <div class="collapse-content">
+              <div id="tts_config">
+
+                <fieldset class="fieldset mb-4">
+                  <legend class="fieldset-legend">Platform Type</legend>
+                  <select name="tts.platform" class="select select-bordered w-full">
+                    <option value="openai">OpenAI</option>
+                    <option value="gsv">GSV (Stable)</option>
+                    <option value="fish">Fish Audio</option>
+                    <option value="groq">Groq</option>
+                    <option value="stream_gsv">Stream GSV</option>
+                    <option value="cosyvoice">CosyVoice</option>
+                    <option value="elevenlabs">ElevenLabs</option>
+                  </select>
+                </fieldset>
+
+                <!-- OpenAI TTS -->
+                <div id="tts_openai">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">API Key *</legend>
+                    <input type="password" name="tts.openai.api_key" data-required="tts_openai" placeholder="sk-..."
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.openai.url" data-required="tts_openai"
+                      value="https://api.openai.com/v1/audio/speech" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Model *</legend>
+                    <input type="text" name="tts.openai.model" data-required="tts_openai" value="gpt-4o-tts"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Voice *</legend>
+                    <input type="text" name="tts.openai.voice" data-required="tts_openai" placeholder="alloy"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+                </div>
+
+                <!-- GSV TTS -->
+                <div id="tts_gsv" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">API Key (Optional)</legend>
+                    <input type="password" name="tts.gsv.api_key" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.gsv.url" data-required="tts_gsv"
+                      placeholder="http://localhost:9094/v1/audio/speech" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Speaker *</legend>
+                    <input type="text" name="tts.gsv.speaker" data-required="tts_gsv" placeholder="cooper"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Timeout (seconds, Optional)</legend>
+                    <input type="number" name="tts.gsv.timeout_sec" class="input input-bordered w-full" min="0" />
+                  </fieldset>
+                </div>
+
+                <!-- Fish TTS -->
+                <div id="tts_fish" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">API Key *</legend>
+                    <input type="password" name="tts.fish.api_key" data-required="tts_fish"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.fish.url" data-required="tts_fish"
+                      value="https://api.fish.audio/v1/tts" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Speaker *</legend>
+                    <input type="text" name="tts.fish.speaker" data-required="tts_fish"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+                </div>
+
+                <!-- Groq TTS -->
+                <div id="tts_groq" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">API Key *</legend>
+                    <input type="password" name="tts.groq.api_key" data-required="tts_groq"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.groq.url" data-required="tts_groq"
+                      value="https://api.groq.com/openai/v1/audio/speech" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Model *</legend>
+                    <input type="text" name="tts.groq.model" data-required="tts_groq" value="playai-tts"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Voice *</legend>
+                    <input type="text" name="tts.groq.voice" data-required="tts_groq"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+                </div>
+
+                <!-- Stream GSV TTS -->
+                <div id="tts_stream_gsv" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">API Key (Optional)</legend>
+                    <input type="password" name="tts.stream_gsv.api_key" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.stream_gsv.url" data-required="tts_stream_gsv"
+                      placeholder="http://localhost:9094/v1/audio/stream_speech" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Speaker *</legend>
+                    <input type="text" name="tts.stream_gsv.speaker" data-required="tts_stream_gsv" placeholder="cooper"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+                </div>
+
+                <!-- CosyVoice TTS -->
+                <div id="tts_cosyvoice" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Token *</legend>
+                    <input type="password" name="tts.cosyvoice.token" data-required="tts_cosyvoice"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.cosyvoice.url" data-required="tts_cosyvoice"
+                      value="wss://dashscope.aliyuncs.com/api-ws/v1/inference" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Speaker (Optional)</legend>
+                    <input type="text" name="tts.cosyvoice.speaker" placeholder="longhua_v2"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Version *</legend>
+                    <select name="tts.cosyvoice.version" data-required="tts_cosyvoice"
+                      class="select select-bordered w-full">
+                      <option value="v1">v1</option>
+                      <option value="v2">v2</option>
+                    </select>
+                  </fieldset>
+                </div>
+
+                <!-- ElevenLabs TTS -->
+                <div id="tts_elevenlabs" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Token *</legend>
+                    <input type="password" name="tts.elevenlabs.token" data-required="tts_elevenlabs"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.elevenlabs.url" data-required="tts_elevenlabs"
+                      value="wss://api.elevenlabs.io/v1/text-to-speech" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Voice *</legend>
+                    <input type="text" name="tts.elevenlabs.voice" data-required="tts_elevenlabs"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Model ID (Optional)</legend>
+                    <input type="text" name="tts.elevenlabs.model_id" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Language Code (Optional)</legend>
+                    <input type="text" name="tts.elevenlabs.language_code" placeholder="en"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ASR Configuration -->
+          <div class="collapse collapse-arrow bg-base-100 border border-base-300 mb-2">
+            <input type="checkbox" name="asr_collapse" />
+            <div class="collapse-title font-semibold text-lg">ASR Configuration</div>
+            <div class="collapse-content">
+              <div id="asr_config">
+
+                <fieldset class="fieldset mb-4">
+                  <legend class="fieldset-legend">Platform Type</legend>
+                  <select name="asr.platform" class="select select-bordered w-full">
+                    <option value="whisper">Whisper (OpenAI Compatible)</option>
+                    <option value="paraformer_v2">Paraformer V2</option>
+                  </select>
+                </fieldset>
+
+                <!-- Whisper ASR -->
+                <div id="asr_whisper">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">API URL *</legend>
+                    <input type="text" name="asr.whisper.url" data-required="asr_whisper"
+                      placeholder="https://api.openai.com/v1/audio/transcriptions"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">API Key (Optional)</legend>
+                    <input type="password" name="asr.whisper.api_key" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Model (Optional)</legend>
+                    <input type="text" name="asr.whisper.model" placeholder="whisper-1"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Language (Optional)</legend>
+                    <input type="text" name="asr.whisper.lang" placeholder="en" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Prompt (Optional)</legend>
+                    <textarea name="asr.whisper.prompt" class="textarea textarea-bordered w-full" rows="2"></textarea>
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">VAD URL (Optional)</legend>
+                    <input type="text" name="asr.whisper.vad_url" placeholder="http://localhost:9093/v1/audio/vad"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">VAD Realtime URL (Optional)</legend>
+                    <input type="text" name="asr.whisper.vad_realtime_url"
+                      placeholder="ws://localhost:9093/v1/audio/realtime_vad" class="input input-bordered w-full" />
+                  </fieldset>
+                </div>
+
+                <!-- Paraformer V2 ASR -->
+                <div id="asr_paraformer" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="asr.paraformer.url" data-required="asr_paraformer"
+                      value="wss://dashscope.aliyuncs.com/api-ws/v1/inference" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Token *</legend>
+                    <input type="password" name="asr.paraformer.paraformer_token" data-required="asr_paraformer"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <input type="radio" name="ai_config_type" value="gemini_tts" class="tab" aria-label="Gemini + TTS" />
+        <div class="tab-content bg-base-100 border-base-300 p-6">
+          <!-- Gemini Configuration -->
+          <div class="collapse collapse-arrow bg-base-100 border border-base-300 mb-2">
+            <input type="checkbox" name="gemini_collapse" checked="checked" />
+            <div class="collapse-title font-semibold text-lg">Gemini Configuration</div>
+            <div class="collapse-content">
+              <div id="gemini_config">
+
+                <fieldset class="fieldset mb-4">
+                  <legend class="fieldset-legend">API Key *</legend>
+                  <input type="password" name="gemini.api_key" data-required="gemini" placeholder="AIza..."
+                    class="input input-bordered w-full" />
+                </fieldset>
+
+                <fieldset class="fieldset mb-4">
+                  <legend class="fieldset-legend">模型</legend>
+                  <input type="text" name="gemini.model" placeholder="models/gemini-2.0-flash-exp"
+                    class="input input-bordered w-full" />
+                </fieldset>
+
+                <div class="divider">Prompt List</div>
+                <div id="gemini_prompts_container"></div>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="addGeminiPrompt()">
+                  Add Prompt
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- TTS 配置 -->
+          <div class="collapse collapse-arrow bg-base-100 border border-base-300 mb-2">
+            <input type="checkbox" name="tts2_collapse" />
+            <div class="collapse-title font-semibold text-lg">TTS 配置</div>
+            <div class="collapse-content">
+              <div id="tts_config2">
+
+                <fieldset class="fieldset mb-4">
+                  <legend class="fieldset-legend">Platform Type</legend>
+                  <select name="tts.platform" class="select select-bordered w-full">
+                    <option value="openai">OpenAI</option>
+                    <option value="gsv">GSV (Stable)</option>
+                    <option value="fish">Fish Audio</option>
+                    <option value="groq">Groq</option>
+                    <option value="stream_gsv">Stream GSV</option>
+                    <option value="cosyvoice">CosyVoice</option>
+                    <option value="elevenlabs">ElevenLabs</option>
+                  </select>
+                </fieldset>
+
+                <!-- OpenAI TTS -->
+                <div id="tts_openai">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">API Key *</legend>
+                    <input type="password" name="tts.openai.api_key" data-required="tts_openai" placeholder="sk-..."
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.openai.url" data-required="tts_openai"
+                      value="https://api.openai.com/v1/audio/speech" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Model *</legend>
+                    <input type="text" name="tts.openai.model" data-required="tts_openai" value="gpt-4o-tts"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Voice *</legend>
+                    <input type="text" name="tts.openai.voice" data-required="tts_openai" placeholder="alloy"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+                </div>
+
+                <!-- GSV TTS -->
+                <div id="tts_gsv" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">API Key (Optional)</legend>
+                    <input type="password" name="tts.gsv.api_key" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.gsv.url" data-required="tts_gsv"
+                      placeholder="http://localhost:9094/v1/audio/speech" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Speaker *</legend>
+                    <input type="text" name="tts.gsv.speaker" data-required="tts_gsv" placeholder="cooper"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Timeout (seconds, Optional)</legend>
+                    <input type="number" name="tts.gsv.timeout_sec" class="input input-bordered w-full" min="0" />
+                  </fieldset>
+                </div>
+
+                <!-- Fish TTS -->
+                <div id="tts_fish" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">API Key *</legend>
+                    <input type="password" name="tts.fish.api_key" data-required="tts_fish"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.fish.url" data-required="tts_fish"
+                      value="https://api.fish.audio/v1/tts" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Speaker *</legend>
+                    <input type="text" name="tts.fish.speaker" data-required="tts_fish"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+                </div>
+
+                <!-- Groq TTS -->
+                <div id="tts_groq" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">API Key *</legend>
+                    <input type="password" name="tts.groq.api_key" data-required="tts_groq"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.groq.url" data-required="tts_groq"
+                      value="https://api.groq.com/openai/v1/audio/speech" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Model *</legend>
+                    <input type="text" name="tts.groq.model" data-required="tts_groq" value="playai-tts"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Voice *</legend>
+                    <input type="text" name="tts.groq.voice" data-required="tts_groq"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+                </div>
+
+                <!-- Stream GSV TTS -->
+                <div id="tts_stream_gsv" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">API Key (Optional)</legend>
+                    <input type="password" name="tts.stream_gsv.api_key" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.stream_gsv.url" data-required="tts_stream_gsv"
+                      placeholder="http://localhost:9094/v1/audio/stream_speech" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Speaker *</legend>
+                    <input type="text" name="tts.stream_gsv.speaker" data-required="tts_stream_gsv" placeholder="cooper"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+                </div>
+
+                <!-- CosyVoice TTS -->
+                <div id="tts_cosyvoice" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Token *</legend>
+                    <input type="password" name="tts.cosyvoice.token" data-required="tts_cosyvoice"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.cosyvoice.url" data-required="tts_cosyvoice"
+                      value="wss://dashscope.aliyuncs.com/api-ws/v1/inference" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Speaker (Optional)</legend>
+                    <input type="text" name="tts.cosyvoice.speaker" placeholder="longhua_v2"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Version *</legend>
+                    <select name="tts.cosyvoice.version" data-required="tts_cosyvoice"
+                      class="select select-bordered w-full">
+                      <option value="v1">v1</option>
+                      <option value="v2">v2</option>
+                    </select>
+                  </fieldset>
+                </div>
+
+                <!-- ElevenLabs TTS -->
+                <div id="tts_elevenlabs" class="hidden">
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Token *</legend>
+                    <input type="password" name="tts.elevenlabs.token" data-required="tts_elevenlabs"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">URL *</legend>
+                    <input type="text" name="tts.elevenlabs.url" data-required="tts_elevenlabs"
+                      value="wss://api.elevenlabs.io/v1/text-to-speech" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Voice *</legend>
+                    <input type="text" name="tts.elevenlabs.voice" data-required="tts_elevenlabs"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Model ID (Optional)</legend>
+                    <input type="text" name="tts.elevenlabs.model_id" class="input input-bordered w-full" />
+                  </fieldset>
+
+                  <fieldset class="fieldset mb-4">
+                    <legend class="fieldset-legend">Language Code (Optional)</legend>
+                    <input type="text" name="tts.elevenlabs.language_code" placeholder="en"
+                      class="input input-bordered w-full" />
+                  </fieldset>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <input type="radio" name="ai_config_type" value="gemini_only" class="tab" aria-label="Gemini Only" />
+        <div class="tab-content bg-base-100 border-base-300 p-6">
+          <!-- Gemini Configuration -->
+          <div class="collapse collapse-arrow bg-base-100 border border-base-300 mb-2">
+            <input type="checkbox" name="gemini2_collapse" checked="checked" />
+            <div class="collapse-title font-semibold text-lg">Gemini Configuration</div>
+            <div class="collapse-content">
+              <div id="gemini_config2">
+
+                <fieldset class="fieldset mb-4">
+                  <legend class="fieldset-legend">API Key *</legend>
+                  <input type="password" name="gemini.api_key" data-required="gemini" placeholder="AIza..."
+                    class="input input-bordered w-full" />
+                </fieldset>
+
+                <fieldset class="fieldset mb-4">
+                  <legend class="fieldset-legend">模型</legend>
+                  <input type="text" name="gemini.model" placeholder="models/gemini-2.0-flash-exp"
+                    class="input input-bordered w-full" />
+                </fieldset>
+
+                <div class="divider">Prompt List</div>
+                <div id="gemini_prompts_container2"></div>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="addGeminiPrompt2()">
+                  Add Prompt
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="card bg-base-200">
+        <div class="card-body">
+          <div class="flex gap-4">
+            <button type="button" class="btn btn-primary flex-1" onclick="exportConfig()">
+              Export TOML
+            </button>
+            <label for="import_modal" class="btn btn-secondary flex-1">
+              Import TOML
+            </label>
+            <button type="reset" class="btn btn-ghost flex-1">
+              Reset
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </form>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast toast-top toast-end" id="toast_container"></div>
+
+  <!-- Export TOML Dialog -->
+  <input type="checkbox" id="export_modal" class="modal-toggle" />
+  <div class="modal" role="dialog">
+    <div class="modal-box max-w-4xl">
+      <h3 class="font-bold text-lg mb-4">Export TOML Configuration</h3>
+
+      <div class="mockup-code w-full max-h-96 overflow-y-auto">
+        <pre><code id="toml_output"></code></pre>
+      </div>
+
+      <div class="modal-action">
+        <button type="button" class="btn btn-primary" onclick="downloadTOML()">Download File</button>
+        <button type="button" class="btn btn-secondary" onclick="copyTOML()">Copy to Clipboard</button>
+        <label for="export_modal" class="btn">Close</label>
+      </div>
+    </div>
+    <label class="modal-backdrop" for="export_modal"></label>
+  </div>
+
+  <!-- Import TOML Dialog -->
+  <input type="checkbox" id="import_modal" class="modal-toggle" />
+  <div class="modal" role="dialog">
+    <div class="modal-box max-w-2xl">
+      <h3 class="font-bold text-lg mb-4">Import TOML Configuration</h3>
+
+      <div class="space-y-4">
+        <fieldset class="fieldset mb-4">
+          <legend class="fieldset-legend">Paste TOML Content</legend>
+          <textarea id="toml_input" class="textarea textarea-bordered w-full" rows="10"
+            placeholder="Paste your TOML configuration..."></textarea>
+        </fieldset>
+
+        <div class="divider">or</div>
+
+        <fieldset class="fieldset mb-4">
+          <legend class="fieldset-legend">Select TOML File</legend>
+          <input type="file" id="importFile" accept=".toml" class="file-input file-input-bordered w-full" />
+        </fieldset>
+      </div>
+
+      <div class="modal-action">
+        <button type="button" class="btn btn-primary" onclick="processImport()">Import</button>
+        <label for="import_modal" class="btn">Cancel</label>
+      </div>
+    </div>
+    <label class="modal-backdrop" for="import_modal"></label>
+  </div>
+
+  <script>
+    // 格式化 Extra JSON
+    function formatExtraJSON(textarea) {
+      const value = textarea.value.trim();
+      if (!value) return;
+
+      try {
+        const parsed = JSON.parse(value);
+        textarea.value = JSON.stringify(parsed, null, 2);
+        // 显示格式化成功的提示
+        textarea.classList.remove('textarea-error');
+        textarea.classList.add('textarea-success');
+        setTimeout(() => {
+          textarea.classList.remove('textarea-success');
+        }, 1000);
+      } catch (e) {
+        // JSON 格式错误，显示错误样式
+        textarea.classList.add('textarea-error');
+        // 不显示 toast，只是标记错误
+      }
+    }
+
+    // 显示 Toast 通知
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast_container');
+      const toast = document.createElement('div');
+      toast.className = `alert alert-${type}`;
+
+      const iconMap = {
+        'info': '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-info shrink-0 w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
+        'success': '<svg xmlns="http://www.w3.org/2000/svg" class="stroke-success shrink-0 w-6 h-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+        'warning': '<svg xmlns="http://www.w3.org/2000/svg" class="stroke-warning shrink-0 w-6 h-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>',
+        'error': '<svg xmlns="http://www.w3.org/2000/svg" class="stroke-error shrink-0 w-6 h-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>'
+      };
+
+      toast.innerHTML = `${iconMap[type] || iconMap['info']}<span>${message}</span>`;
+      container.appendChild(toast);
+
+      // Auto dismiss after 3 seconds
+      setTimeout(() => {
+        toast.remove();
+      }, 3000);
+    }
+
+    // Switch LLM platform
+    document.querySelector('select[name="llm.platform"]').addEventListener('change', function () {
+      const chatFields = document.getElementById('llm_chat_fields');
+      const responsesFields = document.getElementById('llm_responses_fields');
+      const chatSysPromptsField = document.getElementById('chat_sys_prompts_field');
+
+      if (this.value === 'openai_chat') {
+        chatFields.classList.remove('hidden');
+        responsesFields.classList.add('hidden');
+        chatSysPromptsField.classList.remove('hidden');
+      } else {
+        chatFields.classList.add('hidden');
+        responsesFields.classList.remove('hidden');
+        chatSysPromptsField.classList.add('hidden');
+      }
+    });
+
+    // Switch Responses prompt type
+    document.querySelectorAll('input[name="llm_prompt_type"]').forEach(radio => {
+      radio.addEventListener('change', function () {
+        const instructionsField = document.getElementById('instructions_field');
+        const responsesSysPromptsField = document.getElementById('responses_sys_prompts_field');
+
+        if (this.value === 'instructions') {
+          instructionsField.classList.remove('hidden');
+          responsesSysPromptsField.classList.add('hidden');
+        } else {
+          instructionsField.classList.add('hidden');
+          responsesSysPromptsField.classList.remove('hidden');
+        }
+      });
+    });
+
+    // Switch TTS platform
+    document.querySelectorAll('select[name="tts.platform"]').forEach(select => {
+      select.addEventListener('change', function () {
+        // 找到当前 select 所在的 tab-content
+        const tabContent = this.closest('.tab-content');
+        if (!tabContent) return;
+
+        const platforms = ['openai', 'gsv', 'fish', 'groq', 'stream_gsv', 'cosyvoice', 'elevenlabs'];
+        platforms.forEach(platform => {
+          const el = tabContent.querySelector(`#tts_${platform}`);
+          if (el) el.classList.add('hidden');
+        });
+        const selectedEl = tabContent.querySelector(`#tts_${this.value}`);
+        if (selectedEl) selectedEl.classList.remove('hidden');
+      });
+    });
+
+    // Switch ASR platform
+    document.querySelector('select[name="asr.platform"]').addEventListener('change', function () {
+      const whisperFields = document.getElementById('asr_whisper');
+      const paraformerFields = document.getElementById('asr_paraformer');
+
+      if (this.value === 'whisper') {
+        whisperFields.classList.remove('hidden');
+        paraformerFields.classList.add('hidden');
+      } else {
+        whisperFields.classList.add('hidden');
+        paraformerFields.classList.remove('hidden');
+      }
+    });
+
+    // Chat Prompt 管理
+    let chatPromptIndex = 0;
+
+    function addChatPrompt() {
+      const container = document.getElementById('chat_prompts_container');
+      const index = chatPromptIndex++;
+
+      const promptDiv = document.createElement('div');
+      promptDiv.className = 'card bg-base-300 mb-4';
+      promptDiv.innerHTML = `
+        <div class="card-body">
+          <div class="flex justify-between items-center mb-2">
+            <h3 class="card-title text-sm">Prompt #${index + 1}</h3>
+            <button type="button" class="btn btn-error btn-xs" onclick="this.closest('.card').remove()">Delete</button>
+          </div>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">Role</legend>
+            <select name="chat.prompt.${index}.role" class="select select-bordered select-sm w-full">
+              <option value="system">system</option>
+              <option value="user">user</option>
+              <option value="assistant">assistant</option>
+            </select>
+          </fieldset>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">Content</legend>
+            <textarea name="chat.prompt.${index}.content" class="textarea textarea-bordered w-full" rows="3" placeholder="Enter prompt content..."></textarea>
+          </fieldset>
+        </div>
+      `;
+      container.appendChild(promptDiv);
+    }
+
+    // Gemini Prompt 管理
+    let geminiPromptIndex = 0;
+
+    function addGeminiPrompt() {
+      const container = document.getElementById('gemini_prompts_container');
+      const index = geminiPromptIndex++;
+
+      const promptDiv = document.createElement('div');
+      promptDiv.className = 'card bg-base-300 mb-4';
+      promptDiv.innerHTML = `
+        <div class="card-body">
+          <div class="flex justify-between items-center mb-2">
+            <h3 class="card-title text-sm">Prompt #${index + 1}</h3>
+            <button type="button" class="btn btn-error btn-xs" onclick="this.closest('.card').remove()">Delete</button>
+          </div>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">Role</legend>
+            <select name="gemini.prompt.${index}.role" class="select select-bordered select-sm w-full">
+              <option value="system">system</option>
+              <option value="user">user</option>
+              <option value="assistant">assistant</option>
+            </select>
+          </fieldset>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">Content</legend>
+            <textarea name="gemini.prompt.${index}.content" class="textarea textarea-bordered w-full" rows="3" placeholder="Enter prompt content..."></textarea>
+          </fieldset>
+        </div>
+      `;
+      container.appendChild(promptDiv);
+    }
+
+    // Gemini Prompt 管理 (gemini_only tab)
+    let geminiPromptIndex2 = 0;
+
+    function addGeminiPrompt2() {
+      const container = document.getElementById('gemini_prompts_container2');
+      const index = geminiPromptIndex2++;
+
+      const promptDiv = document.createElement('div');
+      promptDiv.className = 'card bg-base-300 mb-4';
+      promptDiv.innerHTML = `
+        <div class="card-body">
+          <div class="flex justify-between items-center mb-2">
+            <h3 class="card-title text-sm">Prompt #${index + 1}</h3>
+            <button type="button" class="btn btn-error btn-xs" onclick="this.closest('.card').remove()">Delete</button>
+          </div>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">Role</legend>
+            <select name="gemini.prompt.${index}.role" class="select select-bordered select-sm w-full">
+              <option value="system">system</option>
+              <option value="user">user</option>
+              <option value="assistant">assistant</option>
+            </select>
+          </fieldset>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">Content</legend>
+            <textarea name="gemini.prompt.${index}.content" class="textarea textarea-bordered w-full" rows="3" placeholder="Enter prompt content..."></textarea>
+          </fieldset>
+        </div>
+      `;
+      container.appendChild(promptDiv);
+    }
+
+    // MCP 服务器管理
+    let mcpServerIndex = 0;
+
+    function addMCPServer() {
+      const container = document.getElementById('mcp_servers_container');
+      const index = mcpServerIndex++;
+
+      const mcpDiv = document.createElement('div');
+      mcpDiv.className = 'card bg-base-300 mb-4';
+      mcpDiv.innerHTML = `
+        <div class="card-body">
+          <div class="flex justify-between items-center mb-2">
+            <h3 class="card-title text-sm">MCP Server #${index + 1}</h3>
+            <button type="button" class="btn btn-error btn-xs" onclick="this.closest('.card').remove()">Delete</button>
+          </div>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">Server Address</legend>
+            <input type="text" name="llm.mcp_server.${index}.server" placeholder="http://localhost:8000/mcp" class="input input-bordered input-sm w-full" />
+          </fieldset>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">API Key (Optional)</legend>
+            <input type="password" name="llm.mcp_server.${index}.api_key" class="input input-bordered input-sm w-full" />
+          </fieldset>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">Type</legend>
+            <select name="llm.mcp_server.${index}.type" class="select select-bordered select-sm w-full">
+              <option value="http_streamable">HTTP Streamable</option>
+              <option value="sse">SSE</option>
+            </select>
+          </fieldset>
+
+          <fieldset class="fieldset mb-4">
+            <legend class="fieldset-legend">Call Message (Optional)</legend>
+            <input type="text" name="llm.mcp_server.${index}.call_mcp_message" placeholder="Please hold on..." class="input input-bordered input-sm w-full" />
+          </fieldset>
+        </div>
+      `;
+      container.appendChild(mcpDiv);
+    }
+
+    // Helper function to get field value from tab
+    function getFieldValue(tab, fieldName) {
+      const el = tab.querySelector(`[name="${fieldName}"]`);
+      return el ? el.value : null;
+    }
+
+    // Helper function to get prompt values from tab
+    function getPromptValues(tab, prefix, maxIndex) {
+      const prompts = [];
+      for (let i = 0; i < maxIndex; i++) {
+        const role = getFieldValue(tab, `${prefix}.${i}.role`);
+        const content = getFieldValue(tab, `${prefix}.${i}.content`);
+        if (role && content) {
+          prompts.push({ role, content });
+        }
+      }
+      return prompts;
+    }
+
+    // Collect configuration data from currently selected tab
+    function collectConfigData() {
+      const formData = new FormData(document.getElementById('configForm'));
+      const aiConfigType = formData.get('ai_config_type');
+
+      const data = {
+        aiConfigType: aiConfigType,
+        addr: formData.get('addr'),
+        helloWav: formData.get('hello_wav'),
+        backgroundGif: formData.get('background_gif'),
+        recordCallbackUrl: formData.get('record.callback_url'),
+        llm: null,
+        gemini: null,
+        tts: null,
+        asr: null
+      };
+
+      if (aiConfigType === 'stable') {
+        const stableTab = document.querySelector('input[name="ai_config_type"][value="stable"]').nextElementSibling;
+
+        // LLM 配置
+        data.llm = {
+          platform: getFieldValue(stableTab, 'llm.platform'),
+          url: getFieldValue(stableTab, 'llm.url'),
+          api_key: getFieldValue(stableTab, 'llm.api_key'),
+          model: getFieldValue(stableTab, 'llm.model'),
+          history: getFieldValue(stableTab, 'llm.history'),
+          extra: getFieldValue(stableTab, 'llm.extra'),
+          promptType: formData.get('llm_prompt_type'),
+          instructions: getFieldValue(stableTab, 'llm.instructions'),
+          tab: stableTab
+        };
+
+        // TTS 配置
+        const ttsPlatform = getFieldValue(stableTab, 'tts.platform');
+        data.tts = { platform: ttsPlatform, tab: stableTab };
+
+        // ASR 配置
+        const asrPlatform = getFieldValue(stableTab, 'asr.platform');
+        data.asr = { platform: asrPlatform, tab: stableTab };
+
+      } else if (aiConfigType === 'gemini_tts' || aiConfigType === 'gemini_only') {
+        // 获取对应的 tab
+        const geminiTab = document.querySelector(`input[name="ai_config_type"][value="${aiConfigType}"]`).nextElementSibling;
+
+        // Gemini 配置
+        data.gemini = {
+          api_key: formData.get('gemini.api_key'),
+          model: formData.get('gemini.model'),
+          promptIndex: aiConfigType === 'gemini_only' ? geminiPromptIndex2 : geminiPromptIndex,
+          tab: geminiTab
+        };
+
+        // Gemini + TTS 时才有 TTS 配置
+        if (aiConfigType === 'gemini_tts') {
+          const ttsPlatform = getFieldValue(geminiTab, 'tts.platform');
+          data.tts = { platform: ttsPlatform, tab: geminiTab };
+        }
+      }
+
+      return data;
+    }
+
+    // Validate required fields
+    function validateRequiredFields(data) {
+      const errors = [];
+
+      // Basic configuration - server address is required
+      if (!data.addr) {
+        errors.push('Server Address');
+      }
+
+      if (data.aiConfigType === 'stable') {
+        // LLM configuration required fields
+        const llmTab = data.llm.tab;
+        const llmLabels = {
+          'llm.platform': 'LLM Platform Type',
+          'llm.url': 'LLM API URL',
+          'llm.api_key': 'LLM API Key',
+          'llm.model': 'LLM Model'
+        };
+
+        ['llm.platform', 'llm.url', 'llm.api_key', 'llm.model'].forEach(field => {
+          if (!getFieldValue(llmTab, field)) {
+            errors.push(llmLabels[field]);
+          }
+        });
+
+        // TTS configuration required fields
+        const ttsTab = data.tts.tab;
+        const ttsPlatform = data.tts.platform;
+        const ttsRequiredFields = {
+          'openai': ['tts.openai.api_key', 'tts.openai.url', 'tts.openai.model', 'tts.openai.voice'],
+          'gsv': ['tts.gsv.url', 'tts.gsv.speaker'],
+          'fish': ['tts.fish.api_key', 'tts.fish.url', 'tts.fish.speaker'],
+          'groq': ['tts.groq.api_key', 'tts.groq.url', 'tts.groq.model', 'tts.groq.voice'],
+          'stream_gsv': ['tts.stream_gsv.url', 'tts.stream_gsv.speaker'],
+          'cosyvoice': ['tts.cosyvoice.token', 'tts.cosyvoice.url', 'tts.cosyvoice.version'],
+          'elevenlabs': ['tts.elevenlabs.token', 'tts.elevenlabs.url', 'tts.elevenlabs.voice']
+        };
+
+        const ttsLabels = {
+          'tts.openai.api_key': 'OpenAI TTS API Key',
+          'tts.openai.url': 'OpenAI TTS URL',
+          'tts.openai.model': 'OpenAI TTS Model',
+          'tts.openai.voice': 'OpenAI TTS Voice',
+          'tts.gsv.url': 'GSV TTS URL',
+          'tts.gsv.speaker': 'GSV TTS Speaker',
+          'tts.fish.api_key': 'Fish TTS API Key',
+          'tts.fish.url': 'Fish TTS URL',
+          'tts.fish.speaker': 'Fish TTS Speaker',
+          'tts.groq.api_key': 'Groq TTS API Key',
+          'tts.groq.url': 'Groq TTS URL',
+          'tts.groq.model': 'Groq TTS Model',
+          'tts.groq.voice': 'Groq TTS Voice',
+          'tts.stream_gsv.url': 'Stream GSV TTS URL',
+          'tts.stream_gsv.speaker': 'Stream GSV TTS Speaker',
+          'tts.cosyvoice.token': 'CosyVoice Token',
+          'tts.cosyvoice.url': 'CosyVoice URL',
+          'tts.cosyvoice.version': 'CosyVoice Version',
+          'tts.elevenlabs.token': 'ElevenLabs Token',
+          'tts.elevenlabs.url': 'ElevenLabs URL',
+          'tts.elevenlabs.voice': 'ElevenLabs Voice'
+        };
+
+        if (ttsRequiredFields[ttsPlatform]) {
+          ttsRequiredFields[ttsPlatform].forEach(field => {
+            const value = getFieldValue(ttsTab, field);
+            if (!value) {
+              errors.push(ttsLabels[field]);
+            }
+          });
+        }
+
+        // ASR configuration required fields
+        const asrTab = data.asr.tab;
+        const asrPlatform = data.asr.platform;
+        if (asrPlatform === 'whisper') {
+          const value = getFieldValue(asrTab, 'asr.whisper.url');
+          if (!value) {
+            errors.push('Whisper ASR API URL');
+          }
+        } else if (asrPlatform === 'paraformer_v2') {
+          const urlValue = getFieldValue(asrTab, 'asr.paraformer.url');
+          if (!urlValue) {
+            errors.push('Paraformer ASR URL');
+          }
+          const tokenValue = getFieldValue(asrTab, 'asr.paraformer.paraformer_token');
+          if (!tokenValue) {
+            errors.push('Paraformer Token');
+          }
+        }
+
+      } else if (data.aiConfigType === 'gemini_tts' || data.aiConfigType === 'gemini_only') {
+        // Gemini configuration required fields
+        if (!data.gemini.api_key) {
+          errors.push('Gemini API Key');
+        }
+
+        // Gemini + TTS requires TTS configuration
+        if (data.aiConfigType === 'gemini_tts' && data.tts) {
+          const ttsTab = data.tts.tab;
+          const ttsPlatform = data.tts.platform;
+          const ttsRequiredFields = {
+            'openai': ['tts.openai.api_key', 'tts.openai.url', 'tts.openai.model', 'tts.openai.voice'],
+            'gsv': ['tts.gsv.url', 'tts.gsv.speaker'],
+            'fish': ['tts.fish.api_key', 'tts.fish.url', 'tts.fish.speaker'],
+            'groq': ['tts.groq.api_key', 'tts.groq.url', 'tts.groq.model', 'tts.groq.voice'],
+            'stream_gsv': ['tts.stream_gsv.url', 'tts.stream_gsv.speaker'],
+            'cosyvoice': ['tts.cosyvoice.token', 'tts.cosyvoice.url', 'tts.cosyvoice.version'],
+            'elevenlabs': ['tts.elevenlabs.token', 'tts.elevenlabs.url', 'tts.elevenlabs.voice']
+          };
+
+          const ttsLabels = {
+            'tts.openai.api_key': 'OpenAI TTS API Key',
+            'tts.openai.url': 'OpenAI TTS URL',
+            'tts.openai.model': 'OpenAI TTS 模型',
+            'tts.openai.voice': 'OpenAI TTS 声音',
+            'tts.gsv.url': 'GSV TTS URL',
+            'tts.gsv.speaker': 'GSV TTS Speaker',
+            'tts.fish.api_key': 'Fish TTS API Key',
+            'tts.fish.url': 'Fish TTS URL',
+            'tts.fish.speaker': 'Fish TTS Speaker',
+            'tts.groq.api_key': 'Groq TTS API Key',
+            'tts.groq.url': 'Groq TTS URL',
+            'tts.groq.model': 'Groq TTS 模型',
+            'tts.groq.voice': 'Groq TTS Voice',
+            'tts.stream_gsv.url': 'Stream GSV TTS URL',
+            'tts.stream_gsv.speaker': 'Stream GSV TTS Speaker',
+            'tts.cosyvoice.token': 'CosyVoice Token',
+            'tts.cosyvoice.url': 'CosyVoice URL',
+            'tts.cosyvoice.version': 'CosyVoice 版本',
+            'tts.elevenlabs.token': 'ElevenLabs Token',
+            'tts.elevenlabs.url': 'ElevenLabs URL',
+            'tts.elevenlabs.voice': 'ElevenLabs Voice'
+          };
+
+          if (ttsRequiredFields[ttsPlatform]) {
+            ttsRequiredFields[ttsPlatform].forEach(field => {
+              const value = getFieldValue(ttsTab, field);
+              if (!value) {
+                errors.push(ttsLabels[field]);
+              }
+            });
+          }
+        }
+      }
+
+      return errors;
+    }
+
+    // Export configuration to TOML
+    function exportConfig() {
+      // Collect configuration data
+      const data = collectConfigData();
+
+      // Validate required fields
+      const errors = validateRequiredFields(data);
+      if (errors.length > 0) {
+        errors.forEach(error => {
+          showToast(`Missing: ${error}`, 'error');
+        });
+        return;
+      }
+
+      const config = {};
+
+      // Basic configuration
+      config.addr = data.addr;
+      if (data.helloWav) {
+        config.hello_wav = data.helloWav;
+      }
+      if (data.backgroundGif) {
+        config.background_gif = data.backgroundGif;
+      }
+      if (data.recordCallbackUrl) {
+        config.record = { callback_url: data.recordCallbackUrl };
+      }
+
+      const aiConfigType = data.aiConfigType;
+
+      if (aiConfigType === 'stable') {
+        const llmTab = data.llm.tab;
+
+        // LLM configuration
+        const llmPlatform = data.llm.platform;
+        config.llm = {
+          platform: llmPlatform,
+          url: getFieldValue(llmTab, 'llm.url'),
+          api_key: getFieldValue(llmTab, 'llm.api_key'),
+          model: getFieldValue(llmTab, 'llm.model')
+        };
+
+        // Extra parameters
+        const extraField = getFieldValue(llmTab, 'llm.extra');
+        if (extraField && extraField.trim()) {
+          try {
+            config.llm.extra = JSON.parse(extraField);
+          } catch (e) {
+            console.error('Invalid JSON for llm.extra:', e);
+          }
+        }
+
+        if (llmPlatform === 'openai_chat') {
+          config.llm.history = parseInt(getFieldValue(llmTab, 'llm.history')) || 5;
+
+          // Prompt (Chat mode)
+          const chatPrompts = [];
+          for (let i = 0; i < chatPromptIndex; i++) {
+            const role = getFieldValue(llmTab, `chat.prompt.${i}.role`);
+            const content = getFieldValue(llmTab, `chat.prompt.${i}.content`);
+            if (role && content) {
+              chatPrompts.push({ role, content });
+            }
+          }
+          if (chatPrompts.length > 0) {
+            config.llm.sys_prompts = chatPrompts;
+          }
+        } else if (llmPlatform === 'openai_responses') {
+          const promptType = data.llm.promptType;
+
+          if (promptType === 'instructions') {
+            const instructions = getFieldValue(llmTab, 'llm.instructions');
+            if (instructions) {
+              config.llm.instructions = instructions;
+            }
+          } else {
+            // Prompt (Responses mode - single system prompt)
+            const sysPromptContent = getFieldValue(llmTab, 'llm.responses.sys_prompt.content');
+            if (sysPromptContent) {
+              config.llm.sys_prompts = [{ role: 'system', content: sysPromptContent }];
+            }
+          }
+        }
+
+        // MCP servers
+        const mcpServers = [];
+        for (let i = 0; i < mcpServerIndex; i++) {
+          const server = getFieldValue(llmTab, `llm.mcp_server.${i}.server`);
+          if (server) {
+            const mcpConfig = {
+              server: server,
+              type: getFieldValue(llmTab, `llm.mcp_server.${i}.type`) || 'http_streamable'
+            };
+            const apiKey = getFieldValue(llmTab, `llm.mcp_server.${i}.api_key`);
+            if (apiKey) mcpConfig.api_key = apiKey;
+            const callMsg = getFieldValue(llmTab, `llm.mcp_server.${i}.call_mcp_message`);
+            if (callMsg) mcpConfig.call_mcp_message = callMsg;
+            mcpServers.push(mcpConfig);
+          }
+        }
+        if (mcpServers.length > 0) {
+          config.llm.mcp_server = mcpServers;
+        }
+
+        // ASR configuration
+        const asrTab = data.asr.tab;
+        const asrPlatform = data.asr.platform;
+        config.asr = { platform: asrPlatform };
+
+        if (asrPlatform === 'whisper') {
+          config.asr.url = getFieldValue(asrTab, 'asr.whisper.url');
+          const asrApiKey = getFieldValue(asrTab, 'asr.whisper.api_key');
+          if (asrApiKey) config.asr.api_key = asrApiKey;
+          const asrModel = getFieldValue(asrTab, 'asr.whisper.model');
+          if (asrModel) config.asr.model = asrModel;
+          const asrLang = getFieldValue(asrTab, 'asr.whisper.lang');
+          if (asrLang) config.asr.lang = asrLang;
+          const asrPrompt = getFieldValue(asrTab, 'asr.whisper.prompt');
+          if (asrPrompt) config.asr.prompt = asrPrompt;
+          const vadUrl = getFieldValue(asrTab, 'asr.whisper.vad_url');
+          if (vadUrl) config.asr.vad_url = vadUrl;
+          const vadRealtimeUrl = getFieldValue(asrTab, 'asr.whisper.vad_realtime_url');
+          if (vadRealtimeUrl) config.asr.vad_realtime_url = vadRealtimeUrl;
+        } else if (asrPlatform === 'paraformer_v2') {
+          config.asr.url = getFieldValue(asrTab, 'asr.paraformer.url');
+          config.asr.paraformer_token = getFieldValue(asrTab, 'asr.paraformer.paraformer_token');
+        }
+      } else if (aiConfigType === 'gemini_tts' || aiConfigType === 'gemini_only') {
+        const geminiTab = data.gemini.tab;
+
+        // Gemini configuration
+        config.gemini = {
+          api_key: data.gemini.api_key
+        };
+        const geminiModel = data.gemini.model;
+        if (geminiModel) {
+          config.gemini.model = geminiModel;
+        }
+
+        // Prompt (Gemini mode)
+        const geminiPrompts = [];
+        const maxGeminiIndex = aiConfigType === 'gemini_only' ? geminiPromptIndex2 : geminiPromptIndex;
+        for (let i = 0; i < maxGeminiIndex; i++) {
+          const role = getFieldValue(geminiTab, `gemini.prompt.${i}.role`);
+          const content = getFieldValue(geminiTab, `gemini.prompt.${i}.content`);
+          if (role && content) {
+            geminiPrompts.push({ role, content });
+          }
+        }
+        if (geminiPrompts.length > 0) {
+          config.gemini.sys_prompts = geminiPrompts;
+        }
+      }
+
+      // TTS configuration (except gemini_only)
+      if (aiConfigType !== 'gemini_only') {
+        const ttsTab = data.tts.tab;
+        const ttsPlatform = data.tts.platform;
+
+        if (ttsPlatform) {
+          config.tts = { platform: ttsPlatform };
+
+          if (ttsPlatform === 'openai') {
+            config.tts.api_key = getFieldValue(ttsTab, 'tts.openai.api_key');
+            config.tts.url = getFieldValue(ttsTab, 'tts.openai.url');
+            config.tts.model = getFieldValue(ttsTab, 'tts.openai.model');
+            config.tts.voice = getFieldValue(ttsTab, 'tts.openai.voice');
+          } else if (ttsPlatform === 'gsv') {
+            const apiKey = getFieldValue(ttsTab, 'tts.gsv.api_key');
+            if (apiKey) config.tts.api_key = apiKey;
+            config.tts.url = getFieldValue(ttsTab, 'tts.gsv.url');
+            config.tts.speaker = getFieldValue(ttsTab, 'tts.gsv.speaker');
+            const timeout = getFieldValue(ttsTab, 'tts.gsv.timeout_sec');
+            if (timeout) config.tts.timeout_sec = parseInt(timeout);
+          } else if (ttsPlatform === 'fish') {
+            config.tts.api_key = getFieldValue(ttsTab, 'tts.fish.api_key');
+            config.tts.url = getFieldValue(ttsTab, 'tts.fish.url');
+            config.tts.speaker = getFieldValue(ttsTab, 'tts.fish.speaker');
+          } else if (ttsPlatform === 'groq') {
+            config.tts.api_key = getFieldValue(ttsTab, 'tts.groq.api_key');
+            config.tts.url = getFieldValue(ttsTab, 'tts.groq.url');
+            config.tts.model = getFieldValue(ttsTab, 'tts.groq.model');
+            config.tts.voice = getFieldValue(ttsTab, 'tts.groq.voice');
+          } else if (ttsPlatform === 'stream_gsv') {
+            const apiKey = getFieldValue(ttsTab, 'tts.stream_gsv.api_key');
+            if (apiKey) config.tts.api_key = apiKey;
+            config.tts.url = getFieldValue(ttsTab, 'tts.stream_gsv.url');
+            config.tts.speaker = getFieldValue(ttsTab, 'tts.stream_gsv.speaker');
+          } else if (ttsPlatform === 'cosyvoice') {
+            config.tts.token = getFieldValue(ttsTab, 'tts.cosyvoice.token');
+            config.tts.url = getFieldValue(ttsTab, 'tts.cosyvoice.url');
+            const speaker = getFieldValue(ttsTab, 'tts.cosyvoice.speaker');
+            if (speaker) config.tts.speaker = speaker;
+            config.tts.version = getFieldValue(ttsTab, 'tts.cosyvoice.version');
+          } else if (ttsPlatform === 'elevenlabs') {
+            config.tts.token = getFieldValue(ttsTab, 'tts.elevenlabs.token');
+            config.tts.url = getFieldValue(ttsTab, 'tts.elevenlabs.url');
+            config.tts.voice = getFieldValue(ttsTab, 'tts.elevenlabs.voice');
+            const modelId = getFieldValue(ttsTab, 'tts.elevenlabs.model_id');
+            if (modelId) config.tts.model_id = modelId;
+            const langCode = getFieldValue(ttsTab, 'tts.elevenlabs.language_code');
+            if (langCode) config.tts.language_code = langCode;
+          }
+        }
+      }
+
+      // Use smol-toml stringify to convert to TOML
+      const toml = window.toml.stringify(config);
+
+      // Save original TOML for download and copy
+      window.currentToml = toml;
+
+      // Split by lines and add line numbers
+      const lines = toml.split('\n');
+      const tomlOutput = document.getElementById('toml_output');
+      tomlOutput.innerHTML = '';
+
+      lines.forEach((line, index) => {
+        const pre = document.createElement('pre');
+        pre.setAttribute('data-prefix', String(index + 1));
+
+        // Highlight empty lines with bg-base-300
+        if (line.trim() === '') {
+          pre.className = 'bg-base-300';
+        }
+
+        const code = document.createElement('code');
+        code.textContent = line || ' ';
+        pre.appendChild(code);
+        tomlOutput.appendChild(pre);
+      });
+
+      document.getElementById('export_modal').checked = true;
+    }
+
+    // Download TOML file
+    function downloadTOML() {
+      const toml = window.currentToml || '';
+      const blob = new Blob([toml], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'config.toml';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Copy TOML to clipboard
+    function copyTOML() {
+      const toml = window.currentToml || '';
+      navigator.clipboard.writeText(toml).then(() => {
+        showToast('Copied to clipboard', 'success');
+      }).catch(() => {
+        showToast('Copy failed, please copy manually', 'error');
+      });
+    }
+
+    // Process import
+    function processImport() {
+      const tomlContent = document.getElementById('toml_input').value;
+      if (tomlContent.trim()) {
+        parseAndFillForm(tomlContent);
+        // Close modal
+        document.getElementById('import_modal').checked = false;
+        // Clear input
+        document.getElementById('toml_input').value = '';
+        document.getElementById('importFile').value = '';
+      } else {
+        showToast('Please paste TOML content or select a file', 'warning');
+      }
+    }
+
+    // File selector event
+    document.getElementById('importFile').addEventListener('change', function (e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        document.getElementById('toml_input').value = event.target.result;
+      };
+      reader.readAsText(file);
+    });
+
+    // Parse TOML and fill form
+    function parseAndFillForm(tomlContent) {
+      try {
+        const config = window.toml.parse(tomlContent);
+
+        // Fill basic configuration
+        if (config.addr) {
+          document.querySelector('[name="addr"]').value = config.addr;
+        }
+        if (config.hello_wav) {
+          document.querySelector('[name="hello_wav"]').value = config.hello_wav;
+        }
+        if (config.record?.callback_url) {
+          document.querySelector('[name="record.callback_url"]').value = config.record.callback_url;
+        }
+
+        // Determine AI configuration type
+        let aiConfigType = 'stable';
+        if (config.gemini && config.tts) {
+          aiConfigType = 'gemini_tts';
+        } else if (config.gemini && !config.tts) {
+          aiConfigType = 'gemini_only';
+        }
+
+        // Set AI configuration type
+        const tabRadio = document.querySelector(`input[name="ai_config_type"][value="${aiConfigType}"]`);
+        if (tabRadio) {
+          tabRadio.checked = true;
+        }
+
+        // Fill LLM configuration
+        if (config.llm) {
+          if (config.llm.platform) {
+            document.querySelector('[name="llm.platform"]').value = config.llm.platform;
+            document.querySelector('[name="llm.platform"]').dispatchEvent(new Event('change'));
+          }
+
+          // Support llm_chat_url alias
+          const llmUrl = config.llm.url || config.llm.llm_chat_url;
+          if (llmUrl) {
+            document.querySelector('[name="llm.url"]').value = llmUrl;
+          }
+          if (config.llm.api_key) {
+            document.querySelector('[name="llm.api_key"]').value = config.llm.api_key;
+          }
+          if (config.llm.model) {
+            document.querySelector('[name="llm.model"]').value = config.llm.model;
+          }
+          if (config.llm.history) {
+            document.querySelector('[name="llm.history"]').value = config.llm.history;
+          }
+
+          // Extra parameters
+          if (config.llm.extra) {
+            const extraValue = typeof config.llm.extra === 'string'
+              ? config.llm.extra
+              : JSON.stringify(config.llm.extra, null, 2);
+            document.querySelector('[name="llm.extra"]').value = extraValue;
+          }
+
+          // Instructions
+          if (config.llm.instructions) {
+            document.querySelector('[name="llm.instructions"]').value = config.llm.instructions;
+            document.querySelector('input[name="llm_prompt_type"][value="instructions"]').checked = true;
+            document.querySelector('input[name="llm_prompt_type"][value="instructions"]').dispatchEvent(new Event('change'));
+          }
+
+          // Sys prompts
+          if (config.llm.sys_prompts && Array.isArray(config.llm.sys_prompts)) {
+            // Use platform field to determine mode; default to openai_chat
+            const isChat = !config.llm.platform || config.llm.platform === 'openai_chat' || config.llm.platform === 'OpenAIChat';
+
+            if (isChat) {
+              // Chat mode - clear and add all prompts
+              document.getElementById('chat_prompts_container').innerHTML = '';
+              chatPromptIndex = 0;
+              config.llm.sys_prompts.forEach(prompt => {
+                addChatPrompt();
+                const index = chatPromptIndex - 1;
+                document.querySelector(`[name="chat.prompt.${index}.role"]`).value = prompt.role;
+                document.querySelector(`[name="chat.prompt.${index}.content"]`).value = prompt.content;
+              });
+            } else {
+              // Responses mode - only handle first system prompt
+              const sysPrompt = config.llm.sys_prompts.find(p => p.role === 'system');
+              if (sysPrompt) {
+                document.querySelector('[name="llm.responses.sys_prompt.content"]').value = sysPrompt.content;
+                document.querySelector('input[name="llm_prompt_type"][value="sys_prompts"]').checked = true;
+                document.querySelector('input[name="llm_prompt_type"][value="sys_prompts"]').dispatchEvent(new Event('change'));
+              }
+            }
+          }
+
+          // MCP servers
+          if (config.llm.mcp_server && Array.isArray(config.llm.mcp_server)) {
+            document.getElementById('mcp_servers_container').innerHTML = '';
+            mcpServerIndex = 0;
+            config.llm.mcp_server.forEach(mcp => {
+              addMCPServer();
+              const index = mcpServerIndex - 1;
+              document.querySelector(`[name="llm.mcp_server.${index}.server"]`).value = mcp.server;
+              if (mcp.api_key) {
+                document.querySelector(`[name="llm.mcp_server.${index}.api_key"]`).value = mcp.api_key;
+              }
+              if (mcp.type) {
+                document.querySelector(`[name="llm.mcp_server.${index}.type"]`).value = mcp.type;
+              }
+              if (mcp.call_mcp_message) {
+                document.querySelector(`[name="llm.mcp_server.${index}.call_mcp_message"]`).value = mcp.call_mcp_message;
+              }
+            });
+          }
+        }
+
+        // Fill Gemini configuration
+        if (config.gemini) {
+          if (config.gemini.api_key) {
+            document.querySelector('[name="gemini.api_key"]').value = config.gemini.api_key;
+          }
+          if (config.gemini.model) {
+            document.querySelector('[name="gemini.model"]').value = config.gemini.model;
+          }
+
+          // Gemini sys prompts
+          if (config.gemini.sys_prompts && Array.isArray(config.gemini.sys_prompts)) {
+            const containerId = aiConfigType === 'gemini_only' ? 'gemini_prompts_container2' : 'gemini_prompts_container';
+            const addFunction = aiConfigType === 'gemini_only' ? addGeminiPrompt2 : addGeminiPrompt;
+            const indexVar = aiConfigType === 'gemini_only' ? 'geminiPromptIndex2' : 'geminiPromptIndex';
+
+            document.getElementById(containerId).innerHTML = '';
+            if (aiConfigType === 'gemini_only') {
+              geminiPromptIndex2 = 0;
+            } else {
+              geminiPromptIndex = 0;
+            }
+            config.gemini.sys_prompts.forEach(prompt => {
+              addFunction();
+              const index = aiConfigType === 'gemini_only' ? geminiPromptIndex2 - 1 : geminiPromptIndex - 1;
+              document.querySelector(`[name="gemini.prompt.${index}.role"]`).value = prompt.role;
+              document.querySelector(`[name="gemini.prompt.${index}.content"]`).value = prompt.content;
+            });
+          }
+        }
+
+        // Fill TTS configuration
+        if (config.tts) {
+          let ttsPlatform = config.tts.platform;
+
+          // Support platform name aliases
+          const platformAliases = {
+            'StreamGSV': 'stream_gsv',
+            'CosyVoice': 'cosyvoice',
+            'OpenAI': 'openai',
+            'Groq': 'groq',
+            'Fish': 'fish',
+            'GSV': 'gsv',
+            '11labs': 'elevenlabs',
+            'ElevenLabs': 'elevenlabs'
+          };
+          ttsPlatform = platformAliases[ttsPlatform] || ttsPlatform?.toLowerCase();
+
+          // Get corresponding TTS config container based on selected tab type
+          let ttsTab;
+          if (aiConfigType === 'stable') {
+            ttsTab = document.querySelector('input[name="ai_config_type"][value="stable"]').nextElementSibling;
+          } else if (aiConfigType === 'gemini_tts') {
+            ttsTab = document.querySelector('input[name="ai_config_type"][value="gemini_tts"]').nextElementSibling;
+          }
+
+          if (ttsTab && ttsPlatform) {
+            const ttsSelect = ttsTab.querySelector('[name="tts.platform"]');
+            if (ttsSelect) ttsSelect.value = ttsPlatform;
+            if (ttsSelect) ttsSelect.dispatchEvent(new Event('change'));
+
+            if (ttsPlatform === 'openai') {
+              if (config.tts.api_key) ttsTab.querySelector('[name="tts.openai.api_key"]').value = config.tts.api_key;
+              if (config.tts.url) ttsTab.querySelector('[name="tts.openai.url"]').value = config.tts.url;
+              if (config.tts.model) ttsTab.querySelector('[name="tts.openai.model"]').value = config.tts.model;
+              if (config.tts.voice) ttsTab.querySelector('[name="tts.openai.voice"]').value = config.tts.voice;
+            } else if (ttsPlatform === 'gsv') {
+              if (config.tts.api_key) ttsTab.querySelector('[name="tts.gsv.api_key"]').value = config.tts.api_key;
+              if (config.tts.url) ttsTab.querySelector('[name="tts.gsv.url"]').value = config.tts.url;
+              if (config.tts.speaker) ttsTab.querySelector('[name="tts.gsv.speaker"]').value = config.tts.speaker;
+              if (config.tts.timeout_sec) ttsTab.querySelector('[name="tts.gsv.timeout_sec"]').value = config.tts.timeout_sec;
+            } else if (ttsPlatform === 'fish') {
+              if (config.tts.api_key) ttsTab.querySelector('[name="tts.fish.api_key"]').value = config.tts.api_key;
+              if (config.tts.url) ttsTab.querySelector('[name="tts.fish.url"]').value = config.tts.url;
+              if (config.tts.speaker) ttsTab.querySelector('[name="tts.fish.speaker"]').value = config.tts.speaker;
+            } else if (ttsPlatform === 'groq') {
+              if (config.tts.api_key) ttsTab.querySelector('[name="tts.groq.api_key"]').value = config.tts.api_key;
+              if (config.tts.url) ttsTab.querySelector('[name="tts.groq.url"]').value = config.tts.url;
+              if (config.tts.model) ttsTab.querySelector('[name="tts.groq.model"]').value = config.tts.model;
+              if (config.tts.voice) ttsTab.querySelector('[name="tts.groq.voice"]').value = config.tts.voice;
+            } else if (ttsPlatform === 'stream_gsv') {
+              if (config.tts.api_key) ttsTab.querySelector('[name="tts.stream_gsv.api_key"]').value = config.tts.api_key;
+              if (config.tts.url) ttsTab.querySelector('[name="tts.stream_gsv.url"]').value = config.tts.url;
+              if (config.tts.speaker) ttsTab.querySelector('[name="tts.stream_gsv.speaker"]').value = config.tts.speaker;
+            } else if (ttsPlatform === 'cosyvoice') {
+              if (config.tts.token) ttsTab.querySelector('[name="tts.cosyvoice.token"]').value = config.tts.token;
+              if (config.tts.url) ttsTab.querySelector('[name="tts.cosyvoice.url"]').value = config.tts.url;
+              if (config.tts.speaker) ttsTab.querySelector('[name="tts.cosyvoice.speaker"]').value = config.tts.speaker;
+              if (config.tts.version) ttsTab.querySelector('[name="tts.cosyvoice.version"]').value = config.tts.version;
+            } else if (ttsPlatform === 'elevenlabs') {
+              if (config.tts.token) ttsTab.querySelector('[name="tts.elevenlabs.token"]').value = config.tts.token;
+              if (config.tts.url) ttsTab.querySelector('[name="tts.elevenlabs.url"]').value = config.tts.url;
+              if (config.tts.voice) ttsTab.querySelector('[name="tts.elevenlabs.voice"]').value = config.tts.voice;
+              if (config.tts.model_id) ttsTab.querySelector('[name="tts.elevenlabs.model_id"]').value = config.tts.model_id;
+              if (config.tts.language_code) ttsTab.querySelector('[name="tts.elevenlabs.language_code"]').value = config.tts.language_code;
+            }
+          }
+        }
+
+        // Fill ASR configuration
+        if (config.asr) {
+          let asrPlatform = config.asr.platform;
+
+          // Support platform name aliases (openai -> whisper)
+          const asrPlatformAliases = {
+            'openai': 'whisper'
+          };
+          asrPlatform = asrPlatformAliases[asrPlatform] || asrPlatform?.toLowerCase();
+
+          if (asrPlatform) {
+            document.querySelector('[name="asr.platform"]').value = asrPlatform;
+            document.querySelector('[name="asr.platform"]').dispatchEvent(new Event('change'));
+          }
+
+          if (asrPlatform === 'whisper') {
+            if (config.asr.url) document.querySelector('[name="asr.whisper.url"]').value = config.asr.url;
+            if (config.asr.api_key) document.querySelector('[name="asr.whisper.api_key"]').value = config.asr.api_key;
+            if (config.asr.model) document.querySelector('[name="asr.whisper.model"]').value = config.asr.model;
+            if (config.asr.lang) document.querySelector('[name="asr.whisper.lang"]').value = config.asr.lang;
+            if (config.asr.prompt) document.querySelector('[name="asr.whisper.prompt"]').value = config.asr.prompt;
+            if (config.asr.vad_url) document.querySelector('[name="asr.whisper.vad_url"]').value = config.asr.vad_url;
+            if (config.asr.vad_realtime_url) document.querySelector('[name="asr.whisper.vad_realtime_url"]').value = config.asr.vad_realtime_url;
+          } else if (asrPlatform === 'paraformer_v2') {
+            if (config.asr.url) document.querySelector('[name="asr.paraformer.url"]').value = config.asr.url;
+            if (config.asr.paraformer_token) document.querySelector('[name="asr.paraformer.paraformer_token"]').value = config.asr.paraformer_token;
+          }
+        }
+
+        showToast('Configuration imported successfully!', 'success');
+      } catch (error) {
+        console.error('TOML parsing error:', error);
+        showToast('TOML parsing failed: ' + error.message, 'error');
+      }
+    }
+  </script>
+</body>
+
+</html>
