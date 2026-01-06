@@ -122,7 +122,7 @@ pub fn get_samples_f32(reader: &mut wav_io::reader::Reader) -> Result<Vec<f32>, 
                             attribute: "bits per float sample",
                             expected: &[32, 64],
                             found: h.bits_per_sample as u32,
-                        })
+                        });
                     }
                 }
             }
@@ -163,7 +163,7 @@ pub fn get_samples_f32(reader: &mut wav_io::reader::Reader) -> Result<Vec<f32>, 
                             attribute: "bits per integer sample",
                             expected: &[8, 16, 24, 32],
                             found: h.bits_per_sample as u32,
-                        })
+                        });
                     }
                 }
             }
@@ -231,7 +231,7 @@ pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, 
                         attribute: "bits per float sample",
                         expected: &[32, 64],
                         found: h.bits_per_sample as u32,
-                    })
+                    });
                 }
             },
             // int
@@ -271,7 +271,7 @@ pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, 
                         attribute: "bits per integer sample",
                         expected: &[8, 16, 24, 32],
                         found: h.bits_per_sample as u32,
-                    })
+                    });
                 }
             },
             _ => return Err(DecodeError::UnsupportedEncoding),

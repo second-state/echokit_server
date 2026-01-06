@@ -1,6 +1,6 @@
 use bytes::{BufMut, Bytes};
 
-use crate::config::{ElevenlabsTTS, FishTTS, GroqTTS, OpenaiTTS, StreamGSV, GSVTTS};
+use crate::config::{ElevenlabsTTS, FishTTS, GSVTTS, GroqTTS, OpenaiTTS, StreamGSV};
 
 pub type TTSRequest = (String, TTSResponseTx);
 
