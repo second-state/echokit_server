@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use axum::{
+    Extension,
     extract::{Path, Query, WebSocketUpgrade},
     response::{IntoResponse, Response},
-    Extension,
 };
 
 pub mod file;
@@ -19,6 +19,8 @@ pub struct ConnectQueryParams {
     record: bool,
     #[serde(default)]
     opus: bool,
+    #[serde(default)]
+    vowel: bool,
 }
 
 pub async fn v2_mixed_handler(
@@ -40,6 +42,7 @@ pub async fn v2_mixed_handler(
             Query(ws::ConnectQueryParams {
                 reconnect: params.reconnect,
                 opus: params.opus,
+                vowel: params.vowel,
             }),
         )
         .await

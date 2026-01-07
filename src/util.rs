@@ -65,6 +65,15 @@ pub fn convert_samples_f32_to_i16_bytes(samples: &[f32]) -> Vec<u8> {
     samples_i16
 }
 
+pub fn convert_samples_i16_to_f32(samples: &[i16]) -> Vec<f32> {
+    let mut samples_f32 = Vec::with_capacity(samples.len());
+    for v in samples {
+        let sample = (*v as f32) / (std::i16::MAX as f32);
+        samples_f32.push(sample);
+    }
+    samples_f32
+}
+
 pub fn get_samples_f32(reader: &mut wav_io::reader::Reader) -> Result<Vec<f32>, DecodeError> {
     let mut result: Vec<f32> = Vec::new();
     loop {

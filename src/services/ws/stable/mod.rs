@@ -1,17 +1,20 @@
 use std::{collections::HashMap, sync::Arc};
 
 use axum::{
+    Extension,
     extract::{Path, Query, WebSocketUpgrade},
     response::IntoResponse,
-    Extension,
 };
 
 use crate::{
     ai::openai::tool::{McpToolAdapter, ToolSet},
     config::{ASRConfig, LLMConfig, TTSConfig},
-    services::ws::stable::{
-        llm::{ChunksRx, LLMConfigExt, LLMExt},
-        tts::TTSRequestTx,
+    services::ws::{
+        self,
+        stable::{
+            llm::{ChunksRx, LLMConfigExt, LLMExt},
+            tts::TTSRequestTx,
+        },
     },
 };
 
@@ -72,7 +75,16 @@ async fn handle_socket(
         })
         .map_err(|e| anyhow::anyhow!("send session error: {}", e))?;
 
-    super::process_socket_io(&mut cmd_rx, client_tx, &mut socket, params.opus).await?;
+    super::process_socket_io(
+        &mut cmd_rx,
+        client_tx,
+        &mut socket,
+        ws::ConnectConfig {
+            enable_opus: params.opus,
+            vowel: params.vowel,
+        },
+    )
+    .await?;
     Ok(())
 }
 

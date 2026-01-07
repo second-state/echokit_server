@@ -63,6 +63,8 @@ pub struct ConnectQueryParams {
     pub reconnect: bool,
     #[serde(default)]
     pub opus: bool,
+    #[serde(default)]
+    pub vowel: bool,
 }
 
 enum WsEvent {
@@ -204,72 +206,6 @@ pub async fn get_whisper_asr_text(
     }
 }
 
-pub async fn get_paraformer_v2_text(
-    id: &str,
-    asr: &crate::config::ParaformerV2AsrConfig,
-    audio: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
-) -> anyhow::Result<String> {
-    let paraformer_token = asr.paraformer_token.clone();
-    let paraformer_url = asr.url.clone();
-    let mut asr: Option<crate::ai::bailian::realtime_asr::ParaformerRealtimeV2Asr> = None;
-    loop {
-        while let Some(chunk) = audio.recv().await {
-            match chunk {
-                ClientMsg::Text(input) => {
-                    return Ok(input);
-                }
-                ClientMsg::AudioChunk(data) => {
-                    if let Some(asr) = asr.as_mut() {
-                        asr.send_audio(data).await.map_err(|e| {
-                            anyhow::anyhow!("`{id}` error sending paraformer asr audio: {e}")
-                        })?;
-                    }
-                }
-                ClientMsg::Submit => {
-                    break;
-                }
-                ClientMsg::StartChat => {
-                    log::info!("`{id}` starting paraformer asr");
-                    let mut paraformer_asr =
-                        crate::ai::bailian::realtime_asr::ParaformerRealtimeV2Asr::connect(
-                            &paraformer_url,
-                            paraformer_token.clone(),
-                            16000,
-                        )
-                        .await?;
-
-                    paraformer_asr.start_pcm_recognition().await.map_err(|e| {
-                        anyhow::anyhow!("`{id}` error starting paraformer asr: {e}")
-                    })?;
-                    asr = Some(paraformer_asr);
-                    continue;
-                }
-            }
-        }
-
-        if let Some(mut asr) = asr.take() {
-            asr.finish_task()
-                .await
-                .map_err(|e| anyhow::anyhow!("`{id}` error finishing paraformer asr task: {e}"))?;
-            let mut text = String::new();
-            while let Some(sentence) = asr
-                .next_result()
-                .await
-                .map_err(|e| anyhow::anyhow!("`{id}` error getting paraformer asr result: {e}"))?
-            {
-                if sentence.sentence_end {
-                    text = sentence.text;
-                    log::info!("ASR final result: {:?}", text);
-                    break;
-                }
-            }
-            return Ok(text);
-        } else {
-            return Err(anyhow::anyhow!("`{id}` no paraformer asr session"));
-        }
-    }
-}
-
 pub enum ClientMsg {
     StartChat,
     /// 16000 16bit le
@@ -278,12 +214,17 @@ pub enum ClientMsg {
     Text(String),
 }
 
+pub struct ConnectConfig {
+    pub enable_opus: bool,
+    pub vowel: bool,
+}
+
 // return: wav data
 async fn process_socket_io(
     rx: &mut WsRx,
     audio_tx: ClientTx,
     socket: &mut WebSocket,
-    enable_opus: bool,
+    config: ConnectConfig,
 ) -> anyhow::Result<()> {
     let mut opus_encoder =
         opus::Encoder::new(SAMPLE_RATE, opus::Channels::Mono, opus::Application::Voip)
@@ -305,9 +246,15 @@ async fn process_socket_io(
 
         match r {
             Some(WsEvent::Command(cmd)) => {
-                if enable_opus {
-                    process_command_with_opus(socket, cmd, &mut opus_encoder, &mut ret_audio)
-                        .await?
+                if config.enable_opus {
+                    process_command_with_opus(
+                        socket,
+                        cmd,
+                        &mut opus_encoder,
+                        &mut ret_audio,
+                        config.vowel,
+                    )
+                    .await?
                 } else {
                     process_command(socket, cmd).await?
                 }
@@ -424,11 +371,28 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
     Ok(())
 }
 
+fn vowel_from_i16(samples: &[i16]) -> Option<lip_sync::vowel::Vowel> {
+    let samples = crate::util::convert_samples_i16_to_f32(&samples[..1024]);
+    lip_sync::vowel::recognize_vowel_from_pcm(&samples, SAMPLE_RATE)
+}
+
+fn vowel_to_u8(vowel: Option<lip_sync::vowel::Vowel>) -> u8 {
+    match vowel {
+        Some(lip_sync::vowel::Vowel::A) => 1,
+        Some(lip_sync::vowel::Vowel::E) => 2,
+        Some(lip_sync::vowel::Vowel::I) => 3,
+        Some(lip_sync::vowel::Vowel::O) => 4,
+        Some(lip_sync::vowel::Vowel::U) => 5,
+        _ => 0,
+    }
+}
+
 async fn process_command_with_opus(
     ws: &mut WebSocket,
     cmd: WsCommand,
     opus_encode: &mut opus::Encoder,
     ret_audio: &mut Vec<i16>,
+    vowel: bool,
 ) -> anyhow::Result<()> {
     match cmd {
         WsCommand::AsrResult(texts) => {
@@ -465,17 +429,35 @@ async fn process_command_with_opus(
             }
 
             // 120ms per chunk
-            for chunk in ret_audio.chunks(sample_120ms(SAMPLE_RATE)) {
-                if chunk.len() < sample_120ms(SAMPLE_RATE) {
+            for chunk in ret_audio.chunks(SAMPLE_RATE_120MS) {
+                if chunk.len() < SAMPLE_RATE_120MS {
                     *ret_audio = chunk.to_vec();
                     break;
                 }
-                let data = opus_encode.encode_vec(chunk, 2 * sample_120ms(SAMPLE_RATE) / 3)?;
+                let vowel_u8;
+                if vowel {
+                    let v = vowel_from_i16(chunk);
+                    vowel_u8 = vowel_to_u8(v);
+                } else {
+                    vowel_u8 = 0;
+                }
 
-                let audio_chunk =
-                    rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunk { data })
-                        .expect("Failed to serialize AudioChunk ServerEvent");
-                ws.send(Message::binary(audio_chunk)).await?;
+                let data = opus_encode.encode_vec(chunk, 2 * SAMPLE_RATE_120MS / 3)?;
+
+                if vowel {
+                    let audio_chunk =
+                        rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunkWithVowel {
+                            data,
+                            vowel: vowel_u8,
+                        })
+                        .expect("Failed to serialize AudioChunkWithVowel ServerEvent");
+                    ws.send(Message::binary(audio_chunk)).await?;
+                } else {
+                    let audio_chunk =
+                        rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunk { data })
+                            .expect("Failed to serialize AudioChunk ServerEvent");
+                    ws.send(Message::binary(audio_chunk)).await?;
+                }
             }
 
             ret_audio.clear();
@@ -483,14 +465,34 @@ async fn process_command_with_opus(
         WsCommand::EndAudio => {
             log::trace!("EndAudio");
             if !ret_audio.is_empty() {
-                let padded_audio_len = sample_120ms(SAMPLE_RATE) - ret_audio.len();
+                let padded_audio_len = SAMPLE_RATE_120MS - ret_audio.len();
                 ret_audio.extend(std::iter::repeat(0i16).take(padded_audio_len));
-                let data = opus_encode.encode_vec(&ret_audio, 2 * sample_120ms(SAMPLE_RATE) / 3)?;
-                let audio_chunk =
-                    rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunk { data })
-                        .expect("Failed to serialize AudioChunk ServerEvent");
-                log::info!("Sending final audio chunk of size: {}", audio_chunk.len());
-                ws.send(Message::binary(audio_chunk)).await?;
+
+                let vowel_u8;
+                if vowel {
+                    let v = vowel_from_i16(ret_audio);
+                    vowel_u8 = vowel_to_u8(v);
+                } else {
+                    vowel_u8 = 0;
+                }
+
+                let data = opus_encode.encode_vec(&ret_audio, 2 * SAMPLE_RATE_120MS / 3)?;
+                if vowel {
+                    let audio_chunk =
+                        rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunkWithVowel {
+                            data,
+                            vowel: vowel_u8,
+                        })
+                        .expect("Failed to serialize AudioChunkWithVowel ServerEvent");
+                    log::info!("Sending final audio chunk of size: {}", audio_chunk.len());
+                    ws.send(Message::binary(audio_chunk)).await?;
+                } else {
+                    let audio_chunk =
+                        rmp_serde::to_vec(&crate::protocol::ServerEvent::AudioChunk { data })
+                            .expect("Failed to serialize AudioChunk ServerEvent");
+                    log::info!("Sending final audio chunk of size: {}", audio_chunk.len());
+                    ws.send(Message::binary(audio_chunk)).await?;
+                }
                 ret_audio.clear();
             }
             let end_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndAudio)
