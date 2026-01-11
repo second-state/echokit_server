@@ -136,12 +136,6 @@ async fn recv_audio_to_wav(
         },
     );
 
-    if std::option_env!("DEBUG_WAV").is_some() {
-        if let Err(e) = std::fs::write("./recv_wav.wav", &wav_audio) {
-            log::error!("write recv_wav.wav error: {e}");
-        }
-    }
-
     Ok(wav_audio)
 }
 
@@ -231,6 +225,10 @@ async fn process_socket_io(
             .map_err(|e| anyhow::anyhow!("opus encoder error: {e}"))?;
     let mut ret_audio = Vec::with_capacity(sample_120ms(SAMPLE_RATE));
 
+    const DEBUG_WAV: bool = std::option_env!("DEBUG_WAV").is_some();
+
+    let mut debug_wav_data = bytes::BytesMut::new();
+
     loop {
         let r = tokio::select! {
             cmd = rx.recv() => {
@@ -260,14 +258,33 @@ async fn process_socket_io(
                 }
             }
             Some(WsEvent::Message(Ok(msg))) => match process_message(msg) {
-                ProcessMessageResult::Audio(d) => audio_tx
-                    .send(ClientMsg::AudioChunk(d))
-                    .await
-                    .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
-                ProcessMessageResult::Submit => audio_tx
-                    .send(ClientMsg::Submit)
-                    .await
-                    .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
+                ProcessMessageResult::Audio(d) => {
+                    if DEBUG_WAV {
+                        debug_wav_data.extend_from_slice(&d);
+                    }
+                    audio_tx
+                        .send(ClientMsg::AudioChunk(d))
+                        .await
+                        .map_err(|_| anyhow::anyhow!("audio_tx closed"))?
+                }
+                ProcessMessageResult::Submit => {
+                    audio_tx
+                        .send(ClientMsg::Submit)
+                        .await
+                        .map_err(|_| anyhow::anyhow!("audio_tx closed"))?;
+                    if DEBUG_WAV {
+                        let wav_data = crate::util::pcm_to_wav(
+                            &debug_wav_data,
+                            WavConfig {
+                                channels: 1,
+                                sample_rate: 16000,
+                                bits_per_sample: 16,
+                            },
+                        );
+                        std::fs::write("./recv_input.wav", wav_data)?;
+                        debug_wav_data.clear();
+                    }
+                }
                 ProcessMessageResult::Text(input) => audio_tx
                     .send(ClientMsg::Text(input))
                     .await
