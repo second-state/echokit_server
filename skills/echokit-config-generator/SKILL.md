@@ -3,7 +3,7 @@ name: EchoKit Config Generator
 description: Generate config.toml for EchoKit servers with interactive setup for ASR, TTS, LLM services, and MCP servers
 version: 1.1.0
 author: "EchoKit Config Generator Contributors"
-repository: "https://github.com/YOUR_USERNAME/echokit-config-skill"
+repository: "https://github.com/second-state/echokit_server/tree/alabulei1-patch-7/skills/echokit-config-generator"
 ---
 
 # EchoKit Config Generator
