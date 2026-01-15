@@ -23,18 +23,7 @@ Generate `config.toml` files for EchoKit servers through an **interactive 4-phas
 
 ### Installation
 
-This SKILL can be installed in two ways:
-
-#### Option A: Standalone Installation (from this repository)
-
-```bash
-# Clone to your Claude skills directory
-git clone https://github.com/YOUR_USERNAME/echokit-config-skill.git ~/.claude/skills/echokit-config-generator
-```
-
-#### Option B: From echokit_server repository
-
-If this SKILL is included in the [echokit_server](https://github.com/second-state/echokit_server) repository:
+This SKILL can be installed in the following ways:
 
 ```bash
 # Clone echokit_server
@@ -64,13 +53,6 @@ Or be more specific:
 "Create an EchoKit server configuration for a coding helper using Groq"
 ```
 
-Or even:
-
-```
-"Set up EchoKit server with DeepSeek LLM and custom TTS"
-```
-
----
 
 ## 🎯 Key Features
 
@@ -225,7 +207,7 @@ You: [Enter]
 
 ## 🏗️ Supported Platforms
 
-### ASR (Speech Recognition)
+### ASR (Speech Recognition): Any OpenAI-compatible
 
 | Platform | Model | Notes |
 |----------|-------|-------|
@@ -242,7 +224,7 @@ You: [Enter]
 | GPT-SoVITS | Custom | Local streaming |
 | **Custom** | Any | Auto-discovered via WebSearch |
 
-### LLM (Chat)
+### LLM (Chat): Any OpenAI-chat and OpenAI-responses compatible
 
 | Platform | Models | Notes |
 |----------|--------|-------|
