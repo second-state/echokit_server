@@ -1,0 +1,26 @@
+openai:
+  name: "OpenAI TTS"
+  platform: "openai"
+  url: "https://api.openai.com/v1/audio/speech"
+  model: "gpt-4o-mini-tts"
+  voice: "ash"
+  api_key_url: "https://platform.openai.com/api-keys"
+  notes: "Multiple voices available: alloy, echo, fable, onyx, nova, shimmer"
+
+elevenlabs:
+  name: "ElevenLabs Streaming TTS"
+  platform: "elevenlabs"
+  url: "wss://api.elevenlabs.io/v1/text-to-speech/"
+  model: "eleven_multilingual_v2"
+  voice: "21m00Tcm4TlvDq8ikWAM"
+  api_key_url: "https://elevenlabs.io/app/settings/api-keys"
+  notes: "Premium quality streaming TTS via WebSocket, requires voice ID from dashboard"
+
+gpt_sovits:
+  name: "GPT-SoVITS (Local Streaming)"
+  platform: "streaming"
+  url: "http://localhost:9880"
+  model: "default"
+  voice: "default"
+  api_key_url: "Not required (local deployment)"
+  notes: "Free and local streaming TTS, requires GPT-SoVITS server running on port 9880"

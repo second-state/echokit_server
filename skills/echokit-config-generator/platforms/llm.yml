@@ -1,0 +1,17 @@
+openai_chat:
+  name: "OpenAI Chat"
+  platform: "openai_chat"
+  url: "https://api.openai.com/v1/chat/completions"
+  model: "gpt-4o-mini"
+  history: 5
+  api_key_url: "https://platform.openai.com/api-keys"
+  notes: "Most compatible, fast and cost-effective"
+
+openai_response:
+  name: "OpenAI Responses API"
+  platform: "openai_response"
+  url: "https://api.openai.com/v1/responses"
+  model: "gpt-4o-mini"
+  history: 5
+  api_key_url: "https://platform.openai.com/api-keys"
+  notes: "OpenAI Responses API for streaming interactions"
