@@ -1,0 +1,46 @@
+# Coding Assistant Configuration
+# Purpose: Programming and technical assistance
+# Generated: 2025-01-13
+
+addr = "0.0.0.0:8080"
+hello_wav = "hello.wav"
+
+[asr]
+platform = "openai"
+url = "https://api.openai.com/v1/audio/transcriptions"
+api_key = "YOUR_API_KEY_HERE"
+model = "gpt-4o-mini-transcribe"
+lang = "en"
+
+[tts]
+platform = "elevenlabs"
+url = "wss://api.elevenlabs.io/v1/text-to-speech/"
+api_key = "YOUR_API_KEY_HERE"
+model = "eleven_multilingual_v2"
+voice = "21m00Tcm4TlvDq8ikWAM"
+
+[llm]
+platform = "openai_chat"
+url = "https://api.openai.com/v1/chat/completions"
+api_key = "YOUR_API_KEY_HERE"
+model = "gpt-4o-mini"
+history = 10
+
+[[llm.sys_prompts]]
+role = "system"
+content = """
+You are a professional and expert AI assistant for programming and technical assistance.
+
+## Your Behavior
+- Provide clear, concise technical explanations
+- Include code examples when helpful
+- Suggest best practices and design patterns
+- Ask clarifying questions about technical requirements
+- Explain trade-offs when different approaches exist
+
+## Constraints
+- Use markdown code blocks for all code
+- Explain trade-offs when suggesting approaches
+- Never guess - say when you're uncertain about something
+- Maintain professional and expert tone
+"""

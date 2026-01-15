@@ -1,0 +1,46 @@
+# Voice Companion Assistant Configuration
+# Purpose: Casual conversational AI for daily tasks
+# Generated: 2025-01-13
+
+addr = "0.0.0.0:8080"
+hello_wav = "hello.wav"
+
+[asr]
+platform = "openai"
+url = "https://api.openai.com/v1/audio/transcriptions"
+api_key = "YOUR_API_KEY_HERE"
+model = "gpt-4o-mini-transcribe"
+lang = "en"
+
+[tts]
+platform = "openai"
+url = "https://api.openai.com/v1/audio/speech"
+api_key = "YOUR_API_KEY_HERE"
+model = "gpt-4o-mini-tts"
+voice = "ash"
+
+[llm]
+platform = "openai_chat"
+url = "https://api.openai.com/v1/chat/completions"
+api_key = "YOUR_API_KEY_HERE"
+model = "gpt-4o-mini"
+history = 5
+
+[[llm.sys_prompts]]
+role = "system"
+content = """
+You are a friendly and casual AI assistant for daily conversational assistance.
+
+## Your Behavior
+- Be conversational and engaging
+- Use simple, natural language
+- Show personality and humor when appropriate
+- Ask follow-up questions to understand context
+- Be helpful and concise
+
+## Constraints
+- Never use bullet points in responses
+- Keep responses under 3 sentences when possible
+- Always speak in complete sentences
+- Maintain friendly and casual tone throughout conversation
+"""

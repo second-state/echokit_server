@@ -1,0 +1,15 @@
+openai:
+  name: "OpenAI Whisper"
+  platform: "openai"
+  url: "https://api.openai.com/v1/audio/transcriptions"
+  model: "gpt-4o-mini-transcribe"
+  api_key_url: "https://platform.openai.com/api-keys"
+  notes: "Best accuracy, requires OpenAI account with API access"
+
+whisper_local:
+  name: "Local Whisper"
+  platform: "whisper"
+  url: "http://localhost:8080/transcribe"
+  model: "base"
+  api_key_url: "Not required (local deployment)"
+  notes: "Free and private, requires local whisper server running"
