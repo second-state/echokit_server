@@ -10,8 +10,8 @@ impl crate::config::TTSTextOptimizationConfig {
             .to_lowercase()
             .as_str()
         {
-            "en" => Self::default_prompt_en(),
-            _ => Self::default_prompt_zh(),
+            "zh" => Self::default_prompt_zh(),
+            _ => Self::default_prompt_en(),
         }
     }
 
