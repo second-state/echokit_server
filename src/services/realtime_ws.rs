@@ -1,5 +1,5 @@
 use axum::{
-    extract::{ws::WebSocket, Extension, WebSocketUpgrade},
+    extract::{Extension, WebSocketUpgrade, ws::WebSocket},
     response::IntoResponse,
 };
 use base64::Engine;
@@ -14,11 +14,11 @@ use uuid::Uuid;
 
 use crate::{
     ai::{
+        ChatSession,
         bailian::cosyvoice,
         elevenlabs,
         openai::realtime::*,
         vad::{VadRealtimeClient, VadRealtimeEvent},
-        ChatSession,
     },
     config::*,
 };
@@ -1174,8 +1174,15 @@ async fn tts_and_send(
     let client = reqwest::Client::new();
     match tts_config {
         crate::config::TTSConfig::GSV(tts) => {
-            let wav_data =
-                crate::ai::tts::gsv(&client, &tts.url, &tts.speaker, &text, Some(24000)).await?;
+            let wav_data = crate::ai::tts::gsv(
+                &client,
+                &tts.url,
+                &tts.speaker,
+                &text,
+                Some(24000),
+                tts.text_optimization.as_ref(),
+            )
+            .await?;
             let duration_sec = send_wav(tx, response_id, item_id, text, wav_data).await?;
             log::info!("Stable TTS duration: {:?}", duration_sec);
             Ok(())
@@ -1222,6 +1229,7 @@ async fn tts_and_send(
                 &stream_tts.speaker,
                 &text,
                 Some(24000),
+                stream_tts.text_optimization.as_ref(),
             )
             .await?;
 
