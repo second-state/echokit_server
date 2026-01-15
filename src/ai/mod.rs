@@ -159,52 +159,51 @@ pub enum StableLLMResponseChunk {
 pub struct StableLlmResponse {
     stopped: bool,
     response: reqwest::Response,
-    string_buffer: String,
+    text_splitter: TextSplitter,
+    first_chunk: bool,
 }
 
 impl StableLlmResponse {
     const CHUNK_SIZE: usize = 50;
 
     fn return_string_buffer(&mut self) -> anyhow::Result<StableLLMResponseChunk> {
-        self.stopped = true;
-        if !self.string_buffer.is_empty() {
-            let mut new_str = String::new();
-            std::mem::swap(&mut new_str, &mut self.string_buffer);
-            return Ok(StableLLMResponseChunk::Text(new_str));
+        self.text_splitter.flush_buffer();
+        let mut ss = String::new();
+
+        while let Some(s) = self.text_splitter.result.pop_front() {
+            ss.push_str(&s);
+            if ss.len() >= Self::CHUNK_SIZE {
+                return Ok(StableLLMResponseChunk::Text(ss));
+            }
+        }
+
+        if !ss.is_empty() {
+            Ok(StableLLMResponseChunk::Text(ss))
         } else {
-            return Ok(StableLLMResponseChunk::Stop);
+            self.stopped = true;
+            Ok(StableLLMResponseChunk::Stop)
         }
     }
 
-    fn push_str(string_buffer: &mut String, s: &str) -> Option<String> {
-        let mut ret = s;
-
-        loop {
-            if let Some(i) = ret.find(&['.', '!', '?', ';', '。', '！', '？', '；', '\n']) {
-                let ((chunk, ret_), char_len) = if ret.is_char_boundary(i + 1) {
-                    (ret.split_at(i + 1), 1)
-                } else {
-                    (ret.split_at(i + 3), 3)
-                };
-
-                string_buffer.push_str(chunk);
-                ret = ret_;
-                if ret.chars().next().is_some_and(|c| c.is_numeric()) {
-                    continue;
-                }
-                if char_len == 1 && ret.len() > 0 && !ret.starts_with(&[' ', '\n']) {
-                    continue;
-                }
-
-                if string_buffer.len() > Self::CHUNK_SIZE || string_buffer.ends_with("\n") {
-                    let mut new_str = ret.to_string();
-                    std::mem::swap(&mut new_str, string_buffer);
-                    return Some(new_str);
-                }
+    fn push_str(&mut self, s: &str) -> Option<String> {
+        self.text_splitter.push_chunk(s);
+        if !self.text_splitter.result.is_empty() {
+            if self.first_chunk {
+                self.first_chunk = false;
+                return self.text_splitter.result.pop_front();
             } else {
-                string_buffer.push_str(ret);
-                return None;
+                let mut s = self.text_splitter.result.pop_front().unwrap();
+                while s.len() < Self::CHUNK_SIZE {
+                    if let Some(next) = self.text_splitter.result.pop_front() {
+                        s.push_str(&next);
+                    } else {
+                        break;
+                    }
+                }
+                Some(s)
             }
+        } else {
+            None
         }
     }
 
@@ -260,7 +259,7 @@ impl StableLlmResponse {
             log::trace!("llm response tools: {:#?}", tools);
 
             if tools.is_empty() {
-                if let Some(new_str) = Self::push_str(&mut self.string_buffer, &chunks) {
+                if let Some(new_str) = self.push_str(&chunks) {
                     log::trace!("llm response text: {new_str}");
                     return Ok(StableLLMResponseChunk::Text(new_str));
                 }
@@ -274,31 +273,17 @@ impl StableLlmResponse {
 
 #[test]
 fn test_push_str() {
-    let mut string_buffer = String::new();
-    let s = StableLlmResponse::push_str(&mut string_buffer, "Hello world!");
-    println!("string_buffer: {string_buffer}");
-    println!("s: {s:?}");
-    let s = StableLlmResponse::push_str(&mut string_buffer, " This is a test.");
-    println!("string_buffer: {string_buffer}");
-    println!("s: {s:?}");
-    let s = StableLlmResponse::push_str(
-        &mut string_buffer,
-        " This is a long test string that my email is example@gmail.com .",
-    );
-    println!("string_buffer: {string_buffer}");
-    println!("s: {s:?}");
-    let s = StableLlmResponse::push_str(
-        &mut string_buffer,
+    let mut string_buffer = TextSplitter::new();
+    string_buffer.push_chunk("Hello world!");
+    string_buffer.push_chunk(" This is a test.");
+    string_buffer.push_chunk(" This is a long test string that my email is example@gmail.com. ");
+    string_buffer.push_chunk(
         "This is a long test string that should be split into multiple chunks. It contains several sentences, and it should be able to handle punctuation marks like periods, exclamation points, and question marks. Let's see how it works with different types of sentences!",
     );
-    println!("string_buffer: {string_buffer}");
-    println!("s: {s:?}");
-    let s = StableLlmResponse::push_str(
-        &mut string_buffer,
+    string_buffer.push_chunk(
         "One thousand is 1,000, and two thousand is 2,000. This should be handled correctly.",
     );
-    println!("string_buffer: {string_buffer}");
-    println!("s: {s:?}");
+    println!("s: {:#?}", string_buffer.finish());
 }
 
 pub mod llm {
@@ -527,8 +512,9 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
 
     Ok(StableLlmResponse {
         stopped: false,
+        first_chunk: true,
         response,
-        string_buffer: String::new(),
+        text_splitter: TextSplitter::new(),
     })
 }
 
@@ -1223,10 +1209,16 @@ impl ResponsesSession {
         let mut extra = self.extra.clone().unwrap_or(serde_json::json!({}));
         merge_tool_into_extra(&mut extra, &tools);
 
+        let (instructions, previous_response_id) = if self.previous_response_id.is_empty() {
+            (self.instructions.as_str(), "")
+        } else {
+            ("", self.previous_response_id.as_str())
+        };
+
         let req = ResponsesChatRequest {
             model: &self.model,
-            instructions: &self.instructions,
-            previous_response_id: &self.previous_response_id,
+            instructions,
+            previous_response_id,
             input,
             extra,
             stream: true,
@@ -1278,10 +1270,16 @@ impl ResponsesSession {
         let mut extra = self.extra.clone().unwrap_or(serde_json::json!({}));
         merge_tool_into_extra(&mut extra, &tools);
 
+        let (instructions, previous_response_id) = if self.previous_response_id.is_empty() {
+            (self.instructions.as_str(), "")
+        } else {
+            ("", self.previous_response_id.as_str())
+        };
+
         let req = ResponsesChatRequest {
             model: &self.model,
-            instructions: &self.instructions,
-            previous_response_id: &self.previous_response_id,
+            instructions,
+            previous_response_id,
             input: "",
             extra,
             stream: true,
@@ -1840,7 +1838,6 @@ mod tests {
 #[derive(Debug)]
 pub struct TextSplitter {
     buffer: String,
-    in_single_quote: bool,
     in_double_quote: bool,
     prev_char: char,
     end_with_english_terminator: bool,
@@ -1852,7 +1849,6 @@ impl TextSplitter {
     pub fn new() -> Self {
         Self {
             buffer: String::new(),
-            in_single_quote: false,
             in_double_quote: false,
             prev_char: ' ',
             result: LinkedList::new(),
@@ -1862,7 +1858,7 @@ impl TextSplitter {
     }
 
     fn is_in_quotes(&self) -> bool {
-        self.in_single_quote || self.in_double_quote
+        self.in_double_quote
     }
 
     fn is_english_terminator(c: char) -> bool {
@@ -1911,7 +1907,7 @@ impl TextSplitter {
                     prev_char = c;
                     continue;
                 } else {
-                    if prev_char == '.' || prev_char == ',' {
+                    if prev_char == '.' {
                         end_with_english_terminator = false;
                     } else {
                         if self.is_in_quotes() {
@@ -1928,17 +1924,11 @@ impl TextSplitter {
                 continue;
             }
 
-            if c == '‘' || c == '’' {
-                c = '\'';
-            }
             if c == '“' || c == '”' {
                 c = '"';
             }
 
             match c {
-                '\'' => {
-                    self.in_single_quote = !self.in_single_quote;
-                }
                 '"' => {
                     self.in_double_quote = !self.in_double_quote;
                 }
@@ -1948,7 +1938,7 @@ impl TextSplitter {
             self.buffer.push(c);
             prev_char = c;
 
-            if (c == '\'' && !self.in_single_quote) || (c == '"' && !self.in_double_quote) {
+            if c == '"' && !self.in_double_quote {
                 if end_with_english_terminator {
                     self.flush_buffer();
                     end_with_english_terminator = false;
