@@ -3,9 +3,9 @@ use std::collections::LinkedList;
 use openai::tool::{McpToolAdapter, ToolSet};
 use reqwest::multipart::Part;
 use rmcp::{
+    ServiceExt,
     model::{ClientCapabilities, ClientInfo, Implementation},
     transport::{SseClientTransport, StreamableHttpClientTransport},
-    ServiceExt,
 };
 
 /// 阿里百炼
@@ -287,7 +287,10 @@ fn test_push_str() {
     );
     println!("string_buffer: {string_buffer}");
     println!("s: {s:?}");
-    let s = StableLlmResponse::push_str(&mut string_buffer, "This is a long test string that should be split into multiple chunks. It contains several sentences, and it should be able to handle punctuation marks like periods, exclamation points, and question marks. Let's see how it works with different types of sentences!");
+    let s = StableLlmResponse::push_str(
+        &mut string_buffer,
+        "This is a long test string that should be split into multiple chunks. It contains several sentences, and it should be able to handle punctuation marks like periods, exclamation points, and question marks. Let's see how it works with different types of sentences!",
+    );
     println!("string_buffer: {string_buffer}");
     println!("s: {s:?}");
     let s = StableLlmResponse::push_str(
@@ -1831,5 +1834,300 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct TextSplitter {
+    buffer: String,
+    in_single_quote: bool,
+    in_double_quote: bool,
+    prev_char: char,
+    end_with_english_terminator: bool,
+    end_with_chinese_terminator: bool,
+    result: LinkedList<String>,
+}
+
+impl TextSplitter {
+    pub fn new() -> Self {
+        Self {
+            buffer: String::new(),
+            in_single_quote: false,
+            in_double_quote: false,
+            prev_char: ' ',
+            result: LinkedList::new(),
+            end_with_english_terminator: false,
+            end_with_chinese_terminator: false,
+        }
+    }
+
+    fn is_in_quotes(&self) -> bool {
+        self.in_single_quote || self.in_double_quote
+    }
+
+    fn is_english_terminator(c: char) -> bool {
+        matches!(c, '.' | '!' | '?' | ';')
+    }
+
+    fn is_chinese_terminator(c: char) -> bool {
+        matches!(c, '。' | '！' | '？' | '；')
+    }
+
+    fn is_newline(c: char) -> bool {
+        c == '\n'
+    }
+
+    fn is_whitespace(c: char) -> bool {
+        matches!(c, ' ' | '\t' | '\r')
+    }
+
+    fn flush_buffer(&mut self) {
+        if !self.buffer.is_empty() {
+            if !self.buffer.trim().is_empty() {
+                self.result.push_back(self.buffer.clone());
+            }
+            self.buffer.clear();
+        }
+    }
+
+    pub fn push_chunk(&mut self, chunk: &str) {
+        let mut prev_char = self.prev_char;
+        let mut end_with_english_terminator = self.end_with_english_terminator;
+        let mut end_with_chinese_terminator = self.end_with_chinese_terminator;
+
+        for mut c in chunk.chars() {
+            // println!(
+            //     "prev_char={prev_char:?} end_with_english_terminator={end_with_english_terminator} end_with_chinese_terminator={end_with_chinese_terminator} c={c:?} buffer=[{:?}] result=[{:?}]",
+            //     self.buffer, self.result
+            // );
+
+            if end_with_english_terminator {
+                if c == ' ' {
+                    self.buffer.push(c);
+                    if self.is_in_quotes() {
+                    } else {
+                        self.flush_buffer();
+                    }
+                    prev_char = c;
+                    continue;
+                } else {
+                    if prev_char == '.' || prev_char == ',' {
+                        end_with_english_terminator = false;
+                    } else {
+                        if self.is_in_quotes() {
+                        } else {
+                            self.flush_buffer();
+                            end_with_english_terminator = false;
+                        }
+                    }
+                }
+            }
+
+            if Self::is_whitespace(c) && self.buffer.is_empty() {
+                prev_char = c;
+                continue;
+            }
+
+            if c == '‘' || c == '’' {
+                c = '\'';
+            }
+            if c == '“' || c == '”' {
+                c = '"';
+            }
+
+            match c {
+                '\'' => {
+                    self.in_single_quote = !self.in_single_quote;
+                }
+                '"' => {
+                    self.in_double_quote = !self.in_double_quote;
+                }
+                _ => {}
+            }
+
+            self.buffer.push(c);
+            prev_char = c;
+
+            if (c == '\'' && !self.in_single_quote) || (c == '"' && !self.in_double_quote) {
+                if end_with_english_terminator {
+                    self.flush_buffer();
+                    end_with_english_terminator = false;
+                    continue;
+                }
+                if end_with_chinese_terminator {
+                    self.flush_buffer();
+                    end_with_chinese_terminator = false;
+                    continue;
+                }
+            }
+
+            if Self::is_newline(c) {
+                self.flush_buffer();
+                continue;
+            }
+
+            if Self::is_chinese_terminator(c) {
+                if self.is_in_quotes() {
+                    end_with_chinese_terminator = true;
+                } else {
+                    self.flush_buffer();
+                }
+                continue;
+            }
+
+            if Self::is_english_terminator(c) {
+                end_with_english_terminator = true;
+            }
+        }
+
+        self.prev_char = prev_char;
+        self.end_with_english_terminator = end_with_english_terminator;
+        self.end_with_chinese_terminator = end_with_chinese_terminator;
+    }
+
+    pub fn finish(mut self) -> LinkedList<String> {
+        self.flush_buffer();
+        self.result
+    }
+
+    pub fn get_buffer(&self) -> &str {
+        &self.buffer
+    }
+}
+
+#[cfg(test)]
+mod text_splitter_tests {
+    use super::*;
+
+    fn print_result(name: &str, chunks: &LinkedList<String>) {
+        println!("=== {} ===", name);
+        println!("Total chunks: {}", chunks.len());
+        for (i, chunk) in chunks.iter().enumerate() {
+            println!("[{}] len={}: {:?}", i, chunk.len(), chunk);
+        }
+        println!();
+    }
+
+    #[test]
+    fn test_basic_sentence_split() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("Hello world. How are you? I'm fine.");
+        let results = splitter.finish();
+        print_result("Basic sentence split", &results);
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_quotes_protection() {
+        let mut splitter = TextSplitter::new();
+        let chunk = "He said \"I'm fine. And you?\" Yes.";
+        println!("Input: {:?}", chunk);
+        // 逐字符调试
+        for (i, c) in chunk.chars().enumerate() {
+            println!("{}: {:?}", i, c);
+        }
+        splitter.push_chunk(chunk);
+        let results = splitter.finish();
+        print_result("Quotes protection", &results);
+        // "I'm fine. And you?" 应该保持完整
+        assert_eq!(results.len(), 2);
+        assert!(results.front().unwrap().contains("I'm fine. And you?"));
+    }
+
+    #[test]
+    fn test_cross_chunk_split() {
+        let mut splitter = TextSplitter::new();
+        // 句号和空格被分到不同的 chunk
+        splitter.push_chunk("Hello world");
+        splitter.push_chunk(". ");
+        splitter.push_chunk("How are you?");
+        let results = splitter.finish();
+        print_result("Cross chunk split", &results);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_cross_chunk_quotes() {
+        let mut splitter = TextSplitter::new();
+        // 引号、句号、引号、空格被分散到不同 chunk
+        splitter.push_chunk("He said ");
+        splitter.push_chunk("\"I'm fine");
+        splitter.push_chunk(". ");
+        splitter.push_chunk("And you?\"");
+        splitter.push_chunk(" Yes.");
+        let results = splitter.finish();
+        print_result("Cross chunk quotes", &results);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_chinese_punctuation() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("你好世界。你好吗？我很好！这是测试；结束");
+        let results = splitter.finish();
+        print_result("Chinese punctuation", &results);
+        assert_eq!(results.len(), 5);
+    }
+
+    #[test]
+    fn test_chinese_quotes() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("他说“我很好。你好吗？”是的。");
+        let results = splitter.finish();
+        print_result("Chinese quotes", &results);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_max_chunk_size() {
+        // TODO
+    }
+
+    #[test]
+    fn test_newline_split() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("Line 1\nLine 2\nLine 3");
+        let results = splitter.finish();
+        print_result("Newline split", &results);
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_mixed_quotes() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("He said \"She's fine. Really?\" I asked 'Are you sure?' He nodded.");
+        let results = splitter.finish();
+        print_result("Mixed quotes", &results);
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_empty_input() {
+        let splitter = TextSplitter::new();
+        let results = splitter.finish();
+        print_result("Empty input", &results);
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_mul_line_whitespace() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("OK   \n\n\t  ");
+        let results = splitter.finish();
+        print_result("Mul line whitespace", &results);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_progressive_results() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("First. Second");
+        assert_eq!(splitter.result.len(), 1);
+        assert_eq!(splitter.result.front().unwrap(), "First. ");
+        assert!(splitter.get_buffer().contains("Second"));
+        splitter.push_chunk(" Third.");
+        let result = splitter.finish();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result.back().unwrap().as_str(), "Second Third.");
     }
 }
