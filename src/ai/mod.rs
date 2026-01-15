@@ -1242,7 +1242,8 @@ impl ResponsesSession {
         Ok(ResponsesLLmResponse {
             stopped: false,
             response,
-            string_buffer: String::new(),
+            text_splitter: TextSplitter::new(),
+            first_chunk: true,
             previous_response_id: String::new(),
         })
     }
@@ -1318,7 +1319,8 @@ impl ResponsesSession {
         Ok(ResponsesLLmResponse {
             stopped: false,
             response,
-            string_buffer: String::new(),
+            text_splitter: TextSplitter::new(),
+            first_chunk: true,
             previous_response_id: String::new(),
         })
     }
@@ -1404,52 +1406,51 @@ pub struct ResponsesLLmResponse {
     previous_response_id: String,
     stopped: bool,
     response: reqwest::Response,
-    string_buffer: String,
+    text_splitter: TextSplitter,
+    first_chunk: bool,
 }
 
 impl ResponsesLLmResponse {
     const CHUNK_SIZE: usize = 50;
 
     fn return_string_buffer(&mut self) -> anyhow::Result<LLMResponsesChunk> {
-        self.stopped = true;
-        if !self.string_buffer.is_empty() {
-            let mut new_str = String::new();
-            std::mem::swap(&mut new_str, &mut self.string_buffer);
-            return Ok(LLMResponsesChunk::Text(new_str));
+        self.text_splitter.flush_buffer();
+        let mut ss = String::new();
+
+        while let Some(s) = self.text_splitter.result.pop_front() {
+            ss.push_str(&s);
+            if ss.len() >= Self::CHUNK_SIZE {
+                return Ok(LLMResponsesChunk::Text(ss));
+            }
+        }
+
+        if !ss.is_empty() {
+            Ok(LLMResponsesChunk::Text(ss))
         } else {
-            return Ok(LLMResponsesChunk::Stop(self.previous_response_id.clone()));
+            self.stopped = true;
+            Ok(LLMResponsesChunk::Stop(self.previous_response_id.clone()))
         }
     }
 
-    fn push_str(string_buffer: &mut String, s: &str) -> Option<String> {
-        let mut ret = s;
-
-        loop {
-            if let Some(i) = ret.find(&['.', '!', '?', ';', '。', '！', '？', '；', '\n']) {
-                let ((chunk, ret_), char_len) = if ret.is_char_boundary(i + 1) {
-                    (ret.split_at(i + 1), 1)
-                } else {
-                    (ret.split_at(i + 3), 3)
-                };
-
-                string_buffer.push_str(chunk);
-                ret = ret_;
-                if ret.chars().next().is_some_and(|c| c.is_numeric()) {
-                    continue;
-                }
-                if char_len == 1 && ret.len() > 0 && !ret.starts_with(&[' ', '\n']) {
-                    continue;
-                }
-
-                if string_buffer.len() > Self::CHUNK_SIZE || string_buffer.ends_with("\n") {
-                    let mut new_str = ret.to_string();
-                    std::mem::swap(&mut new_str, string_buffer);
-                    return Some(new_str);
-                }
+    fn push_str(&mut self, s: &str) -> Option<String> {
+        self.text_splitter.push_chunk(s);
+        if !self.text_splitter.result.is_empty() {
+            if self.first_chunk {
+                self.first_chunk = false;
+                return self.text_splitter.result.pop_front();
             } else {
-                string_buffer.push_str(ret);
-                return None;
+                let mut s = self.text_splitter.result.pop_front().unwrap();
+                while s.len() < Self::CHUNK_SIZE {
+                    if let Some(next) = self.text_splitter.result.pop_front() {
+                        s.push_str(&next);
+                    } else {
+                        break;
+                    }
+                }
+                Some(s)
             }
+        } else {
+            None
         }
     }
 
@@ -1570,7 +1571,7 @@ impl ResponsesLLmResponse {
             log::trace!("llm response tools: {:#?}", tools);
 
             if tools.is_empty() {
-                if let Some(new_str) = Self::push_str(&mut self.string_buffer, &chunks) {
+                if let Some(new_str) = self.push_str(&chunks) {
                     log::trace!("llm response text: {new_str}");
                     return Ok(LLMResponsesChunk::Text(new_str));
                 }
