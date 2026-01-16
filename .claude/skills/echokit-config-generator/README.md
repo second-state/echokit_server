@@ -333,7 +333,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 - [EchoKit Server](https://github.com/second-state/echokit_server)
 - [EchoKit Documentation](https://echokit.dev)
 - [Claude Code](https://code.claude.com)
-- [Report Issues](https://github.com/YOUR_USERNAME/echokit-config-skill/issues)
+- [Report Issues](https://github.com/second-state/echokit_server/issues)
 
 ---
 

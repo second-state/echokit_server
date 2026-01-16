@@ -50,7 +50,7 @@ https://github.com/second-state/echokit_server
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/echokit-config-skill.git ~/.claude/skills/echokit-config-generator
+git clone https://github.com/second-state/echokit_server.git ~/.claude/skills/echokit-config-generator
 ```
 
 ## Usage Example
@@ -87,7 +87,7 @@ Tested on:
 To test:
 ```bash
 # Install SKILL
-git clone https://github.com/YOUR_USERNAME/echokit-config-skill.git ~/.claude/skills/echokit-config-generator
+git clone https://github.com/second-state/echokit_server.git ~/.claude/skills/echokit-config-generator
 
 # In Claude Code
 "Generate an EchoKit config for testing"
