@@ -5,6 +5,8 @@ openai:
   model: "gpt-4o-mini-tts"
   voice: "ash"
   api_key_url: "https://platform.openai.com/api-keys"
+  api_key_field: "api_key"
+  model_field: "model"
   notes: "Multiple voices available: alloy, echo, fable, onyx, nova, shimmer"
 
 elevenlabs:
@@ -14,7 +16,9 @@ elevenlabs:
   model: "eleven_multilingual_v2"
   voice: "21m00Tcm4TlvDq8ikWAM"
   api_key_url: "https://elevenlabs.io/app/settings/api-keys"
-  notes: "Premium quality streaming TTS via WebSocket, requires voice ID from dashboard"
+  api_key_field: "token"
+  model_field: "model_id"
+  notes: "Premium quality streaming TTS via WebSocket, requires voice ID from dashboard. Uses 'token' not 'api_key', and 'model_id' not 'model'"
 
 gpt_sovits:
   name: "GPT-SoVITS (Local Streaming)"
@@ -23,4 +27,6 @@ gpt_sovits:
   model: "default"
   voice: "default"
   api_key_url: "Not required (local deployment)"
+  api_key_field: "api_key"
+  model_field: "model"
   notes: "Free and local streaming TTS, requires GPT-SoVITS server running on port 9880"
