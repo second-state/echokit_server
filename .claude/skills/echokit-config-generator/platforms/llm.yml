@@ -5,6 +5,8 @@ openai_chat:
   model: "gpt-4o-mini"
   history: 5
   api_key_url: "https://platform.openai.com/api-keys"
+  api_key_field: "api_key"
+  model_field: "model"
   notes: "Most compatible, fast and cost-effective"
 
 openai_response:
@@ -14,4 +16,6 @@ openai_response:
   model: "gpt-4o-mini"
   history: 5
   api_key_url: "https://platform.openai.com/api-keys"
+  api_key_field: "api_key"
+  model_field: "model"
   notes: "OpenAI Responses API for streaming interactions"

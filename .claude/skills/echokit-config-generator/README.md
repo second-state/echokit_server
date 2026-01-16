@@ -30,13 +30,6 @@ This SKILL can be installed in the following ways:
 git clone https://github.com/second-state/echokit_server.git
 cd echokit_server
 
-# Create symlink to Claude skills directory
-ln -s $(pwd)/skills/echokit-config-generator ~/.claude/skills/echokit-config-generator
-
-# Or copy directly
-cp -r skills/echokit-config-generator ~/.claude/skills/
-```
-
 **That's it!** The SKILL is now available in Claude Code.
 
 ### Usage

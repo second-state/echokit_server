@@ -1,16 +1,16 @@
 ---
 name: EchoKit Config Generator
-description: Generate config.toml for EchoKit servers with interactive setup for ASR, TTS, LLM services, and MCP servers
-version: 1.1.0
+description: Generate config.toml for EchoKit servers with interactive setup for ASR, TTS, LLM services, MCP servers, API key entry, and server launch
+version: 1.3.1
 author: "EchoKit Config Generator Contributors"
-repository: "https://github.com/second-state/echokit_server/tree/alabulei1-patch-7/skills/echokit-config-generator"
+repository: "https://github.com/YOUR_USERNAME/echokit-config-skill"
 ---
 
 # EchoKit Config Generator
 
 ## Overview
 
-This SKILL generates `config.toml` files for EchoKit servers through an interactive four-phase process.
+This SKILL generates `config.toml` files for EchoKit servers through an interactive five-phase process that includes configuration generation, API key entry, and server launch.
 
 **Announce at start:** "I'm using the EchoKit Config Generator to create your config.toml."
 
@@ -243,34 +243,37 @@ call_mcp_message = "Please hold on a few seconds while I am searching for an ans
 
 ### Step 1: Preview config.toml
 
+**IMPORTANT:** EchoKit server requires a specific TOML structure:
+- Section order MUST be: `[tts]` → `[asr]` → `[llm]`
+- No comments allowed at the beginning of the file
+- Field names vary by platform (check platform-specific requirements)
+
 Display complete configuration with this format:
 
 ```toml
-# EchoKit Server Configuration
-# Generated: {CURRENT_DATE}
-# Assistant: {USER_PURPOSE}
-
 addr = "0.0.0.0:8080"
 hello_wav = "hello.wav"
-
-[asr]
-platform = "{SELECTED_ASR.platform}"
-url = "{SELECTED_ASR.url}"
-api_key = "YOUR_API_KEY_HERE"
-model = "{SELECTED_ASR.model}"
-lang = "en"
 
 [tts]
 platform = "{SELECTED_TTS.platform}"
 url = "{SELECTED_TTS.url}"
-api_key = "YOUR_API_KEY_HERE"
-model = "{SELECTED_TTS.model}"
+{TTS_API_KEY_FIELD} = "YOUR_API_KEY_HERE"
+{TTS_MODEL_FIELD} = "{SELECTED_TTS.model}"
 voice = "{SELECTED_TTS.voice}"
+
+[asr]
+platform = "{SELECTED_ASR.platform}"
+url = "{SELECTED_ASR.url}"
+{ASR_API_KEY_FIELD} = "YOUR_API_KEY_HERE"
+model = "{SELECTED_ASR.model}"
+lang = "{ASR_LANG}"
+prompt = "Hello\\n你好\\n(noise)\\n(bgm)\\n(silence)\\n"
+vad_url = "http://localhost:9093/v1/audio/vad"
 
 [llm]
 platform = "{SELECTED_LLM.platform}"
 url = "{SELECTED_LLM.url}"
-api_key = "YOUR_API_KEY_HERE"
+{LLM_API_KEY_FIELD} = "YOUR_API_KEY_HERE"
 model = "{SELECTED_LLM.model}"
 history = {SELECTED_LLM.history}
 
@@ -278,6 +281,25 @@ history = {SELECTED_LLM.history}
 
 {MCP_CONFIGURATION if enabled}
 ```
+
+**Platform-specific field mappings:**
+
+**TTS platforms:**
+- `openai`: uses `api_key` and `model`
+- `elevenlabs`: uses `token` and `model_id`
+- `groq`: uses `api_key` and `model`
+
+**ASR platforms:**
+- `openai`/`whisper`: uses `api_key` and `model`
+
+**LLM platforms:**
+- `openai_chat`: uses `api_key` (optional, can be empty string)
+
+When generating the config, replace `{TTS_API_KEY_FIELD}`, `{ASR_API_KEY_FIELD}`, and `{LLM_API_KEY_FIELD}` with the appropriate field name for the selected platform:
+- For ElevenLabs TTS: use `token`
+- For OpenAI/Groq TTS: use `api_key`
+- For Whisper ASR: use `api_key`
+- For OpenAI Chat LLM: use `api_key`
 
 ### Step 2: Ask for confirmation
 
@@ -322,19 +344,225 @@ Files created:
   {OUTPUT_DIR}/config.toml
   {OUTPUT_DIR}/SETUP_GUIDE.md
 
-Next steps:
-  1. Edit config.toml and replace YOUR_API_KEY_HERE with actual keys
-  2. Get API keys from:
-     - ASR: {SELECTED_ASR.api_key_url}
-     - TTS: {SELECTED_TTS.api_key_url}
-     - LLM: {SELECTED_LLM.api_key_url}
-  3. Build server: cd {OUTPUT_DIR} && cargo build --release
-  4. Run server: ./target/release/echokit_server
-
-{MCP_SETUP_NOTE if MCP enabled}
-
-See SETUP_GUIDE.md for detailed instructions.
+Now proceeding to Phase 5: API Key Entry and Server Launch...
 ```
+
+## Phase 5: API Key Entry and Server Launch
+
+### Overview
+
+This phase collects API keys from the user, updates the config.toml file, builds the server (if needed), and launches it.
+
+### Step 1: Display API key URLs
+
+Show the user where to get their API keys:
+
+```
+## Phase 5: API Key Entry and Server Launch
+
+You'll need API keys for your selected services. Here's where to get them:
+
+ASR ({SELECTED_ASR.name}):
+  API Key URL: {SELECTED_ASR.api_key_url}
+
+TTS ({SELECTED_TTS.name}):
+  API Key URL: {SELECTED_TTS.api_key_url}
+
+LLM ({SELECTED_LLM.name}):
+  API Key URL: {SELECTED_LLM.api_key_url}
+
+I'll prompt you for each key. You can also press Enter to skip and manually edit config.toml later.
+```
+
+### Step 2: Collect API keys
+
+For each service (ASR, TTS, LLM), ask:
+
+```
+Enter your {SERVICE_NAME} API key:
+(or press Enter to skip and add it manually later)
+```
+
+**Handle responses:**
+- **User provides a key** → Store it for updating config.toml
+- **Empty/Enter** → Keep "YOUR_API_KEY_HERE" placeholder
+
+**Store keys temporarily** in memory:
+```
+ASR_API_KEY = "{user_input or 'YOUR_API_KEY_HERE'}"
+TTS_API_KEY = "{user_input or 'YOUR_API_KEY_HERE'}"
+LLM_API_KEY = "{user_input or 'YOUR_API_KEY_HERE'}"
+```
+
+### Step 3: Update config.toml with API keys
+
+Read the existing config.toml using the Read tool, then replace the API key placeholders:
+
+```
+[asr]
+api_key = "{ASR_API_KEY}"
+
+[tts]
+{CORRECT_TTS_FIELD} = "{TTS_API_KEY}"
+
+[llm]
+api_key = "{LLM_API_KEY}"
+```
+
+Use the Edit tool to update each API key field line in `{OUTPUT_DIR}/config.toml`.
+
+**IMPORTANT - Platform-specific field names:**
+- **ElevenLabs TTS:** uses `token` (not `api_key`) and `model_id` (not `model`)
+- **OpenAI/Groq TTS:** uses `api_key` and `model`
+- **Whisper ASR:** uses `api_key`
+- **OpenAI Chat LLM:** uses `api_key`
+
+Make sure to preserve the correct field names for each platform when editing!
+
+### Step 4: Verify server installation
+
+Check if the EchoKit server is already built:
+
+1. Check if `{OUTPUT_DIR}/target/release/echokit_server` exists
+2. If it exists, skip to Step 6
+
+If not built, ask: *"The EchoKit server needs to be built. Do you want me to build it now? (y/n)"*
+
+### Step 5: Build the server (if needed)
+
+If user said **yes** in Step 4:
+
+1. Change to the output directory: `cd {OUTPUT_DIR}`
+2. Run: `cargo build --release`
+3. Monitor build output for errors
+
+**If build succeeds:**
+```
+✓ Server built successfully at {OUTPUT_DIR}/target/release/echokit_server
+```
+
+**If build fails:**
+```
+✗ Build failed. Please check the error messages above.
+
+You can manually build the server later with:
+  cd {OUTPUT_DIR} && cargo build --release
+
+For now, your config.toml has been saved with your API keys.
+```
+- **End here** - don't proceed to server launch
+
+### Step 6: Launch the server
+
+If the server is available (either pre-built or just built):
+
+Ask: *"Ready to launch the EchoKit server? (y/n)"*
+
+If **no**:
+```
+Your config.toml has been saved with your API keys.
+
+To run the server manually:
+  cd {OUTPUT_DIR} && ./target/release/echokit_server
+```
+- **End here**
+
+If **yes**:
+
+1. Change to output directory: `cd {OUTPUT_DIR}`
+2. Enable debug logging and launch server in background:
+   ```bash
+   export RUST_LOG=debug
+   ./target/release/echokit_server &
+   ```
+3. Store the process ID for potential later management
+4. **Get the actual local IP address** by running:
+   ```bash
+   # Try multiple methods to get IP, use first successful result
+   ipconfig getifaddr en0 2>/dev/null || \
+   ipconfig getifaddr en1 2>/dev/null || \
+   hostname -I 2>/dev/null | awk '{print $1}' || \
+   ifconfig | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}' | head -1
+   ```
+5. Store the result as `LOCAL_IP`
+6. Display success message with WebSocket URLs:
+
+```
+✓ EchoKit server is now running!
+
+Server Details:
+  Location: {OUTPUT_DIR}
+  Config: {OUTPUT_DIR}/config.toml
+  Bind Address: 0.0.0.0:8080
+
+WebSocket URL: ws://{ACTUAL_LOCAL_IP}:8080/ws
+
+You can connect to the server using any WebSocket client at this URL.
+
+The server is running in the background.
+
+To stop the server later:
+  - Find the process: ps aux | grep echokit_server
+  - Kill it: kill {PID}
+
+Or if you have the PID: kill {SERVER_PID}
+```
+
+### Step 7: Verify server is running
+
+After launching, verify the server started successfully:
+
+1. Wait 2-3 seconds for startup
+2. Check if the process is still running: `ps aux | grep echokit_server | grep -v grep`
+3. Optionally test the endpoint: `curl -s http://localhost:8080/health || echo "Health check not available"`
+
+**If server is running:**
+```
+✓ Server is running and responding!
+```
+
+**If server crashed:**
+```
+⚠ The server may have crashed. Check the logs above for errors.
+
+You can try running it manually to see error messages:
+  cd {OUTPUT_DIR} && ./target/release/echokit_server
+```
+
+### Error Handling
+
+#### API key entry issues
+
+If user enters an obviously invalid key (too short, contains spaces, etc.):
+```
+Warning: That doesn't look like a valid API key.
+API keys are typically long strings without spaces.
+
+Use this key anyway? (y/retry)
+```
+
+- **y** → Accept the key as entered
+- **retry** → Ask again for that service's key
+
+#### Build fails
+
+If the build fails:
+1. Show the error output
+2. Don't proceed to server launch
+3. Provide manual build instructions
+4. Remind user that config.toml is saved with API keys
+
+#### Server won't start
+
+If the server process exits immediately:
+1. Check for error messages in the output
+2. Common issues:
+   - Port 8080 already in use
+   - Invalid config.toml syntax
+   - Missing dependencies
+   - Incorrect API keys
+
+Provide troubleshooting suggestions based on error messages.
 
 ## File Locations
 
@@ -460,6 +688,9 @@ User: [Enter]
 
 ## Version History
 
+- 1.3.1 - Added `export RUST_LOG=debug` before server launch for better troubleshooting
+- 1.3.0 - Fixed config.toml format with correct section order ([tts] → [asr] → [llm]), platform-specific field names (ElevenLabs uses `token`/`model_id`), removed comments from top, added `prompt` and `vad_url` fields for ASR
+- 1.2.0 - Added Phase 5: API Key Entry and Server Launch with interactive key collection, automatic config updates, server build, and launch
 - 1.1.0 - Enhanced system prompts, custom platform support with auto-fetch, corrected MCP format
 - 1.0.0 - Initial release with four-phase flow
 
@@ -471,6 +702,9 @@ To test this SKILL:
 2. In Claude Code: "Generate an EchoKit config for testing"
 3. Verify files are created correctly
 4. Check config.toml has valid TOML syntax
+5. Test Phase 5: Enter API keys and verify config.toml is updated
+6. Test server build (optional, requires Rust/Cargo)
+7. Test server launch (optional, requires built server)
 
 ---
 
