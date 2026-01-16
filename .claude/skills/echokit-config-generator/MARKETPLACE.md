@@ -45,7 +45,7 @@ The EchoKit Config Generator SKILL simplifies setting up EchoKit servers by guid
 
 ## Repository
 
-https://github.com/YOUR_USERNAME/echokit-config-skill
+https://github.com/second-state/echokit_server
 
 ## Installation
 
