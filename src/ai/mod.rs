@@ -3,9 +3,9 @@ use std::collections::LinkedList;
 use openai::tool::{McpToolAdapter, ToolSet};
 use reqwest::multipart::Part;
 use rmcp::{
+    ServiceExt,
     model::{ClientCapabilities, ClientInfo, Implementation},
     transport::{SseClientTransport, StreamableHttpClientTransport},
-    ServiceExt,
 };
 
 /// 阿里百炼
@@ -159,52 +159,51 @@ pub enum StableLLMResponseChunk {
 pub struct StableLlmResponse {
     stopped: bool,
     response: reqwest::Response,
-    string_buffer: String,
+    text_splitter: TextSplitter,
+    first_chunk: bool,
 }
 
 impl StableLlmResponse {
     const CHUNK_SIZE: usize = 50;
 
     fn return_string_buffer(&mut self) -> anyhow::Result<StableLLMResponseChunk> {
-        self.stopped = true;
-        if !self.string_buffer.is_empty() {
-            let mut new_str = String::new();
-            std::mem::swap(&mut new_str, &mut self.string_buffer);
-            return Ok(StableLLMResponseChunk::Text(new_str));
+        self.text_splitter.flush_buffer();
+        let mut ss = String::new();
+
+        while let Some(s) = self.text_splitter.result.pop_front() {
+            ss.push_str(&s);
+            if ss.len() >= Self::CHUNK_SIZE {
+                return Ok(StableLLMResponseChunk::Text(ss));
+            }
+        }
+
+        if !ss.is_empty() {
+            Ok(StableLLMResponseChunk::Text(ss))
         } else {
-            return Ok(StableLLMResponseChunk::Stop);
+            self.stopped = true;
+            Ok(StableLLMResponseChunk::Stop)
         }
     }
 
-    fn push_str(string_buffer: &mut String, s: &str) -> Option<String> {
-        let mut ret = s;
-
-        loop {
-            if let Some(i) = ret.find(&['.', '!', '?', ';', '。', '！', '？', '；', '\n']) {
-                let ((chunk, ret_), char_len) = if ret.is_char_boundary(i + 1) {
-                    (ret.split_at(i + 1), 1)
-                } else {
-                    (ret.split_at(i + 3), 3)
-                };
-
-                string_buffer.push_str(chunk);
-                ret = ret_;
-                if ret.chars().next().is_some_and(|c| c.is_numeric()) {
-                    continue;
-                }
-                if char_len == 1 && ret.len() > 0 && !ret.starts_with(&[' ', '\n']) {
-                    continue;
-                }
-
-                if string_buffer.len() > Self::CHUNK_SIZE || string_buffer.ends_with("\n") {
-                    let mut new_str = ret.to_string();
-                    std::mem::swap(&mut new_str, string_buffer);
-                    return Some(new_str);
-                }
+    fn push_str(&mut self, s: &str) -> Option<String> {
+        self.text_splitter.push_chunk(s);
+        if !self.text_splitter.result.is_empty() {
+            if self.first_chunk {
+                self.first_chunk = false;
+                return self.text_splitter.result.pop_front();
             } else {
-                string_buffer.push_str(ret);
-                return None;
+                let mut s = self.text_splitter.result.pop_front().unwrap();
+                while s.len() < Self::CHUNK_SIZE {
+                    if let Some(next) = self.text_splitter.result.pop_front() {
+                        s.push_str(&next);
+                    } else {
+                        break;
+                    }
+                }
+                Some(s)
             }
+        } else {
+            None
         }
     }
 
@@ -260,7 +259,7 @@ impl StableLlmResponse {
             log::trace!("llm response tools: {:#?}", tools);
 
             if tools.is_empty() {
-                if let Some(new_str) = Self::push_str(&mut self.string_buffer, &chunks) {
+                if let Some(new_str) = self.push_str(&chunks) {
                     log::trace!("llm response text: {new_str}");
                     return Ok(StableLLMResponseChunk::Text(new_str));
                 }
@@ -274,28 +273,17 @@ impl StableLlmResponse {
 
 #[test]
 fn test_push_str() {
-    let mut string_buffer = String::new();
-    let s = StableLlmResponse::push_str(&mut string_buffer, "Hello world!");
-    println!("string_buffer: {string_buffer}");
-    println!("s: {s:?}");
-    let s = StableLlmResponse::push_str(&mut string_buffer, " This is a test.");
-    println!("string_buffer: {string_buffer}");
-    println!("s: {s:?}");
-    let s = StableLlmResponse::push_str(
-        &mut string_buffer,
-        " This is a long test string that my email is example@gmail.com .",
+    let mut string_buffer = TextSplitter::new();
+    string_buffer.push_chunk("Hello world!");
+    string_buffer.push_chunk(" This is a test.");
+    string_buffer.push_chunk(" This is a long test string that my email is example@gmail.com. ");
+    string_buffer.push_chunk(
+        "This is a long test string that should be split into multiple chunks. It contains several sentences, and it should be able to handle punctuation marks like periods, exclamation points, and question marks. Let's see how it works with different types of sentences!",
     );
-    println!("string_buffer: {string_buffer}");
-    println!("s: {s:?}");
-    let s = StableLlmResponse::push_str(&mut string_buffer, "This is a long test string that should be split into multiple chunks. It contains several sentences, and it should be able to handle punctuation marks like periods, exclamation points, and question marks. Let's see how it works with different types of sentences!");
-    println!("string_buffer: {string_buffer}");
-    println!("s: {s:?}");
-    let s = StableLlmResponse::push_str(
-        &mut string_buffer,
+    string_buffer.push_chunk(
         "One thousand is 1,000, and two thousand is 2,000. This should be handled correctly.",
     );
-    println!("string_buffer: {string_buffer}");
-    println!("s: {s:?}");
+    println!("s: {:#?}", string_buffer.finish());
 }
 
 pub mod llm {
@@ -524,8 +512,9 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
 
     Ok(StableLlmResponse {
         stopped: false,
+        first_chunk: true,
         response,
-        string_buffer: String::new(),
+        text_splitter: TextSplitter::new(),
     })
 }
 
@@ -1220,10 +1209,16 @@ impl ResponsesSession {
         let mut extra = self.extra.clone().unwrap_or(serde_json::json!({}));
         merge_tool_into_extra(&mut extra, &tools);
 
+        let (instructions, previous_response_id) = if self.previous_response_id.is_empty() {
+            (self.instructions.as_str(), "")
+        } else {
+            ("", self.previous_response_id.as_str())
+        };
+
         let req = ResponsesChatRequest {
             model: &self.model,
-            instructions: &self.instructions,
-            previous_response_id: &self.previous_response_id,
+            instructions,
+            previous_response_id,
             input,
             extra,
             stream: true,
@@ -1247,7 +1242,8 @@ impl ResponsesSession {
         Ok(ResponsesLLmResponse {
             stopped: false,
             response,
-            string_buffer: String::new(),
+            text_splitter: TextSplitter::new(),
+            first_chunk: true,
             previous_response_id: String::new(),
         })
     }
@@ -1275,10 +1271,16 @@ impl ResponsesSession {
         let mut extra = self.extra.clone().unwrap_or(serde_json::json!({}));
         merge_tool_into_extra(&mut extra, &tools);
 
+        let (instructions, previous_response_id) = if self.previous_response_id.is_empty() {
+            (self.instructions.as_str(), "")
+        } else {
+            ("", self.previous_response_id.as_str())
+        };
+
         let req = ResponsesChatRequest {
             model: &self.model,
-            instructions: &self.instructions,
-            previous_response_id: &self.previous_response_id,
+            instructions,
+            previous_response_id,
             input: "",
             extra,
             stream: true,
@@ -1317,7 +1319,8 @@ impl ResponsesSession {
         Ok(ResponsesLLmResponse {
             stopped: false,
             response,
-            string_buffer: String::new(),
+            text_splitter: TextSplitter::new(),
+            first_chunk: true,
             previous_response_id: String::new(),
         })
     }
@@ -1403,52 +1406,51 @@ pub struct ResponsesLLmResponse {
     previous_response_id: String,
     stopped: bool,
     response: reqwest::Response,
-    string_buffer: String,
+    text_splitter: TextSplitter,
+    first_chunk: bool,
 }
 
 impl ResponsesLLmResponse {
     const CHUNK_SIZE: usize = 50;
 
     fn return_string_buffer(&mut self) -> anyhow::Result<LLMResponsesChunk> {
-        self.stopped = true;
-        if !self.string_buffer.is_empty() {
-            let mut new_str = String::new();
-            std::mem::swap(&mut new_str, &mut self.string_buffer);
-            return Ok(LLMResponsesChunk::Text(new_str));
+        self.text_splitter.flush_buffer();
+        let mut ss = String::new();
+
+        while let Some(s) = self.text_splitter.result.pop_front() {
+            ss.push_str(&s);
+            if ss.len() >= Self::CHUNK_SIZE {
+                return Ok(LLMResponsesChunk::Text(ss));
+            }
+        }
+
+        if !ss.is_empty() {
+            Ok(LLMResponsesChunk::Text(ss))
         } else {
-            return Ok(LLMResponsesChunk::Stop(self.previous_response_id.clone()));
+            self.stopped = true;
+            Ok(LLMResponsesChunk::Stop(self.previous_response_id.clone()))
         }
     }
 
-    fn push_str(string_buffer: &mut String, s: &str) -> Option<String> {
-        let mut ret = s;
-
-        loop {
-            if let Some(i) = ret.find(&['.', '!', '?', ';', '。', '！', '？', '；', '\n']) {
-                let ((chunk, ret_), char_len) = if ret.is_char_boundary(i + 1) {
-                    (ret.split_at(i + 1), 1)
-                } else {
-                    (ret.split_at(i + 3), 3)
-                };
-
-                string_buffer.push_str(chunk);
-                ret = ret_;
-                if ret.chars().next().is_some_and(|c| c.is_numeric()) {
-                    continue;
-                }
-                if char_len == 1 && ret.len() > 0 && !ret.starts_with(&[' ', '\n']) {
-                    continue;
-                }
-
-                if string_buffer.len() > Self::CHUNK_SIZE || string_buffer.ends_with("\n") {
-                    let mut new_str = ret.to_string();
-                    std::mem::swap(&mut new_str, string_buffer);
-                    return Some(new_str);
-                }
+    fn push_str(&mut self, s: &str) -> Option<String> {
+        self.text_splitter.push_chunk(s);
+        if !self.text_splitter.result.is_empty() {
+            if self.first_chunk {
+                self.first_chunk = false;
+                return self.text_splitter.result.pop_front();
             } else {
-                string_buffer.push_str(ret);
-                return None;
+                let mut s = self.text_splitter.result.pop_front().unwrap();
+                while s.len() < Self::CHUNK_SIZE {
+                    if let Some(next) = self.text_splitter.result.pop_front() {
+                        s.push_str(&next);
+                    } else {
+                        break;
+                    }
+                }
+                Some(s)
             }
+        } else {
+            None
         }
     }
 
@@ -1569,7 +1571,7 @@ impl ResponsesLLmResponse {
             log::trace!("llm response tools: {:#?}", tools);
 
             if tools.is_empty() {
-                if let Some(new_str) = Self::push_str(&mut self.string_buffer, &chunks) {
+                if let Some(new_str) = self.push_str(&chunks) {
                     log::trace!("llm response text: {new_str}");
                     return Ok(LLMResponsesChunk::Text(new_str));
                 }
@@ -1831,5 +1833,292 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct TextSplitter {
+    buffer: String,
+    in_double_quote: bool,
+    prev_char: char,
+    end_with_english_terminator: bool,
+    end_with_chinese_terminator: bool,
+    result: LinkedList<String>,
+}
+
+impl TextSplitter {
+    pub fn new() -> Self {
+        Self {
+            buffer: String::new(),
+            in_double_quote: false,
+            prev_char: ' ',
+            result: LinkedList::new(),
+            end_with_english_terminator: false,
+            end_with_chinese_terminator: false,
+        }
+    }
+
+    fn is_in_quotes(&self) -> bool {
+        self.in_double_quote
+    }
+
+    fn is_english_terminator(c: char) -> bool {
+        matches!(c, '.' | '!' | '?' | ';')
+    }
+
+    fn is_chinese_terminator(c: char) -> bool {
+        matches!(c, '。' | '！' | '？' | '；')
+    }
+
+    fn is_newline(c: char) -> bool {
+        c == '\n'
+    }
+
+    fn is_whitespace(c: char) -> bool {
+        matches!(c, ' ' | '\t' | '\r')
+    }
+
+    fn flush_buffer(&mut self) {
+        if !self.buffer.is_empty() {
+            if !self.buffer.trim().is_empty() {
+                self.result.push_back(self.buffer.clone());
+            }
+            self.buffer.clear();
+        }
+    }
+
+    pub fn push_chunk(&mut self, chunk: &str) {
+        let mut prev_char = self.prev_char;
+        let mut end_with_english_terminator = self.end_with_english_terminator;
+        let mut end_with_chinese_terminator = self.end_with_chinese_terminator;
+
+        for mut c in chunk.chars() {
+            // println!(
+            //     "prev_char={prev_char:?} end_with_english_terminator={end_with_english_terminator} end_with_chinese_terminator={end_with_chinese_terminator} c={c:?} buffer=[{:?}] result=[{:?}]",
+            //     self.buffer, self.result
+            // );
+
+            if end_with_english_terminator {
+                if c == ' ' {
+                    self.buffer.push(c);
+                    if self.is_in_quotes() {
+                    } else {
+                        self.flush_buffer();
+                    }
+                    prev_char = c;
+                    continue;
+                } else {
+                    if prev_char == '.' {
+                        end_with_english_terminator = false;
+                    } else {
+                        if self.is_in_quotes() {
+                        } else {
+                            self.flush_buffer();
+                            end_with_english_terminator = false;
+                        }
+                    }
+                }
+            }
+
+            if Self::is_whitespace(c) && self.buffer.is_empty() {
+                prev_char = c;
+                continue;
+            }
+
+            if c == '“' || c == '”' {
+                c = '"';
+            }
+
+            match c {
+                '"' => {
+                    self.in_double_quote = !self.in_double_quote;
+                }
+                _ => {}
+            }
+
+            self.buffer.push(c);
+            prev_char = c;
+
+            if c == '"' && !self.in_double_quote {
+                if end_with_english_terminator {
+                    self.flush_buffer();
+                    end_with_english_terminator = false;
+                    continue;
+                }
+                if end_with_chinese_terminator {
+                    self.flush_buffer();
+                    end_with_chinese_terminator = false;
+                    continue;
+                }
+            }
+
+            if Self::is_newline(c) {
+                self.flush_buffer();
+                continue;
+            }
+
+            if Self::is_chinese_terminator(c) {
+                if self.is_in_quotes() {
+                    end_with_chinese_terminator = true;
+                } else {
+                    self.flush_buffer();
+                }
+                continue;
+            }
+
+            if Self::is_english_terminator(c) {
+                end_with_english_terminator = true;
+            }
+        }
+
+        self.prev_char = prev_char;
+        self.end_with_english_terminator = end_with_english_terminator;
+        self.end_with_chinese_terminator = end_with_chinese_terminator;
+    }
+
+    pub fn finish(mut self) -> LinkedList<String> {
+        self.flush_buffer();
+        self.result
+    }
+
+    pub fn get_buffer(&self) -> &str {
+        &self.buffer
+    }
+}
+
+#[cfg(test)]
+mod text_splitter_tests {
+    use super::*;
+
+    fn print_result(name: &str, chunks: &LinkedList<String>) {
+        println!("=== {} ===", name);
+        println!("Total chunks: {}", chunks.len());
+        for (i, chunk) in chunks.iter().enumerate() {
+            println!("[{}] len={}: {:?}", i, chunk.len(), chunk);
+        }
+        println!();
+    }
+
+    #[test]
+    fn test_basic_sentence_split() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("Hello world. How are you? I'm fine.");
+        let results = splitter.finish();
+        print_result("Basic sentence split", &results);
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_quotes_protection() {
+        let mut splitter = TextSplitter::new();
+        let chunk = "He said \"I'm fine. And you?\" Yes.";
+        println!("Input: {:?}", chunk);
+        // 逐字符调试
+        for (i, c) in chunk.chars().enumerate() {
+            println!("{}: {:?}", i, c);
+        }
+        splitter.push_chunk(chunk);
+        let results = splitter.finish();
+        print_result("Quotes protection", &results);
+        // "I'm fine. And you?" 应该保持完整
+        assert_eq!(results.len(), 2);
+        assert!(results.front().unwrap().contains("I'm fine. And you?"));
+    }
+
+    #[test]
+    fn test_cross_chunk_split() {
+        let mut splitter = TextSplitter::new();
+        // 句号和空格被分到不同的 chunk
+        splitter.push_chunk("Hello world");
+        splitter.push_chunk(". ");
+        splitter.push_chunk("How are you?");
+        let results = splitter.finish();
+        print_result("Cross chunk split", &results);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_cross_chunk_quotes() {
+        let mut splitter = TextSplitter::new();
+        // 引号、句号、引号、空格被分散到不同 chunk
+        splitter.push_chunk("He said ");
+        splitter.push_chunk("\"I'm fine");
+        splitter.push_chunk(". ");
+        splitter.push_chunk("And you?\"");
+        splitter.push_chunk(" Yes.");
+        let results = splitter.finish();
+        print_result("Cross chunk quotes", &results);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_chinese_punctuation() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("你好世界。你好吗？我很好！这是测试；结束");
+        let results = splitter.finish();
+        print_result("Chinese punctuation", &results);
+        assert_eq!(results.len(), 5);
+    }
+
+    #[test]
+    fn test_chinese_quotes() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("他说“我很好。你好吗？”是的。");
+        let results = splitter.finish();
+        print_result("Chinese quotes", &results);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_max_chunk_size() {
+        // TODO
+    }
+
+    #[test]
+    fn test_newline_split() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("Line 1\nLine 2\nLine 3");
+        let results = splitter.finish();
+        print_result("Newline split", &results);
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_mixed_quotes() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("He said \"She's fine. Really?\" I asked 'Are you sure?' He nodded.");
+        let results = splitter.finish();
+        print_result("Mixed quotes", &results);
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_empty_input() {
+        let splitter = TextSplitter::new();
+        let results = splitter.finish();
+        print_result("Empty input", &results);
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_mul_line_whitespace() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("OK   \n\n\t  ");
+        let results = splitter.finish();
+        print_result("Mul line whitespace", &results);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_progressive_results() {
+        let mut splitter = TextSplitter::new();
+        splitter.push_chunk("First. Second");
+        assert_eq!(splitter.result.len(), 1);
+        assert_eq!(splitter.result.front().unwrap(), "First. ");
+        assert!(splitter.get_buffer().contains("Second"));
+        splitter.push_chunk(" Third.");
+        let result = splitter.finish();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result.back().unwrap().as_str(), "Second Third.");
     }
 }

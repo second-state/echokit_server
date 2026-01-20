@@ -214,11 +214,12 @@ async fn retry_gsv_tts(
     sample_rate: Option<usize>,
     retry: usize,
     timeout: std::time::Duration,
+    llm_voice_opt: Option<&crate::config::TTSTextOptimizationConfig>,
 ) -> anyhow::Result<Bytes> {
     for i in 0..retry {
         let r = tokio::time::timeout(
             timeout,
-            crate::ai::tts::gsv(client, url, speaker, text, sample_rate),
+            crate::ai::tts::gsv(client, url, speaker, text, sample_rate, llm_voice_opt),
         )
         .await;
         match r {
@@ -249,6 +250,7 @@ async fn gsv_stable_tts(
         Some(16000),
         3,
         std::time::Duration::from_secs(tts.timeout_sec.unwrap_or(15)),
+        tts.text_optimization.as_ref(),
     )
     .await?;
 
@@ -329,8 +331,15 @@ async fn gsv_stream_tts(
     text: &str,
     tts_resp_tx: &TTSResponseTx,
 ) -> anyhow::Result<()> {
-    let resp =
-        crate::ai::tts::stream_gsv(client, &tts.url, &tts.speaker, text, Some(16000)).await?;
+    let resp = crate::ai::tts::stream_gsv(
+        client,
+        &tts.url,
+        &tts.speaker,
+        text,
+        Some(16000),
+        tts.text_optimization.as_ref(),
+    )
+    .await?;
 
     send_gsv_stream_chunk(tts_resp_tx, resp).await?;
     Ok(())

@@ -3,6 +3,17 @@ use std::collections::LinkedList;
 use crate::ai::llm::Content;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TTSTextOptimizationConfig {
+    pub url: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default = "TTSTextOptimizationConfig::default_prompt")]
+    pub prompts: LinkedList<Content>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum MCPType {
     #[serde(rename = "sse")]
     SSE,
@@ -124,6 +135,8 @@ pub struct GSVTTS {
     pub speaker: String,
     #[serde(default)]
     pub timeout_sec: Option<u64>,
+    #[serde(default)]
+    pub text_optimization: Option<TTSTextOptimizationConfig>,
 }
 
 fn default_groq_tts_model() -> String {
@@ -173,6 +186,8 @@ pub struct StreamGSV {
     pub api_key: String,
     pub url: String,
     pub speaker: String,
+    #[serde(default)]
+    pub text_optimization: Option<TTSTextOptimizationConfig>,
 }
 
 pub use crate::ai::bailian::cosyvoice::{CosyVoiceTTS as CosyVoice, CosyVoiceVersion};
