@@ -79,4 +79,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP server support (optional)
 - Pre-built examples (voice companion, coding assistant)
 
-[1.0.0]: https://github.com/YOUR_USERNAME/echokit-config-skill/releases/tag/v1.0.0
+[1.0.0]: https://github.com/second-state/echokit_server/releases/tag/v1.0.0
