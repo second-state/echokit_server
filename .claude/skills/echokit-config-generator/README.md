@@ -3,7 +3,7 @@
 > 🎯 A Claude Code SKILL for generating EchoKit server configurations through an interactive setup
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![SKILL Version](https://img.shields.io/badge/Version-1.1.0-blue.svg)](https://github.com/YOUR_USERNAME/echokit-config-skill)
+[![SKILL Version](https://img.shields.io/badge/Version-1.1.0-blue.svg)](https://github.com/second-state/echokit_server)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-SKILL-teal.svg)](https://code.claude.com)
 
 ---
@@ -333,7 +333,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 - [EchoKit Server](https://github.com/second-state/echokit_server)
 - [EchoKit Documentation](https://echokit.dev)
 - [Claude Code](https://code.claude.com)
-- [Report Issues](https://github.com/YOUR_USERNAME/echokit-config-skill/issues)
+- [Report Issues](https://github.com/second-state/echokit_server/issues)
 
 ---
 
