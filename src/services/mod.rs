@@ -21,6 +21,8 @@ pub struct ConnectQueryParams {
     opus: bool,
     #[serde(default)]
     vowel: bool,
+    #[serde(default)]
+    server_vad: bool,
 }
 
 pub async fn v2_mixed_handler(
@@ -43,6 +45,7 @@ pub async fn v2_mixed_handler(
                 reconnect: params.reconnect,
                 opus: params.opus,
                 vowel: params.vowel,
+                server_vad: params.server_vad,
             }),
         )
         .await

@@ -243,6 +243,50 @@ pub enum TTSConfig {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SileroVadconfig {
+    pub threshold: f32,
+    pub neg_threshold: Option<f32>,
+
+    pub min_speech_duration_ms: usize,
+    pub max_silence_duration_ms: usize,
+    pub audio_cache_ms: usize,
+}
+
+impl SileroVadconfig {
+    pub fn default_threshold() -> f32 {
+        0.5
+    }
+
+    pub fn default_neg_threshold() -> Option<f32> {
+        None
+    }
+
+    pub fn default_min_speech_duration_ms() -> usize {
+        150
+    }
+
+    pub fn default_max_silence_duration_ms() -> usize {
+        400
+    }
+
+    pub fn default_audio_cache_ms() -> usize {
+        1000
+    }
+}
+
+impl Default for SileroVadconfig {
+    fn default() -> Self {
+        SileroVadconfig {
+            threshold: Self::default_threshold(),
+            neg_threshold: Self::default_neg_threshold(),
+            min_speech_duration_ms: Self::default_min_speech_duration_ms(),
+            max_silence_duration_ms: Self::default_max_silence_duration_ms(),
+            audio_cache_ms: Self::default_audio_cache_ms(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WhisperASRConfig {
     pub url: String,
     #[serde(default)]
@@ -253,8 +297,14 @@ pub struct WhisperASRConfig {
     pub model: String,
     #[serde(default)]
     pub prompt: String,
+
+    #[serde(default)]
+    pub vad: SileroVadconfig,
+
+    #[deprecated]
     #[serde(default)]
     pub vad_url: Option<String>,
+    #[deprecated]
     #[serde(default)]
     pub vad_realtime_url: Option<String>,
 }

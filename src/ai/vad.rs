@@ -1,6 +1,6 @@
 use futures_util::{
-    stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
+    stream::{SplitSink, SplitStream},
 };
 use reqwest::multipart::Part;
 use reqwest_websocket::{RequestBuilderExt, WebSocket};
@@ -99,5 +99,111 @@ impl VadRealtimeRx {
                 }
             }
         }
+    }
+}
+
+pub type VadParams = crate::config::SileroVadconfig;
+
+#[derive(Clone)]
+pub struct SileroVADFactory {
+    device: burn::backend::ndarray::NdArrayDevice,
+    params: VadParams,
+}
+
+impl SileroVADFactory {
+    pub fn new(params: VadParams) -> anyhow::Result<Self> {
+        let device = burn::backend::ndarray::NdArrayDevice::default();
+
+        Ok(SileroVADFactory { device, params })
+    }
+
+    pub fn create_session(&self) -> anyhow::Result<VadSession> {
+        let vad = Box::new(silero_vad_burn::SileroVAD6Model::new(&self.device)?);
+        VadSession::new(&self.params, vad, self.device.clone())
+    }
+}
+
+pub struct VadSession {
+    vad: Box<silero_vad_burn::SileroVAD6Model<burn::backend::NdArray>>,
+    state: Option<silero_vad_burn::PredictState<burn::backend::NdArray>>,
+    device: burn::backend::ndarray::NdArrayDevice,
+
+    in_speech: bool,
+
+    threshold: f32,
+    neg_threshold: f32,
+
+    silence_chunk_count: usize,
+    max_silence_chunks: usize,
+}
+
+impl VadSession {
+    const SAMPLE_RATE: usize = 16000;
+
+    pub fn new(
+        params: &VadParams,
+        vad: Box<silero_vad_burn::SileroVAD6Model<burn::backend::NdArray>>,
+        device: burn::backend::ndarray::NdArrayDevice,
+    ) -> anyhow::Result<Self> {
+        let state = Some(silero_vad_burn::PredictState::default(&device));
+
+        let neg_threshold = params
+            .neg_threshold
+            .unwrap_or_else(|| params.threshold - 0.15)
+            .max(0.05);
+
+        let threshold = params.threshold.min(0.95);
+        let max_silence_chunks = params.max_silence_duration_ms * (Self::SAMPLE_RATE / 1000)
+            / silero_vad_burn::CHUNK_SIZE;
+
+        Ok(VadSession {
+            vad,
+            state,
+            device,
+
+            in_speech: false,
+            threshold,
+            neg_threshold,
+
+            silence_chunk_count: 0,
+            max_silence_chunks,
+        })
+    }
+
+    pub fn reset_state(&mut self) {
+        self.state = Some(silero_vad_burn::PredictState::default(&self.device));
+        self.in_speech = false;
+        self.silence_chunk_count = 0;
+    }
+
+    pub fn detect(&mut self, audio16k_chunk_512: &[f32]) -> anyhow::Result<bool> {
+        debug_assert!(
+            audio16k_chunk_512.len() <= 512,
+            "audio16k_chunk_512 length must be less than 512",
+        );
+
+        let audio_tensor =
+            burn::Tensor::<_, 1>::from_floats(audio16k_chunk_512, &self.device).unsqueeze();
+        let (state, prob) = self.vad.predict(self.state.take().unwrap(), audio_tensor)?;
+        self.state = Some(state);
+
+        let prob: Vec<f32> = prob.to_data().to_vec()?;
+
+        if prob[0] > self.threshold {
+            self.in_speech = true;
+            self.silence_chunk_count = 0;
+        } else if prob[0] < self.neg_threshold {
+            self.silence_chunk_count += 1;
+            if self.silence_chunk_count >= self.max_silence_chunks {
+                self.in_speech = false;
+            }
+        } else {
+        }
+
+        Ok(self.in_speech)
+    }
+
+    pub const fn vad_chunk_size() -> usize {
+        silero_vad_burn::CHUNK_SIZE
     }
 }

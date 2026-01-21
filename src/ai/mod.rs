@@ -473,7 +473,7 @@ pub async fn llm_stable<'p, I: IntoIterator<Item = C>, C: AsRef<llm::Content>>(
         serde_json::to_string_pretty(&serde_json::json!(
             {
                 "stream": true,
-                "messages": messages,
+                "last_message": messages.last(),
                 "model": model.to_string(),
                 "tools": tool_name,
                 "extra": extra,

@@ -186,11 +186,10 @@ async fn routes(
     router.route(
         "/version",
         get(|| async {
-            serde_json::to_string_pretty(&serde_json::json!(
+            axum::response::Json(serde_json::json!(
             {
                 "version": env!("CARGO_PKG_VERSION"),
             }))
-            .unwrap()
         }),
     )
 }

@@ -65,6 +65,19 @@ pub fn convert_samples_f32_to_i16_bytes(samples: &[f32]) -> Vec<u8> {
     samples_i16
 }
 
+pub fn convert_samples_i16_bytes_to_f32(samples: &[u8]) -> Vec<f32> {
+    let mut samples_f32 = Vec::with_capacity(samples.len() / 2);
+    for chunk in samples.chunks(2) {
+        if chunk.len() < 2 {
+            break;
+        }
+        let sample_i16 = i16::from_le_bytes([chunk[0], chunk[1]]);
+        let sample_f32 = (sample_i16 as f32) / (std::i16::MAX as f32);
+        samples_f32.push(sample_f32);
+    }
+    samples_f32
+}
+
 pub fn convert_samples_i16_to_f32(samples: &[i16]) -> Vec<f32> {
     let mut samples_f32 = Vec::with_capacity(samples.len());
     for v in samples {

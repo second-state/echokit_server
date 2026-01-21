@@ -72,6 +72,7 @@ async fn handle_socket(
             cmd_tx,
             client_rx,
             is_reconnect: params.reconnect,
+            server_vad: params.server_vad,
         })
         .map_err(|e| anyhow::anyhow!("send session error: {}", e))?;
 
@@ -94,6 +95,7 @@ pub struct Session {
     cmd_tx: super::WsTx,
     client_rx: super::ClientRx,
     is_reconnect: bool,
+    server_vad: bool,
 }
 
 async fn run_session<S: llm::LLMExt + Send + 'static>(
@@ -114,10 +116,13 @@ async fn run_session<S: llm::LLMExt + Send + 'static>(
             session.id,
             session.request_id
         );
-        let text = asr_session
-            .get_input(&session.id, &mut session.client_rx)
-            .await?;
-
+        let text = if session.server_vad {
+            asr_session.get_input_with_server_vad(session).await?
+        } else {
+            asr_session
+                .get_input(&session.id, &mut session.client_rx)
+                .await?
+        };
         if text.is_empty() {
             log::info!(
                 "{}:{:x} empty asr result, ending session",
