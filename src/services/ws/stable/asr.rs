@@ -446,7 +446,7 @@ impl ParaformerASRSession {
                                 recv_audio_bytes += data.len();
                                 if !recv_any_asr_result && recv_audio_bytes >= 16000 * 10 {
                                     log::warn!(
-                                        "`{}` paraformer asr received more than 30s audio without StartChat, starting automatically",
+                                        "`{}` paraformer asr received more than 10s audio without StartChat, starting automatically",
                                         session.id
                                     );
                                     break;

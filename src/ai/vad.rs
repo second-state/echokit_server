@@ -102,7 +102,7 @@ impl VadRealtimeRx {
     }
 }
 
-pub type VadParams = crate::config::SileroVadconfig;
+pub type VadParams = crate::config::SileroVadConfig;
 
 #[derive(Clone)]
 pub struct SileroVADFactory {

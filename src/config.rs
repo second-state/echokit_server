@@ -243,20 +243,20 @@ pub enum TTSConfig {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SileroVadconfig {
-    #[serde(default = "SileroVadconfig::default_threshold")]
+pub struct SileroVadConfig {
+    #[serde(default = "SileroVadConfig::default_threshold")]
     pub threshold: f32,
-    #[serde(default = "SileroVadconfig::default_neg_threshold")]
+    #[serde(default = "SileroVadConfig::default_neg_threshold")]
     pub neg_threshold: Option<f32>,
-    #[serde(default = "SileroVadconfig::default_min_speech_duration_ms")]
+    #[serde(default = "SileroVadConfig::default_min_speech_duration_ms")]
     pub min_speech_duration_ms: usize,
-    #[serde(default = "SileroVadconfig::default_max_silence_duration_ms")]
+    #[serde(default = "SileroVadConfig::default_max_silence_duration_ms")]
     pub max_silence_duration_ms: usize,
-    #[serde(default = "SileroVadconfig::hangover_ms")]
+    #[serde(default = "SileroVadConfig::hangover_ms")]
     pub hangover_ms: usize,
 }
 
-impl SileroVadconfig {
+impl SileroVadConfig {
     pub fn default_threshold() -> f32 {
         0.5
     }
@@ -278,9 +278,9 @@ impl SileroVadconfig {
     }
 }
 
-impl Default for SileroVadconfig {
+impl Default for SileroVadConfig {
     fn default() -> Self {
-        SileroVadconfig {
+        SileroVadConfig {
             threshold: Self::default_threshold(),
             neg_threshold: Self::default_neg_threshold(),
             min_speech_duration_ms: Self::default_min_speech_duration_ms(),
@@ -303,7 +303,7 @@ pub struct WhisperASRConfig {
     pub prompt: String,
 
     #[serde(default)]
-    pub vad: SileroVadconfig,
+    pub vad: SileroVadConfig,
 
     #[deprecated]
     #[serde(default)]

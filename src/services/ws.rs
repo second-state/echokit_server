@@ -192,7 +192,7 @@ async fn process_socket_io(
                         .map_err(|_| anyhow::anyhow!("audio_tx closed"))?;
 
                     if DEBUG_WAV {
-                        if debug_wav_data.len() > 0 {
+                        if !debug_wav_data.is_empty() {
                             let wav_data = crate::util::pcm_to_wav(
                                 &debug_wav_data,
                                 WavConfig {
