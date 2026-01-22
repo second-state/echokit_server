@@ -17,7 +17,7 @@ Generate `config.toml` files for EchoKit servers through an **interactive 4-phas
 3. 🔌 **MCP Configuration** (Optional) - Add MCP server support
 4. 📦 **Generate Files** - Create production-ready config.toml with setup guide
 
----
+
 
 ## 🚀 Quick Start
 
@@ -29,7 +29,7 @@ This SKILL can be installed in the following ways:
 # Clone echokit_server
 git clone https://github.com/second-state/echokit_server.git
 cd echokit_server
-
+```
 **That's it!** The SKILL is now available in Claude Code.
 
 ### Usage
