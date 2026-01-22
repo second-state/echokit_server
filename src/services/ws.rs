@@ -24,6 +24,7 @@ pub enum WsCommand {
     EndAudio,
     Video(Vec<Vec<u8>>),
     EndResponse,
+    EndVad,
 }
 type WsTx = tokio::sync::mpsc::UnboundedSender<WsCommand>;
 type WsRx = tokio::sync::mpsc::UnboundedReceiver<WsCommand>;
@@ -65,6 +66,8 @@ pub struct ConnectQueryParams {
     pub opus: bool,
     #[serde(default)]
     pub vowel: bool,
+    #[serde(default)]
+    pub stream_asr: bool,
 }
 
 enum WsEvent {
@@ -102,102 +105,6 @@ async fn retry_asr(
         }
     }
     vec![]
-}
-
-/// return: (wav_data,is_recording)
-async fn recv_audio_to_wav(
-    audio: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
-) -> anyhow::Result<Vec<u8>> {
-    let mut samples = bytes::BytesMut::new();
-
-    while let Some(chunk) = audio.recv().await {
-        match chunk {
-            ClientMsg::AudioChunk(data) => {
-                samples.extend_from_slice(&data);
-            }
-            ClientMsg::Submit => {
-                log::info!("end audio");
-                break;
-            }
-            _ => {}
-        }
-    }
-
-    if samples.is_empty() {
-        return Err(anyhow::anyhow!("no audio received"));
-    }
-
-    let wav_audio = crate::util::pcm_to_wav(
-        &samples,
-        WavConfig {
-            channels: 1,
-            sample_rate: 16000,
-            bits_per_sample: 16,
-        },
-    );
-
-    Ok(wav_audio)
-}
-
-pub async fn get_whisper_asr_text(
-    client: &reqwest::Client,
-    id: &str,
-    asr: &crate::config::WhisperASRConfig,
-    audio: &mut tokio::sync::mpsc::Receiver<ClientMsg>,
-) -> anyhow::Result<String> {
-    loop {
-        let msg = audio
-            .recv()
-            .await
-            .ok_or_else(|| anyhow::anyhow!("client rx channel closed"))?;
-
-        match msg {
-            ClientMsg::Text(input) => {
-                return Ok(input);
-            }
-            ClientMsg::StartChat => {
-                // start chat
-                let wav_data = recv_audio_to_wav(audio).await?;
-                if let Some(vad_url) = &asr.vad_url {
-                    let response =
-                        crate::ai::vad::vad_detect(client, vad_url, wav_data.clone()).await;
-
-                    let is_speech = response.map(|r| !r.timestamps.is_empty()).unwrap_or(true);
-                    if !is_speech {
-                        log::info!("VAD detected no speech, ignore this audio");
-                        return Ok(String::new());
-                    }
-                }
-
-                let st = std::time::Instant::now();
-                let text = retry_asr(
-                    client,
-                    &asr.url,
-                    &asr.api_key,
-                    &asr.model,
-                    &asr.lang,
-                    &asr.prompt,
-                    wav_data,
-                    3,
-                    std::time::Duration::from_secs(10),
-                )
-                .await;
-                log::info!("`{id}` ASR took: {:?}", st.elapsed());
-                let text = text.join("\n");
-                log::info!("ASR result: {:?}", text);
-                if text.is_empty() || text.trim().starts_with("(") {
-                    return Ok(String::new());
-                }
-                return Ok(hanconv::tw2sp(text));
-            }
-            ClientMsg::Submit => {
-                continue;
-            }
-            ClientMsg::AudioChunk(_) => {
-                continue;
-            }
-        }
-    }
 }
 
 pub enum ClientMsg {
@@ -272,28 +179,37 @@ async fn process_socket_io(
                         .send(ClientMsg::Submit)
                         .await
                         .map_err(|_| anyhow::anyhow!("audio_tx closed"))?;
-                    if DEBUG_WAV {
-                        let wav_data = crate::util::pcm_to_wav(
-                            &debug_wav_data,
-                            WavConfig {
-                                channels: 1,
-                                sample_rate: 16000,
-                                bits_per_sample: 16,
-                            },
-                        );
-                        std::fs::write("./recv_input.wav", wav_data)?;
-                        debug_wav_data.clear();
-                    }
                 }
                 ProcessMessageResult::Text(input) => audio_tx
                     .send(ClientMsg::Text(input))
                     .await
                     .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
                 ProcessMessageResult::Skip => {}
-                ProcessMessageResult::StartChat => audio_tx
-                    .send(ClientMsg::StartChat)
-                    .await
-                    .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
+                ProcessMessageResult::StartChat => {
+                    audio_tx
+                        .send(ClientMsg::StartChat)
+                        .await
+                        .map_err(|_| anyhow::anyhow!("audio_tx closed"))?;
+
+                    if DEBUG_WAV {
+                        if !debug_wav_data.is_empty() {
+                            let wav_data = crate::util::pcm_to_wav(
+                                &debug_wav_data,
+                                WavConfig {
+                                    channels: 1,
+                                    sample_rate: 16000,
+                                    bits_per_sample: 16,
+                                },
+                            );
+                            log::debug!(
+                                "Writing pre-chat debug wav file with size: {} bytes",
+                                wav_data.len()
+                            );
+                            std::fs::write("./recv_input.wav", wav_data)?;
+                            debug_wav_data.clear();
+                        }
+                    }
+                }
                 ProcessMessageResult::Close => {
                     return Err(anyhow::anyhow!("ws closed"));
                 }
@@ -383,6 +299,12 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
             let end_response = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndResponse)
                 .expect("Failed to serialize JsonCommand");
             ws.send(Message::binary(end_response)).await?;
+        }
+        WsCommand::EndVad => {
+            log::debug!("EndVad");
+            let end_vad = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndVad)
+                .expect("Failed to serialize EndVad ServerEvent");
+            ws.send(Message::binary(end_vad)).await?;
         }
     }
     Ok(())
@@ -524,6 +446,12 @@ async fn process_command_with_opus(
             let end_response = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndResponse)
                 .expect("Failed to serialize JsonCommand");
             ws.send(Message::binary(end_response)).await?;
+        }
+        WsCommand::EndVad => {
+            log::debug!("EndVad");
+            let end_vad = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndVad)
+                .expect("Failed to serialize EndVad ServerEvent");
+            ws.send(Message::binary(end_vad)).await?;
         }
     }
     Ok(())

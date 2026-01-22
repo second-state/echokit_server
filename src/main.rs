@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use axum::{routing::any, Router};
+use axum::{
+    Router,
+    routing::{any, get},
+};
 use clap::Parser;
 use config::Config;
 
@@ -180,5 +183,13 @@ async fn routes(
             .layer(axum::Extension(Arc::new(real_config)));
     }
 
-    router
+    router.route(
+        "/version",
+        get(|| async {
+            axum::response::Json(serde_json::json!(
+            {
+                "version": env!("CARGO_PKG_VERSION"),
+            }))
+        }),
+    )
 }

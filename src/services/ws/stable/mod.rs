@@ -72,6 +72,7 @@ async fn handle_socket(
             cmd_tx,
             client_rx,
             is_reconnect: params.reconnect,
+            stream_asr: params.stream_asr,
         })
         .map_err(|e| anyhow::anyhow!("send session error: {}", e))?;
 
@@ -94,6 +95,67 @@ pub struct Session {
     cmd_tx: super::WsTx,
     client_rx: super::ClientRx,
     is_reconnect: bool,
+    stream_asr: bool,
+}
+
+impl Session {
+    pub fn send_asr_result(&self, texts: Vec<String>) -> anyhow::Result<()> {
+        self.cmd_tx
+            .send(super::WsCommand::AsrResult(texts))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{}:{:x} error sending asr result ws command",
+                    self.id,
+                    self.request_id
+                )
+            })
+    }
+
+    pub fn send_start_audio(&self, text: String) -> anyhow::Result<()> {
+        self.cmd_tx
+            .send(super::WsCommand::StartAudio(text))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{}:{:x} error sending start audio ws command",
+                    self.id,
+                    self.request_id
+                )
+            })
+    }
+
+    pub fn send_audio_chunk(&self, data: Vec<u8>) -> anyhow::Result<()> {
+        self.cmd_tx
+            .send(super::WsCommand::Audio(data))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{}:{:x} error sending audio chunk ws command",
+                    self.id,
+                    self.request_id
+                )
+            })
+    }
+
+    pub fn send_end_response(&self) -> anyhow::Result<()> {
+        self.cmd_tx
+            .send(super::WsCommand::EndResponse)
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{}:{:x} error sending end response ws command",
+                    self.id,
+                    self.request_id
+                )
+            })
+    }
+
+    pub fn send_end_vad(&self) -> anyhow::Result<()> {
+        self.cmd_tx.send(super::WsCommand::EndVad).map_err(|_| {
+            anyhow::anyhow!(
+                "{}:{:x} error sending vad end ws command",
+                self.id,
+                self.request_id
+            )
+        })
+    }
 }
 
 async fn run_session<S: llm::LLMExt + Send + 'static>(
@@ -114,10 +176,23 @@ async fn run_session<S: llm::LLMExt + Send + 'static>(
             session.id,
             session.request_id
         );
-        let text = asr_session
-            .get_input(&session.id, &mut session.client_rx)
-            .await?;
-
+        let text = if session.stream_asr {
+            let text = asr_session.stream_get_input(session).await;
+            if text.is_err() {
+                session.send_end_vad().map_err(|_| {
+                    anyhow::anyhow!(
+                        "{}:{:x} error sending end vad ws command after asr error",
+                        session.id,
+                        session.request_id
+                    )
+                })?;
+            }
+            text?
+        } else {
+            asr_session
+                .get_input(&session.id, &mut session.client_rx)
+                .await?
+        };
         if text.is_empty() {
             log::info!(
                 "{}:{:x} empty asr result, ending session",
@@ -125,16 +200,13 @@ async fn run_session<S: llm::LLMExt + Send + 'static>(
                 session.request_id
             );
 
-            session
-                .cmd_tx
-                .send(super::WsCommand::EndResponse)
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "{}:{:x} error sending end response ws command for empty asr result",
-                        session.id,
-                        session.request_id
-                    )
-                })?;
+            session.send_end_response().map_err(|_| {
+                anyhow::anyhow!(
+                    "{}:{:x} error sending end response ws command for empty asr result",
+                    session.id,
+                    session.request_id
+                )
+            })?;
 
             continue;
         } else {
@@ -144,17 +216,14 @@ async fn run_session<S: llm::LLMExt + Send + 'static>(
                 session.request_id,
                 text
             );
-            session
-                .cmd_tx
-                .send(super::WsCommand::AsrResult(vec![text.clone()]))
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "{}:{:x} error sending asr result ws command for message `{}`",
-                        session.id,
-                        session.request_id,
-                        text
-                    )
-                })?;
+            session.send_asr_result(vec![text.clone()]).map_err(|_| {
+                anyhow::anyhow!(
+                    "{}:{:x} error sending asr result ws command for message `{}`",
+                    session.id,
+                    session.request_id,
+                    text
+                )
+            })?;
         }
 
         let (chunks_tx, chunks_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -185,16 +254,13 @@ async fn run_session<S: llm::LLMExt + Send + 'static>(
             );
         }
 
-        session
-            .cmd_tx
-            .send(super::WsCommand::EndResponse)
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "{}:{:x} error sending end response ws command after session processing",
-                    session.id,
-                    session.request_id
-                )
-            })?;
+        session.send_end_response().map_err(|_| {
+            anyhow::anyhow!(
+                "{}:{:x} error sending end response ws command after session processing",
+                session.id,
+                session.request_id
+            )
+        })?;
     }
 }
 
