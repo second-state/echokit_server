@@ -244,12 +244,16 @@ pub enum TTSConfig {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SileroVadconfig {
+    #[serde(default = "SileroVadconfig::default_threshold")]
     pub threshold: f32,
+    #[serde(default = "SileroVadconfig::default_neg_threshold")]
     pub neg_threshold: Option<f32>,
-
+    #[serde(default = "SileroVadconfig::default_min_speech_duration_ms")]
     pub min_speech_duration_ms: usize,
+    #[serde(default = "SileroVadconfig::default_max_silence_duration_ms")]
     pub max_silence_duration_ms: usize,
-    pub audio_cache_ms: usize,
+    #[serde(default = "SileroVadconfig::hangover_ms")]
+    pub hangover_ms: usize,
 }
 
 impl SileroVadconfig {
@@ -262,15 +266,15 @@ impl SileroVadconfig {
     }
 
     pub fn default_min_speech_duration_ms() -> usize {
-        150
-    }
-
-    pub fn default_max_silence_duration_ms() -> usize {
         400
     }
 
-    pub fn default_audio_cache_ms() -> usize {
-        1000
+    pub fn default_max_silence_duration_ms() -> usize {
+        200
+    }
+
+    pub fn hangover_ms() -> usize {
+        500
     }
 }
 
@@ -281,7 +285,7 @@ impl Default for SileroVadconfig {
             neg_threshold: Self::default_neg_threshold(),
             min_speech_duration_ms: Self::default_min_speech_duration_ms(),
             max_silence_duration_ms: Self::default_max_silence_duration_ms(),
-            audio_cache_ms: Self::default_audio_cache_ms(),
+            hangover_ms: Self::hangover_ms(),
         }
     }
 }

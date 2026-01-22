@@ -7,6 +7,7 @@ use axum::{
 };
 
 pub mod file;
+#[deprecated]
 pub mod realtime_ws;
 pub mod ws;
 pub mod ws_record;
@@ -22,7 +23,7 @@ pub struct ConnectQueryParams {
     #[serde(default)]
     vowel: bool,
     #[serde(default)]
-    server_vad: bool,
+    stream_asr: bool,
 }
 
 pub async fn v2_mixed_handler(
@@ -45,7 +46,7 @@ pub async fn v2_mixed_handler(
                 reconnect: params.reconnect,
                 opus: params.opus,
                 vowel: params.vowel,
-                server_vad: params.server_vad,
+                stream_asr: params.stream_asr,
             }),
         )
         .await

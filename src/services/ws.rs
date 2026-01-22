@@ -67,7 +67,7 @@ pub struct ConnectQueryParams {
     #[serde(default)]
     pub vowel: bool,
     #[serde(default)]
-    pub server_vad: bool,
+    pub stream_asr: bool,
 }
 
 enum WsEvent {
