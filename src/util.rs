@@ -92,6 +92,14 @@ pub fn get_samples_f32(reader: &mut wav_io::reader::Reader) -> Result<Vec<f32>, 
     loop {
         // read chunks
         let chunk_tag = reader.read_str4();
+
+        if chunk_tag == "RIFF" {
+            return Err(DecodeError::InvalidTag {
+                expected: "any data chunk",
+                found: "RIFF".to_string(),
+            });
+        }
+
         if chunk_tag == "" {
             break;
         }
@@ -200,6 +208,12 @@ pub fn get_samples_i16(reader: &mut wav_io::reader::Reader) -> Result<Vec<i16>, 
     loop {
         // read chunks
         let chunk_tag = reader.read_str4();
+        if chunk_tag == "RIFF" {
+            return Err(DecodeError::InvalidTag {
+                expected: "any data chunk",
+                found: "RIFF".to_string(),
+            });
+        }
         if chunk_tag == "" {
             break;
         }

@@ -93,7 +93,10 @@ impl ParaformerRealtimeV2Asr {
         Ok(())
     }
 
-    pub async fn start_pcm_recognition(&mut self) -> anyhow::Result<()> {
+    pub async fn start_pcm_recognition(
+        &mut self,
+        semantic_punctuation_enabled: bool,
+    ) -> anyhow::Result<()> {
         let task_id = Uuid::new_v4().to_string();
         log::info!("Starting asr task with ID: {}", task_id);
         self.task_id = task_id;
@@ -112,6 +115,7 @@ impl ParaformerRealtimeV2Asr {
                 "parameters": {
                     "format": "pcm",
                     "sample_rate": self.sample_rate,
+                    "semantic_punctuation_enabled": semantic_punctuation_enabled,
                 },
                 "input": {}
             },
@@ -163,6 +167,7 @@ impl ParaformerRealtimeV2Asr {
                 "streaming": "duplex"
             },
             "payload": {
+                "task_group": "audio",
                 "input": {}
             }
         });
@@ -197,6 +202,7 @@ impl ParaformerRealtimeV2Asr {
                     } else if let Some(output) = response.payload.output {
                         return Ok(Some(output.sentence));
                     } else {
+                        log::error!("ASR response has no output: {:?}", text);
                         return Err(anyhow::anyhow!("ASR error: {:?}", text));
                     }
                 }
@@ -226,31 +232,116 @@ async fn test_paraformer_asr() {
     let mut asr = ParaformerRealtimeV2Asr::connect("", token, head.sample_rate)
         .await
         .unwrap();
-    asr.start_pcm_recognition().await.unwrap();
+    asr.start_pcm_recognition(false).await.unwrap();
 
     asr.send_audio(audio_data.clone()).await.unwrap();
     asr.finish_task().await.unwrap();
 
     loop {
         if let Ok(Some(sentence)) = asr.next_result().await {
-            println!("{:?}", sentence);
+            log::info!("{:?}", sentence);
             if sentence.sentence_end {
-                println!();
+                log::info!("Final sentence received, ending recognition session.");
             }
         } else {
             break;
         }
     }
 
-    asr.start_pcm_recognition().await.unwrap();
+    asr.start_pcm_recognition(false).await.unwrap();
     asr.send_audio(audio_data).await.unwrap();
     asr.finish_task().await.unwrap();
 
     loop {
         if let Ok(Some(sentence)) = asr.next_result().await {
-            println!("{:?}", sentence);
+            log::info!("{:?}", sentence);
             if sentence.sentence_end {
-                println!();
+                log::info!("Final sentence received, ending recognition session.");
+            }
+        } else {
+            break;
+        }
+    }
+}
+
+// cargo test --package echokit_server --bin echokit_server -- ai::bailian::realtime_asr::test_paraformer_stream_asr --exact --show-output
+#[tokio::test]
+async fn test_paraformer_stream_asr() {
+    env_logger::init();
+    let token = std::env::var("COSYVOICE_TOKEN").unwrap();
+
+    let data = std::fs::read("./resources/test/out.wav").unwrap();
+    let mut reader = wav_io::reader::Reader::from_vec(data).expect("Failed to create WAV reader");
+    let header = reader.read_header().unwrap();
+    let mut samples = crate::util::get_samples_f32(&mut reader).unwrap();
+
+    // pad 10 seconds of silence
+    samples.extend_from_slice(&[0.0; 16000 * 10]);
+
+    let samples = crate::util::convert_samples_f32_to_i16_bytes(&samples);
+    let audio_data = bytes::Bytes::from(samples);
+
+    let mut asr = ParaformerRealtimeV2Asr::connect("", token, header.sample_rate)
+        .await
+        .unwrap();
+    asr.start_pcm_recognition(true).await.unwrap();
+
+    let mut ms = 0;
+
+    for chunk in audio_data.chunks(3200) {
+        ms += 100;
+        log::info!("Sending audio chunk at {} ms", ms);
+        asr.send_audio(Bytes::copy_from_slice(chunk)).await.unwrap();
+        // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let wait_asr_fut = asr.next_result();
+
+        let (sentence, has_result) = tokio::select! {
+            res = wait_asr_fut => {
+                (res.unwrap(),true)
+            }
+            _ = async {} => {
+                (None,false)
+            }
+        };
+
+        if has_result {
+            log::info!("{:?} {ms}", sentence);
+        }
+
+        if let Some(s) = sentence {
+            if s.sentence_end {
+                break;
+            }
+        }
+    }
+
+    asr.finish_task().await.unwrap();
+
+    loop {
+        if let Ok(Some(sentence)) = asr.next_result().await {
+            log::info!("{:?}", sentence);
+            if sentence.sentence_end {
+                log::info!("End of sentence");
+            }
+        } else {
+            break;
+        }
+    }
+
+    asr.start_pcm_recognition(true).await.unwrap();
+
+    ms = 0;
+    for chunk in audio_data.chunks(3200) {
+        ms += 100;
+        log::info!("Sending audio chunk at {} ms", ms);
+        asr.send_audio(Bytes::copy_from_slice(chunk)).await.unwrap();
+        // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+    loop {
+        if let Ok(Some(sentence)) = asr.next_result().await {
+            log::info!("{:?}", sentence);
+            if sentence.sentence_end {
+                log::info!("End of sentence");
             }
         } else {
             break;

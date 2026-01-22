@@ -1,4 +1,5 @@
 use crate::{
+    ai::bailian::realtime_asr::ResponsePayloadOutputSentence,
     config::WhisperASRConfig,
     services::ws::{ClientMsg, ClientRx, SAMPLE_RATE},
 };
@@ -345,9 +346,7 @@ impl WhisperASRSession {
             }
         }
 
-        session
-            .cmd_tx
-            .send(crate::services::ws::WsCommand::EndVad)?;
+        session.send_end_vad()?;
 
         Ok(text)
     }
@@ -370,7 +369,7 @@ impl ParaformerASRSession {
                 }
                 ClientMsg::StartChat => {
                     log::info!("`{id}` starting paraformer asr");
-                    if let Err(e) = self.start_pcm_recognition().await {
+                    if let Err(e) = self.start_pcm_recognition(false).await {
                         log::warn!(
                             "`{id}` error starting paraformer asr: {e}, attempting to reconnect..."
                         );
@@ -378,7 +377,7 @@ impl ParaformerASRSession {
                             anyhow::anyhow!("`{id}` error reconnecting paraformer asr: {e}")
                         })?;
                         log::info!("`{id}` paraformer asr reconnected successfully");
-                        self.start_pcm_recognition().await.map_err(|e| {
+                        self.start_pcm_recognition(false).await.map_err(|e| {
                             anyhow::anyhow!("`{id}` error starting paraformer asr: {e}")
                         })?;
                     }
@@ -405,6 +404,187 @@ impl ParaformerASRSession {
             }
         }
         Ok(text)
+    }
+
+    pub async fn stream_get_input(
+        &mut self,
+        session: &mut super::Session,
+    ) -> anyhow::Result<String> {
+        log::info!("`{}` paraformer start stream asr", session.id);
+        let mut start_submit = false;
+
+        enum SelectResult {
+            ClientMsg(Option<ClientMsg>),
+            AsrResult(anyhow::Result<Option<ResponsePayloadOutputSentence>>),
+        }
+
+        let mut asr_text = String::new();
+        let mut recv_any_asr_result = false;
+        let mut recv_audio_bytes = 0;
+
+        loop {
+            let client_fut = session.client_rx.recv();
+            let asr_fut = self.next_result();
+            let r = tokio::select! {
+                asr = asr_fut => SelectResult::AsrResult(asr),
+                chunk = client_fut => SelectResult::ClientMsg(chunk),
+            };
+
+            match r {
+                SelectResult::ClientMsg(chunk) => {
+                    if let Some(chunk) = chunk {
+                        match chunk {
+                            ClientMsg::Text(input) => {
+                                return Ok(input);
+                            }
+                            ClientMsg::AudioChunk(data) => {
+                                recv_audio_bytes += data.len();
+                                if !recv_any_asr_result && recv_audio_bytes >= 16000 * 10 {
+                                    log::warn!(
+                                        "`{}` paraformer asr received more than 30s audio without StartChat, starting automatically",
+                                        session.id
+                                    );
+                                    break;
+                                }
+                                // skip sending audio if not started yet
+                                if start_submit {
+                                    self.send_audio(data).await.map_err(|e| {
+                                        anyhow::anyhow!(
+                                            "`{}` error sending paraformer asr audio: {e}",
+                                            session.id
+                                        )
+                                    })?;
+                                } else {
+                                    log::debug!(
+                                        "`{}` paraformer asr not started yet, ignoring audio chunk",
+                                        session.id
+                                    );
+                                }
+                            }
+                            ClientMsg::Submit => {
+                                log::warn!(
+                                    "`{}` received a Unexpected Submit during Stream ASR",
+                                    session.id
+                                );
+                                return Err(anyhow::anyhow!("Unexpected Submit during Stream ASR"));
+                            }
+                            ClientMsg::StartChat => {
+                                log::info!("`{}` starting paraformer asr", session.id);
+                                if start_submit {
+                                    log::warn!(
+                                        "`{}` paraformer asr already started, ignoring duplicate StartChat",
+                                        session.id
+                                    );
+                                    continue;
+                                }
+                                if let Err(e) = self.start_pcm_recognition(true).await {
+                                    log::warn!(
+                                        "`{}` error starting paraformer asr: {e}, attempting to reconnect...",
+                                        session.id
+                                    );
+                                    for i in 0..3 {
+                                        if let Err(e) = self.reconnect().await {
+                                            log::warn!(
+                                                "`{}` attempt {} error reconnecting paraformer asr: {e}",
+                                                session.id,
+                                                i + 1
+                                            );
+                                            if i == 2 {
+                                                return Err(anyhow::anyhow!(
+                                                    "`{}` failed to reconnect paraformer asr after 3 attempts: {e}",
+                                                    session.id
+                                                ));
+                                            }
+                                        } else {
+                                            break;
+                                        }
+                                    }
+
+                                    log::info!(
+                                        "`{}` paraformer asr reconnected successfully",
+                                        session.id
+                                    );
+                                    self.start_pcm_recognition(true).await.map_err(|e| {
+                                        anyhow::anyhow!(
+                                            "`{}` error starting paraformer asr: {e}",
+                                            session.id
+                                        )
+                                    })?;
+                                }
+                                start_submit = true;
+                            }
+                        }
+                    } else {
+                        log::warn!("`{}` client rx channel closed unexpectedly", session.id);
+                        break;
+                    }
+                }
+                SelectResult::AsrResult(Ok(sentence)) => {
+                    if let Some(sentence) = sentence {
+                        recv_any_asr_result = true;
+                        if sentence.sentence_end {
+                            log::info!(
+                                "`{}` paraformer ASR final result: {:?}",
+                                session.id,
+                                sentence.text
+                            );
+
+                            asr_text = sentence.text;
+                            break;
+                        } else {
+                            log::info!(
+                                "`{}` paraformer ASR interim result: {:?}",
+                                session.id,
+                                sentence.text
+                            );
+                            if sentence.text.is_empty() {
+                                continue;
+                            }
+                            if asr_text == sentence.text {
+                                continue;
+                            }
+                            asr_text = sentence.text.clone();
+                            session.send_asr_result(vec![sentence.text])?;
+                        }
+                    } else {
+                        log::warn!(
+                            "`{}` paraformer ASR result stream ended unexpectedly",
+                            session.id
+                        );
+                        break;
+                    }
+                }
+                SelectResult::AsrResult(Err(e)) => {
+                    log::warn!(
+                        "`{}` paraformer ASR error getting result: {e}, attempting to reconnect...",
+                        session.id
+                    );
+                }
+            }
+        }
+
+        let _ = self.finish_task().await.map_err(|e| {
+            log::warn!("`{}` error finishing paraformer asr task: {e}", session.id);
+        });
+
+        loop {
+            if let Ok(Some(sentence)) = self.next_result().await {
+                if sentence.sentence_end {
+                    log::info!(
+                        "`{}` paraformer ASR final result after finish: {:?}",
+                        session.id,
+                        sentence.text
+                    );
+                    asr_text += &sentence.text;
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        session.send_end_vad()?;
+        Ok(asr_text)
     }
 }
 
@@ -450,20 +630,7 @@ impl AsrSession {
     ) -> anyhow::Result<String> {
         match self {
             AsrSession::Whisper(asr_session) => asr_session.stream_get_input(session).await,
-            AsrSession::Paraformer(asr_session) => {
-                let id = &session.id;
-                match asr_session.get_input(id, &mut session.client_rx).await {
-                    Ok(text) => Ok(text),
-                    Err(e) => {
-                        log::error!("`{id}` paraformer asr error: {e}, attempting to reconnect...");
-                        asr_session.reconnect().await.map_err(|e| {
-                            anyhow::anyhow!("`{id}` error reconnecting paraformer asr: {e}")
-                        })?;
-                        log::info!("`{id}` paraformer asr reconnected successfully");
-                        Ok(String::new())
-                    }
-                }
-            }
+            AsrSession::Paraformer(asr_session) => asr_session.stream_get_input(session).await,
         }
     }
 }

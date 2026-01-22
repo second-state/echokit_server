@@ -146,6 +146,16 @@ impl Session {
                 )
             })
     }
+
+    pub fn send_end_vad(&self) -> anyhow::Result<()> {
+        self.cmd_tx.send(super::WsCommand::EndVad).map_err(|_| {
+            anyhow::anyhow!(
+                "{}:{:x} error sending vad end ws command",
+                self.id,
+                self.request_id
+            )
+        })
+    }
 }
 
 async fn run_session<S: llm::LLMExt + Send + 'static>(
@@ -167,7 +177,17 @@ async fn run_session<S: llm::LLMExt + Send + 'static>(
             session.request_id
         );
         let text = if session.stream_asr {
-            asr_session.stream_get_input(session).await?
+            let text = asr_session.stream_get_input(session).await;
+            if text.is_err() {
+                session.send_end_vad().map_err(|_| {
+                    anyhow::anyhow!(
+                        "{}:{:x} error sending end vad ws command after asr error",
+                        session.id,
+                        session.request_id
+                    )
+                })?;
+            }
+            text?
         } else {
             asr_session
                 .get_input(&session.id, &mut session.client_rx)
