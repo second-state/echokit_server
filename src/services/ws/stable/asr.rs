@@ -423,11 +423,16 @@ impl ParaformerASRSession {
         let mut recv_audio_bytes = 0;
 
         loop {
-            let client_fut = session.client_rx.recv();
-            let asr_fut = self.next_result();
-            let r = tokio::select! {
-                asr = asr_fut => SelectResult::AsrResult(asr),
-                chunk = client_fut => SelectResult::ClientMsg(chunk),
+            let r = if start_submit {
+                let client_fut = session.client_rx.recv();
+                let asr_fut = self.next_result();
+                tokio::select! {
+                    asr = asr_fut => SelectResult::AsrResult(asr),
+                    chunk = client_fut => SelectResult::ClientMsg(chunk),
+                }
+            } else {
+                let chunk = session.client_rx.recv().await;
+                SelectResult::ClientMsg(chunk)
             };
 
             match r {
@@ -563,26 +568,27 @@ impl ParaformerASRSession {
             }
         }
 
-        let _ = self.finish_task().await.map_err(|e| {
-            log::warn!("`{}` error finishing paraformer asr task: {e}", session.id);
-        });
+        if start_submit {
+            let _ = self.finish_task().await.map_err(|e| {
+                log::warn!("`{}` error finishing paraformer asr task: {e}", session.id);
+            });
 
-        loop {
-            if let Ok(Some(sentence)) = self.next_result().await {
-                if sentence.sentence_end {
-                    log::info!(
-                        "`{}` paraformer ASR final result after finish: {:?}",
-                        session.id,
-                        sentence.text
-                    );
-                    asr_text += &sentence.text;
+            loop {
+                if let Ok(Some(sentence)) = self.next_result().await {
+                    if sentence.sentence_end {
+                        log::info!(
+                            "`{}` paraformer ASR final result after finish: {:?}",
+                            session.id,
+                            sentence.text
+                        );
+                        asr_text += &sentence.text;
+                        break;
+                    }
+                } else {
                     break;
                 }
-            } else {
-                break;
             }
         }
-
         session.send_end_vad()?;
         Ok(asr_text)
     }
