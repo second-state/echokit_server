@@ -12,9 +12,6 @@ speaker = "cooper"
 platform = "openai"
 url = "http://localhost:9092/v1/audio/transcriptions"
 lang = "auto"
-# Requires a local Silero VAD server at port 9093: https://github.com/second-state/silero_vad_server
-vad_url = "http://localhost:9093/v1/audio/vad"
-# vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 # Requires a local LlamaEdge API server at port 9091: https://llamaedge.com/docs/ai-models/llm/quick-start-llm
 [llm]

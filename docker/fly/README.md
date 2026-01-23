@@ -1,39 +1,49 @@
 This doc guides you through building and deploying the echokit_server container to Fly.io.
 
 ## Prerequisites
+
 - flyctl installed: see https://github.com/superfly/flyctl
 - Docker installed and running locally
 - A unique Fly app name (Fly app names are globally unique)
 
 ## 1) Create the Fly app
+
 ```bash
 fly app create --name echokit-server-[something-unique]
 ```
 
 ## 2) Build the Docker image
-From the server-vad directory, ensure `config.toml` is valid, then build:
+
+From the `server` directory, ensure `config.toml` is valid, then build:
+
 ```bash
-cd server-vad
+cd ../server
 docker build -t registry.fly.io/[your_app_name]:tag .
 ```
 
 ## 3) Push the image to Fly
+
 Authenticate to the Fly registry and push the image:
+
 ```bash
 fly auth docker
 docker push registry.fly.io/[your_app_name]:tag
 ```
 
 ## 4) Configure Fly to use the image
+
 Update `fly.toml` to point to `registry.fly.io/[your_app_name]:tag`.
 
 ## 5) Deploy
-From the `docker` directory:
+
+From the `docker/fly` directory:
+
 ```bash
 fly deploy
 ```
 
 ## Managing machines
+
 - Deploy creates two machines in the same region by default. Remove one if you only need a single instance:
   ```bash
   fly machine list           # get machine IDs

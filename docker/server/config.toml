@@ -4,9 +4,9 @@ hello_wav = "hello.wav"
 [tts]
 platform = "openai"
 url = "https://api.groq.com/openai/v1/audio/speech"
-model = "playai-tts"
+model = "canopylabs/orpheus-v1-english"
 api_key = "gsk_ABCD"
-voice = "Fritz-PlayAI"
+voice = "austin"
 
 [asr]
 platform = "openai"

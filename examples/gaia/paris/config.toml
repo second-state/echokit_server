@@ -10,8 +10,6 @@ speaker = "cooper"
 platform = "openai"
 url = "http://localhost:9092/v1/audio/transcriptions"
 lang = "auto"
-# vad_url = "http://localhost:9093/v1/audio/vad"
-vad_realtime_url = "ws://localhost:9093/v1/audio/realtime_vad"
 
 [llm]
 platform = "openai_chat"
