@@ -59,6 +59,12 @@ Edit `config.toml` to customize the VAD, ASR, LLM, TTS services, as well as prom
 cargo build --release
 ```
 
+**Note for aarch64 (ARM64) builds:** If building on or for aarch64 Linux, you may need to enable the fp16 target feature:
+
+```
+RUSTFLAGS="-C target-feature=+fp16" cargo build --release
+```
+
 ### Configure AI services
 
 The `config.toml` can use any combination of open-source or proprietary AI services, as long as they offer OpenAI-compatible API endpoints. Here are instructions to start open source AI servers for the EchoKit server.
