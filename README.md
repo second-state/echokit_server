@@ -63,7 +63,6 @@ cargo build --release
 
 The `config.toml` can use any combination of open-source or proprietary AI services, as long as they offer OpenAI-compatible API endpoints. Here are instructions to start open source AI servers for the EchoKit server.
 
-* VAD: https://github.com/second-state/silero_vad_server
 * ASR: https://llamaedge.com/docs/ai-models/speech-to-text/quick-start-whisper
 * LLM: https://llamaedge.com/docs/ai-models/llm/quick-start-llm
 * Streaming TTS: https://github.com/second-state/gsv_tts
@@ -112,8 +111,6 @@ Configure WiFi and server
 
 ### Use the device
 
-**Chat:** press the `K0` button once or multiple times until the screen shows "Listening ...". You can now speak and it will answer.
-
-**Record:** long press the `K0` until the screen shows "Recording ...". You can now speak and the audio will be recorded on the server.
+**Chat:** press the `K0` button once or multiple times until the status bar shows "Ready". You can now speak and it will show "Listening ...". The device answers after it decides that you have done speaking.
 
 **Config:** press `RST`. While it is restarting, press and hold `K0` to enter the configuration mode. Then [open the configuration UI](https://echokit.dev/setup/) to connect to the device via BT.
