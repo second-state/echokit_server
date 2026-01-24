@@ -59,7 +59,7 @@ Edit `config.toml` to customize the VAD, ASR, LLM, TTS services, as well as prom
 cargo build --release
 ```
 
-**Note for aarch64 (ARM64) builds:** If building on or for aarch64 Linux, you may need to enable the fp16 target feature:
+**Note for aarch64 (ARM64) builds:** When cross-compiling for aarch64, the required `fp16` target feature is automatically enabled via `.cargo/config.toml`. If building natively on aarch64, you may need to set:
 
 ```
 RUSTFLAGS="-C target-feature=+fp16" cargo build --release
