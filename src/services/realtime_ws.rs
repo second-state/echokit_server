@@ -39,6 +39,8 @@ pub struct RealtimeSession {
     pub triggered: bool,
     pub is_generating: bool,
     pub vad_session: Option<VadSession>,
+    /// Cumulative audio duration in milliseconds (for 24kHz PCM16 input)
+    pub audio_position_ms: u32,
 }
 
 impl RealtimeSession {
@@ -53,6 +55,7 @@ impl RealtimeSession {
             triggered: false,
             is_generating: false,
             vad_session,
+            audio_position_ms: 0,
         }
     }
 }
@@ -423,6 +426,9 @@ async fn handle_client_message(
                         session.config.turn_detection
                     );
 
+                    // Calculate audio duration: 24kHz PCM16 = 48 bytes per ms
+                    let chunk_duration_ms = (audio_data.len() / 48) as u32;
+
                     if !server_vad || session.triggered {
                         log::debug!(
                             "Appending audio chunk to input buffer, length: {}, server VAD: {}",
@@ -430,6 +436,7 @@ async fn handle_client_message(
                             server_vad
                         );
                         session.input_audio_buffer.extend_from_slice(&audio_data);
+                        session.audio_position_ms += chunk_duration_ms;
                     } else {
                         log::debug!(
                             "Audio chunk received but not triggered, length: {}, server VAD: {}",
@@ -451,8 +458,10 @@ async fn handle_client_message(
                             session.input_audio_buffer.extend_from_slice(&audio_data);
                         } else {
                             session.input_audio_buffer.clear();
+                            session.audio_position_ms = 0;
                             session.input_audio_buffer.extend_from_slice(&audio_data);
                         }
+                        session.audio_position_ms += chunk_duration_ms;
                     }
 
                     // Process audio through built-in silero VAD
@@ -493,12 +502,15 @@ async fn handle_client_message(
                             }
 
                             if speech_detected && !session.triggered {
-                                log::info!("VAD detected speech start");
+                                log::info!(
+                                    "VAD detected speech start at {}ms",
+                                    session.audio_position_ms
+                                );
                                 session.triggered = true;
-                                // Send speech started event
+                                // Send speech started event with actual timestamp
                                 let event = ServerEvent::InputAudioBufferSpeechStarted {
                                     event_id: Uuid::new_v4().to_string(),
-                                    audio_start_ms: 0,
+                                    audio_start_ms: session.audio_position_ms,
                                     item_id: Uuid::new_v4().to_string(),
                                 };
                                 let _ = tx.send(event).await;
@@ -516,6 +528,7 @@ async fn handle_client_message(
 
                 ClientEvent::InputAudioBufferClear { event_id: _ } => {
                     session.input_audio_buffer.clear();
+                    session.audio_position_ms = 0;
 
                     let event = ServerEvent::InputAudioBufferCleared {
                         event_id: Uuid::new_v4().to_string(),
