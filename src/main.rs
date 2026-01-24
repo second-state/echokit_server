@@ -7,6 +7,7 @@ use axum::{
 use clap::Parser;
 use config::Config;
 
+#[allow(deprecated)]
 use crate::{config::ASRConfig, services::realtime_ws::StableRealtimeConfig};
 
 pub mod ai;
@@ -55,9 +56,11 @@ async fn routes(
     });
 
     let mut tool_set = ai::openai::tool::ToolSet::default();
+    #[allow(deprecated)]
     let mut real_config: Option<StableRealtimeConfig> = None;
 
     // todo: support other configs
+    #[allow(deprecated)]
     match &config.config {
         config::AIConfig::Stable {
             llm: config::LLMConfig::OpenAIChat(chat_llm),
@@ -173,6 +176,7 @@ async fn routes(
         )))
         .layer(axum::Extension(record_config.clone()));
 
+    #[allow(deprecated)]
     if let Some(real_config) = real_config {
         log::info!(
             "Adding realtime WebSocket handler with config: {:?}",

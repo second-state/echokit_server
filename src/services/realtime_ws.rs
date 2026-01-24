@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use axum::{
     extract::{Extension, WebSocketUpgrade, ws::WebSocket},
     response::IntoResponse,
