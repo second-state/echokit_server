@@ -477,43 +477,42 @@ async fn handle_client_message(
                             let samples_16k =
                                 wav_io::resample::linear(samples_24k, 1, 24000, 16000);
 
-                            // Process through VAD in chunks
+                            // Process through VAD in chunks, collecting state transitions
+                            // We collect first to release the vad_session borrow before
+                            // calling functions that need mutable access to session
                             let chunk_size = VadSession::vad_chunk_size();
-                            let mut speech_detected = false;
-                            for chunk in samples_16k.chunks(chunk_size) {
-                                if let Ok(is_speech) = vad_session.detect(chunk) {
-                                    if is_speech {
-                                        speech_detected = true;
-                                    } else if session.triggered {
-                                        // Speech ended - trigger commit
-                                        log::info!("VAD detected speech end, triggering commit");
-                                        if handle_audio_buffer_commit(session, tx, None, asr)
-                                            .await?
-                                        {
-                                            generate_response(session, tx, tts).await?;
-                                        }
-                                        session.triggered = false;
-                                        if let Some(vs) = session.vad_session.as_mut() {
-                                            vs.reset_state();
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
+                            let vad_events: Vec<bool> = samples_16k
+                                .chunks(chunk_size)
+                                .filter_map(|chunk| vad_session.detect(chunk).ok())
+                                .collect();
 
-                            if speech_detected && !session.triggered {
-                                log::info!(
-                                    "VAD detected speech start at {}ms",
-                                    session.audio_position_ms
-                                );
-                                session.triggered = true;
-                                // Send speech started event with actual timestamp
-                                let event = ServerEvent::InputAudioBufferSpeechStarted {
-                                    event_id: Uuid::new_v4().to_string(),
-                                    audio_start_ms: session.audio_position_ms,
-                                    item_id: Uuid::new_v4().to_string(),
-                                };
-                                let _ = tx.send(event).await;
+                            // Process VAD events and handle state transitions
+                            for is_speech in vad_events {
+                                if is_speech && !session.triggered {
+                                    // Speech started
+                                    log::info!(
+                                        "VAD detected speech start at {}ms",
+                                        session.audio_position_ms
+                                    );
+                                    session.triggered = true;
+                                    let event = ServerEvent::InputAudioBufferSpeechStarted {
+                                        event_id: Uuid::new_v4().to_string(),
+                                        audio_start_ms: session.audio_position_ms,
+                                        item_id: Uuid::new_v4().to_string(),
+                                    };
+                                    let _ = tx.send(event).await;
+                                } else if !is_speech && session.triggered {
+                                    // Speech ended - trigger commit
+                                    log::info!("VAD detected speech end, triggering commit");
+                                    if handle_audio_buffer_commit(session, tx, None, asr).await? {
+                                        generate_response(session, tx, tts).await?;
+                                    }
+                                    session.triggered = false;
+                                    if let Some(vs) = session.vad_session.as_mut() {
+                                        vs.reset_state();
+                                    }
+                                    // Continue processing - new speech may start in remaining chunks
+                                }
                             }
                         }
                     }
