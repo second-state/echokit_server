@@ -94,20 +94,26 @@ async fn handle_socket(config: Arc<StableRealtimeConfig>, socket: WebSocket) {
     chat_session.messages = parts.dynamic_prompts;
 
     // Initialize built-in silero VAD session
-    let vad_session = match crate::ai::vad::VadSession::new(
-        &config.asr.vad,
-        Box::new(
-            silero_vad_burn::SileroVAD6Model::new(&burn::backend::ndarray::NdArrayDevice::default())
-                .expect("Failed to create silero VAD model"),
-        ),
-        burn::backend::ndarray::NdArrayDevice::default(),
-    ) {
-        Ok(session) => {
-            log::info!("Initialized built-in silero VAD session");
-            Some(session)
+    let device = burn::backend::ndarray::NdArrayDevice::default();
+    let vad_session = match silero_vad_burn::SileroVAD6Model::new(&device) {
+        Ok(vad_model) => {
+            match crate::ai::vad::VadSession::new(&config.asr.vad, Box::new(vad_model), device) {
+                Ok(session) => {
+                    log::info!("Initialized built-in silero VAD session");
+                    Some(session)
+                }
+                Err(e) => {
+                    log::error!("Failed to create VAD session: {}", e);
+                    None
+                }
+            }
         }
         Err(e) => {
-            log::error!("Failed to initialize silero VAD session: {}", e);
+            log::error!(
+                "Failed to load silero VAD model: {}. \
+                This may be due to missing model files or insufficient memory.",
+                e
+            );
             None
         }
     };
