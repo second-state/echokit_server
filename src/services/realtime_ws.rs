@@ -469,7 +469,7 @@ async fn handle_client_message(
                                 if let Ok(is_speech) = vad_session.detect(chunk) {
                                     if is_speech {
                                         speech_detected = true;
-                                    } else if session.triggered && !is_speech {
+                                    } else if session.triggered {
                                         // Speech ended - trigger commit
                                         log::info!("VAD detected speech end, triggering commit");
                                         if handle_audio_buffer_commit(session, tx, None, asr)
