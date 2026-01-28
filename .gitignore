@@ -1,5 +1,7 @@
 /target
 /record
+.env
+config.toml
 
 # macOS
 .DS_Store
