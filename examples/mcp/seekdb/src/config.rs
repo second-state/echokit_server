@@ -38,12 +38,4 @@ impl ServerConfig {
             database,
         })
     }
-
-    /// Get the MySQL connection URL
-    pub fn connection_url(&self) -> String {
-        format!(
-            "mysql://{}:{}@{}:{}/{}",
-            self.user, self.password, self.host, self.port, self.database
-        )
-    }
 }
