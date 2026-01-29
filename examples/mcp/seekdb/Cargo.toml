@@ -1,0 +1,60 @@
+[package]
+name = "seekdb-mcp-server"
+version = "0.1.0"
+edition = "2024"
+description = "A Rust MCP Server for SeekDB vector search"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "seekdb_mcp_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "seekdb-mcp-server"
+path = "src/main.rs"
+
+[dependencies]
+# MCP SDK with server features (from crates.io)
+rmcp = { version = "0.14.0", features = [
+    "server",
+    "macros",
+    "transport-streamable-http-server",
+    "schemars",
+    "base64",
+] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# Database connectivity (SeekDB uses MySQL protocol)
+mysql_async = { version = "0.34", default-features = false, features = ["default-rustls"] }
+
+# Web framework for HTTP transport
+axum = { version = "0.8" }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Schema generation for tool parameters
+schemars = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Environment variables
+dotenvy = "0.15"
+
+# Embeddings (client-side, like pyseekdb's DefaultEmbeddingFunction)
+fastembed = "5.8"
+
+[dev-dependencies]
+# Testing
+tokio-test = "0.4"
