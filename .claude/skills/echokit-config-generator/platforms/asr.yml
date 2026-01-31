@@ -17,3 +17,43 @@ whisper_local:
   api_key_field: "api_key"
   model_field: "model"
   notes: "Free and private, requires local whisper server running"
+
+deepgram:
+  name: "Deepgram Nova-2"
+  platform: "deepgram"
+  url: "https://api.deepgram.com/v1/listen"
+  model: "nova-2"
+  api_key_url: "https://console.deepgram.com/signup"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "Fast and accurate, supports real-time streaming, 45+ languages"
+
+assemblyai:
+  name: "AssemblyAI"
+  platform: "assemblyai"
+  url: "https://api.assemblyai.com/v2/transcript"
+  model: "best"
+  api_key_url: "https://www.assemblyai.com/dashboard/signup"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "Advanced features like speaker diarization, sentiment analysis"
+
+azure_speech:
+  name: "Azure Speech Services"
+  platform: "azure"
+  url: "https://<region>.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1"
+  model: "default"
+  api_key_url: "https://portal.azure.com/#create/Microsoft.CognitiveServicesSpeechServices"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "Enterprise-grade, 100+ languages, requires Azure subscription. Replace <region> with your region (e.g., eastus)"
+
+groq_whisper:
+  name: "Groq Whisper (Fast)"
+  platform: "groq"
+  url: "https://api.groq.com/openai/v1/audio/transcriptions"
+  model: "whisper-large-v3"
+  api_key_url: "https://console.groq.com/keys"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "Ultra-fast Whisper inference on Groq LPU, OpenAI-compatible API"

@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2025-01-31
+
+### Added
+- **Role Presets**: 8 pre-configured assistant templates (General, Coding, Creative Writer, Business Analyst, Language Tutor, Research Assistant, Wellness Coach, Data Scientist)
+- **End-to-End Models**: Support for Gemini Live and OpenAI Realtime API
+- **Enhanced System Prompt Generation**:
+  - Safety constraints configuration
+  - Tool access permissions
+  - Content filtering options
+  - System prompt validation
+- **Expanded Platform Support**:
+  - ASR: Deepgram Nova-2, AssemblyAI, Azure Speech, Groq Whisper (total: 6 providers)
+  - TTS: Azure TTS, Google Cloud TTS, Cartesia Sonic, PlayHT 2.0 (total: 7 providers)
+  - LLM: Anthropic Claude, Google Gemini, Groq, Together AI, DeepSeek, Mistral (total: 8 providers)
+- **New Example Configurations**:
+  - customer-service.toml - Professional customer support assistant
+  - education-tutor.toml - Interactive learning companion
+  - technical-support.toml - IT helpdesk and troubleshooting
+  - healthcare-assistant.toml - Medical information support (non-diagnostic)
+- **New Files**:
+  - platforms/end-to-end.yml - Integrated voice AI models
+  - templates/prompt-presets.yml - Role preset definitions
+
+### Changed
+- Phase 1 now offers preset vs custom configuration choice
+- Added Phase 1.5 for end-to-end model selection
+- Enhanced documentation with comprehensive platform tables
+- Updated README with new features and capabilities
+- Improved system prompt structure with safety sections
+
+### Technical
+- Total platform count increased from 4 to 21+ providers
+- Example configs increased from 2 to 6
+- Enhanced YAML metadata with detailed provider information
+
 ## [1.3.1] - 2025-01-16
 
 ### Changed
@@ -79,4 +114,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP server support (optional)
 - Pre-built examples (voice companion, coding assistant)
 
+[1.4.0]: https://github.com/second-state/echokit_server/releases/tag/v1.4.0
+[1.3.1]: https://github.com/second-state/echokit_server/releases/tag/v1.3.1
+[1.3.0]: https://github.com/second-state/echokit_server/releases/tag/v1.3.0
+[1.2.0]: https://github.com/second-state/echokit_server/releases/tag/v1.2.0
+[1.1.0]: https://github.com/second-state/echokit_server/releases/tag/v1.1.0
 [1.0.0]: https://github.com/second-state/echokit_server/releases/tag/v1.0.0

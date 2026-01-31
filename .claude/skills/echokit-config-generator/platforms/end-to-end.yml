@@ -1,0 +1,65 @@
+# End-to-End Voice AI Models
+# These models integrate ASR, TTS, and LLM in a single endpoint
+
+gemini_live:
+  name: "Google Gemini Live"
+  platform: "gemini_live"
+  url: "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+  model: "gemini-2.0-flash-exp"
+  api_key_url: "https://aistudio.google.com/app/apikey"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "Multimodal real-time API with native audio I/O, low latency, free tier available"
+  features:
+    - "Native audio input/output"
+    - "Real-time streaming"
+    - "Multimodal (text, audio, video)"
+    - "Function calling support"
+    - "1M token context window"
+  config_template: |
+    # Gemini Live uses a unified endpoint for all services
+    [gemini_live]
+    platform = "gemini_live"
+    url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+    api_key = "YOUR_API_KEY_HERE"
+    model = "gemini-2.0-flash-exp"
+
+    # Voice configuration
+    voice = "Puck"  # Options: Puck, Charon, Kore, Fenrir, Aoede
+
+    # System instructions
+    [[gemini_live.sys_prompts]]
+    role = "system"
+    content = "Your system prompt here"
+
+openai_realtime:
+  name: "OpenAI Realtime API"
+  platform: "openai_realtime"
+  url: "wss://api.openai.com/v1/realtime"
+  model: "gpt-4o-realtime-preview"
+  api_key_url: "https://platform.openai.com/api-keys"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "Low-latency multimodal experience with native audio I/O, function calling"
+  features:
+    - "Native audio input/output"
+    - "Real-time streaming"
+    - "Function calling"
+    - "Voice activity detection"
+    - "Interruption handling"
+  config_template: |
+    # OpenAI Realtime API uses WebSocket for bidirectional communication
+    [openai_realtime]
+    platform = "openai_realtime"
+    url = "wss://api.openai.com/v1/realtime"
+    api_key = "YOUR_API_KEY_HERE"
+    model = "gpt-4o-realtime-preview"
+
+    # Voice configuration
+    voice = "alloy"  # Options: alloy, echo, shimmer
+
+    # Modalities
+    modalities = ["text", "audio"]
+
+    # Instructions
+    instructions = "Your system prompt here"

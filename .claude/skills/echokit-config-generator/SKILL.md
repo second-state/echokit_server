@@ -1,7 +1,7 @@
 ---
 name: EchoKit Config Generator
 description: Generate config.toml for EchoKit servers with interactive setup for ASR, TTS, LLM services, MCP servers, API key entry, and server launch
-version: 1.3.1
+version: 1.4.0
 author: "EchoKit Config Generator Contributors"
 repository: "https://github.com/second-state/echokit_server"
 ---
@@ -39,6 +39,39 @@ AI: [Uses 10]
 This applies to ALL questions with defaults throughout the SKILL.
 
 ## Phase 1: Assistant Definition
+
+### Step 1: Choose Configuration Method
+
+Ask: *"Would you like to use a preset role or create a custom assistant? (preset/custom)"*
+
+**If user chooses "preset":**
+
+1. **Read preset data** from `templates/prompt-presets.yml` using the Read tool
+2. **Display available presets** with this format:
+
+```
+Available Role Presets:
+
+1. General Assistant - Versatile AI for everyday tasks
+2. Coding Assistant - Programming and software development expert
+3. Creative Writer - Creative writing and storytelling companion
+4. Business Analyst - Business strategy and data analysis expert
+5. Language Tutor - Language learning and practice companion
+6. Research Assistant - Academic research and information synthesis
+7. Wellness Coach - Health, fitness, and lifestyle guidance
+8. Data Scientist - Data analysis, ML, and statistical modeling
+
+Your choice (1-8):
+```
+
+3. **User selects a preset** - Load the preset configuration and skip to Phase 2
+4. **Generate system prompt** from preset template automatically
+
+**If user chooses "custom":**
+
+Proceed with custom configuration below.
+
+### Step 2: Custom Assistant Configuration
 
 Ask these questions **one at a time**:
 
@@ -121,6 +154,82 @@ If user doesn't provide specific behaviors, use these expanded defaults:
   - Explain trade-offs and alternatives
   - Use appropriate terminology correctly
   - Acknowledge edge cases and limitations
+
+### Step 3: Safety and Tool Configuration (Optional)
+
+Ask: *"Does your assistant need any special safety constraints or tool access? (y/n)"*
+
+**If yes, ask:**
+
+1. *"What safety constraints should be enforced?"*
+   - Examples: "No medical diagnosis", "No financial advice", "No code execution", "PII protection"
+
+2. *"Should the assistant have access to external tools or APIs?"*
+   - Examples: "Web search", "Calculator", "Database queries", "File system access"
+
+3. *"Any content filtering requirements?"*
+   - Examples: "Family-friendly only", "Professional language only", "No political content"
+
+**Add to system prompt if provided:**
+
+```toml
+## Safety Constraints
+{SAFETY_CONSTRAINTS}
+
+## Tool Access
+{TOOL_PERMISSIONS}
+
+## Content Guidelines
+{CONTENT_FILTERS}
+```
+
+### Step 4: Validation
+
+Before proceeding, validate the system prompt:
+
+1. **Check completeness**: Does it cover purpose, capabilities, style, and constraints?
+2. **Check clarity**: Are instructions clear and unambiguous?
+3. **Check safety**: Are appropriate guardrails in place?
+4. **Check length**: Is it concise yet comprehensive? (Aim for 200-500 words)
+
+If validation fails, ask user to clarify or refine specific sections.
+
+## Phase 1.5: End-to-End Model Option (New)
+
+After Phase 1, ask: *"Would you like to use an end-to-end voice AI model (like Gemini Live) instead of separate ASR/TTS/LLM services? (y/n)"*
+
+**If yes:**
+
+1. **Read end-to-end platforms** from `platforms/end-to-end.yml`
+2. **Display available options**:
+
+```
+Available End-to-End Voice AI Models:
+
+1. Google Gemini Live
+   - Native audio I/O, real-time streaming
+   - Multimodal (text, audio, video)
+   - 1M token context window
+   - Free tier available
+   - Get API key: https://aistudio.google.com/app/apikey
+
+2. OpenAI Realtime API
+   - Low-latency multimodal experience
+   - Native audio I/O with function calling
+   - Voice activity detection
+   - Interruption handling
+   - Get API key: https://platform.openai.com/api-keys
+
+Your choice (1-2):
+```
+
+3. **User selects model** - Use the config_template from the YAML file
+4. **Skip Phase 2** (ASR/TTS/LLM selection) and go directly to Phase 3 (MCP)
+5. **Generate unified config** using the end-to-end template
+
+**If no:**
+
+Proceed to Phase 2 (separate service selection)
 
 ## Phase 2: Platform Selection
 
@@ -567,9 +676,9 @@ Provide troubleshooting suggestions based on error messages.
 ## File Locations
 
 All files are relative to SKILL root:
-- Platform data: `platforms/asr.yml`, `platforms/tts.yml`, `platforms/llm.yml`
-- Templates: `templates/SETUP_GUIDE.md`
-- Examples: `examples/voice-companion.toml`, `examples/coding-assistant.toml`
+- Platform data: `platforms/asr.yml`, `platforms/tts.yml`, `platforms/llm.yml`, `platforms/end-to-end.yml`
+- Templates: `templates/SETUP_GUIDE.md`, `templates/prompt-presets.yml`
+- Examples: `examples/voice-companion.toml`, `examples/coding-assistant.toml`, `examples/customer-service.toml`, `examples/education-tutor.toml`, `examples/technical-support.toml`, `examples/healthcare-assistant.toml`
 
 **No external dependencies** - this SKILL is completely self-contained.
 
@@ -688,6 +797,15 @@ User: [Enter]
 
 ## Version History
 
+- 1.4.0 - Major enhancement release:
+  - Added 8 role presets (General, Coding, Creative Writer, Business Analyst, Language Tutor, Research Assistant, Wellness Coach, Data Scientist)
+  - Added safety and tool configuration options in Phase 1
+  - Added system prompt validation
+  - Added end-to-end model support (Gemini Live, OpenAI Realtime API)
+  - Expanded ASR providers: Deepgram, AssemblyAI, Azure Speech, Groq Whisper
+  - Expanded TTS providers: Azure TTS, Google Cloud TTS, Cartesia, PlayHT
+  - Expanded LLM providers: Anthropic Claude, Google Gemini, Groq, Together AI, DeepSeek, Mistral
+  - Added 4 new example configs: customer-service, education-tutor, technical-support, healthcare-assistant
 - 1.3.1 - Added `export RUST_LOG=debug` before server launch for better troubleshooting
 - 1.3.0 - Fixed config.toml format with correct section order ([tts] → [asr] → [llm]), platform-specific field names (ElevenLabs uses `token`/`model_id`), removed comments from top, added `prompt` and `vad_url` fields for ASR
 - 1.2.0 - Added Phase 5: API Key Entry and Server Launch with interactive key collection, automatic config updates, server build, and launch
