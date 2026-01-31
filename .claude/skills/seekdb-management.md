@@ -29,4 +29,9 @@ Sets up the SeekDB connection environment by creating a `.env` file.
    SEEKDB_TOKEN=<collected_token>
    ```
 4. **Git Safety**: Read the `.gitignore` file to verify if `.env` is properly ignored to prevent accidental leaks. If it's not ignored, warn the user and suggest adding it.
-5. **Success Confirmation**: Confirm to the user that the environment has been successfully configured.
+5. **Update Config**: Ask the user if they want to automatically add SeekDB MCP server to their `config.toml`.
+    - If yes:
+        - Read `config.toml`.
+        - Add the `[[llm.mcp_server]]` block with `server = "http://localhost:<collected_port>/mcp"`.
+        - Add a SeekDB-specific system prompt to `[[llm.sys_prompts]]`.
+6. **Success Confirmation**: Confirm to the user that the environment has been successfully configured and the server is connected.
