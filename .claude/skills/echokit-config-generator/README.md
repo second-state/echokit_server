@@ -3,19 +3,20 @@
 > 🎯 A Claude Code SKILL for generating EchoKit server configurations through an interactive setup
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![SKILL Version](https://img.shields.io/badge/Version-1.1.0-blue.svg)](https://github.com/second-state/echokit_server)
+[![SKILL Version](https://img.shields.io/badge/Version-1.4.0-blue.svg)](https://github.com/second-state/echokit_server)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-SKILL-teal.svg)](https://code.claude.com)
 
 ---
 
 ## ✨ What It Does
 
-Generate `config.toml` files for EchoKit servers through an **interactive 4-phase process**:
+Generate `config.toml` files for EchoKit servers through an **interactive 5-phase process**:
 
-1. 📝 **Assistant Definition** - Define your AI assistant's purpose, tone, capabilities, and behaviors
-2. 🔧 **Platform Selection** - Choose ASR, TTS, and LLM services from supported platforms **or use any custom platform**
-3. 🔌 **MCP Configuration** (Optional) - Add MCP server support
-4. 📦 **Generate Files** - Create production-ready config.toml with setup guide
+1. 📝 **Assistant Definition** - Choose from 8 role presets or create custom AI assistant with advanced system prompt generation
+2. 🎯 **End-to-End Option** - Use integrated models like Gemini Live or separate ASR/TTS/LLM services
+3. 🔧 **Platform Selection** - Choose from 15+ providers or use any custom platform with auto-discovery
+4. 🔌 **MCP Configuration** (Optional) - Add MCP server support
+5. 📦 **Generate & Launch** - Create config, enter API keys, build and launch server
 
 
 
@@ -49,10 +50,19 @@ Or be more specific:
 
 ## 🎯 Key Features
 
-### ✅ Rich System Prompt Generation
+### ✅ Role Presets & Advanced System Prompt Generation
 
-The SKILL asks **7 detailed questions** to create sophisticated, customized system prompts:
+**8 Pre-configured Role Presets:**
+1. **General Assistant** - Versatile AI for everyday tasks
+2. **Coding Assistant** - Programming and software development expert
+3. **Creative Writer** - Creative writing and storytelling companion
+4. **Business Analyst** - Business strategy and data analysis expert
+5. **Language Tutor** - Language learning and practice companion
+6. **Research Assistant** - Academic research and information synthesis
+7. **Wellness Coach** - Health, fitness, and lifestyle guidance
+8. **Data Scientist** - Data analysis, ML, and statistical modeling
 
+**Custom Configuration** with detailed questions:
 1. **Purpose** - What does your assistant do?
 2. **Tone** - Professional, casual, friendly, expert, or custom
 3. **Capabilities** - Specific skills and abilities
@@ -60,16 +70,26 @@ The SKILL asks **7 detailed questions** to create sophisticated, customized syst
 5. **Domain Knowledge** - Programming, medicine, finance, etc.
 6. **Constraints** - Formatting rules, citation requirements, etc.
 7. **Additional Instructions** - Any custom preferences
+8. **Safety Constraints** - Medical disclaimers, content filtering, etc.
+9. **Tool Access** - External APIs, web search, database access
 
-### ✅ Flexible Platform Support
+### ✅ End-to-End Voice AI Models
+
+**Integrated Solutions:**
+- **Google Gemini Live** - Multimodal real-time API with native audio I/O, 1M context
+- **OpenAI Realtime API** - Low-latency multimodal with function calling
+
+Skip separate ASR/TTS/LLM configuration and use a single unified endpoint!
+
+### ✅ Extensive Platform Support
 
 **Pre-configured Platforms:**
-- **ASR:** OpenAI Whisper, Local Whisper
-- **TTS:** OpenAI, ElevenLabs (streaming), GPT-SoVITS
-- **LLM:** OpenAI Chat, OpenAI Responses API
+- **ASR:** OpenAI Whisper, Deepgram Nova-2, AssemblyAI, Azure Speech, Groq Whisper, Local Whisper
+- **TTS:** OpenAI, ElevenLabs, Azure TTS, Google Cloud TTS, Cartesia Sonic, PlayHT, GPT-SoVITS
+- **LLM:** OpenAI Chat, Anthropic Claude, Google Gemini, Groq, Together AI, DeepSeek, Mistral
 
 **Custom Platforms** (via WebSearch auto-discovery):
-- Groq, DeepSeek, Mistral, Together, or any other platform
+- Any OpenAI-compatible API
 - Automatically fetches API endpoints
 - Suggests default models
 - Confirms with you before using
@@ -200,11 +220,22 @@ You: [Enter]
 
 ## 🏗️ Supported Platforms
 
-### ASR (Speech Recognition): Any OpenAI-compatible
+### End-to-End Models
+
+| Platform | Features | Notes |
+|----------|----------|-------|
+| Google Gemini Live | Native audio I/O, multimodal, 1M context | Free tier available |
+| OpenAI Realtime API | Low-latency, function calling, VAD | Preview access |
+
+### ASR (Speech Recognition)
 
 | Platform | Model | Notes |
 |----------|-------|-------|
 | OpenAI Whisper | gpt-4o-mini-transcribe | Best accuracy |
+| Deepgram Nova-2 | nova-2 | Fast, 45+ languages |
+| AssemblyAI | best | Speaker diarization, sentiment |
+| Azure Speech | default | Enterprise-grade, 100+ languages |
+| Groq Whisper | whisper-large-v3 | Ultra-fast (500+ tokens/s) |
 | Local Whisper | base | Free, private |
 | **Custom** | Any | Auto-discovered via WebSearch |
 
@@ -213,34 +244,49 @@ You: [Enter]
 | Platform | Voice | Notes |
 |----------|-------|-------|
 | OpenAI TTS | ash, alloy, echo, fable, onyx, nova | Multiple voices |
-| ElevenLabs | Custom | Streaming via WebSocket |
+| ElevenLabs | Custom | Premium streaming via WebSocket |
+| Azure TTS | 400+ neural voices | 140+ languages, SSML support |
+| Google Cloud TTS | Neural2, WaveNet | Natural prosody, 40+ languages |
+| Cartesia Sonic | sonic-english | Ultra-low latency (<300ms) |
+| PlayHT 2.0 | Custom | Voice cloning, 142 languages |
 | GPT-SoVITS | Custom | Local streaming |
 | **Custom** | Any | Auto-discovered via WebSearch |
 
-### LLM (Chat): Any OpenAI-chat and OpenAI-responses compatible
+### LLM (Chat)
 
 | Platform | Models | Notes |
 |----------|--------|-------|
-| OpenAI Chat | gpt-4o-mini, gpt-4o, etc. | Most compatible |
-| OpenAI Responses | gpt-4o-mini, etc. | For streaming interactions |
-| **Custom** | Any | Groq, DeepSeek, Mistral, etc. |
+| OpenAI Chat | gpt-4o-mini, gpt-4o | Most compatible |
+| Anthropic Claude | claude-3-5-sonnet | 200K context, advanced reasoning |
+| Google Gemini | gemini-2.0-flash-exp | 1M context, multimodal |
+| Groq | llama-3.3-70b-versatile | Fastest inference (500+ tokens/s) |
+| Together AI | Meta-Llama-3.1-70B | 100+ open-source models |
+| DeepSeek | deepseek-chat | Cost-effective, strong coding |
+| Mistral | mistral-large-latest | European AI, multilingual |
+| **Custom** | Any | OpenAI-compatible APIs |
 
 ---
 
 ## 📁 Repository Structure
 
 ```
-echokit-config-skill/
-├── SKILL.md              # Main SKILL file (all logic)
+echokit-config-generator/
+├── skill.md              # Main SKILL file (all logic)
 ├── platforms/            # Platform configuration data
-│   ├── asr.yml
-│   ├── tts.yml
-│   └── llm.yml
+│   ├── asr.yml          # ASR providers (6 platforms)
+│   ├── tts.yml          # TTS providers (7 platforms)
+│   ├── llm.yml          # LLM providers (8 platforms)
+│   └── end-to-end.yml   # Integrated models (2 platforms)
 ├── templates/            # Output file templates
-│   └── SETUP_GUIDE.md
+│   ├── SETUP_GUIDE.md   # Setup instructions template
+│   └── prompt-presets.yml # 8 role presets
 ├── examples/             # Example configurations
 │   ├── voice-companion.toml
-│   └── coding-assistant.toml
+│   ├── coding-assistant.toml
+│   ├── customer-service.toml
+│   ├── education-tutor.toml
+│   ├── technical-support.toml
+│   └── healthcare-assistant.toml
 ├── README.md             # This file
 ├── CONTRIBUTING.md       # Contribution guidelines
 ├── CHANGELOG.md          # Version history
@@ -313,12 +359,15 @@ Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guideli
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
 
-### Recent Changes (v1.1.0)
+### Recent Changes (v1.4.0)
 
-- ✨ Enhanced system prompt generation (7 detailed questions)
-- ✨ Added custom platform support with automatic API discovery via WebSearch
-- 🐛 Fixed Enter key handling for default values
-- 🐛 Corrected MCP server format to use `[[llm.mcp_server]]`
+- ✨ Added 8 role presets for quick assistant setup
+- ✨ Added end-to-end model support (Gemini Live, OpenAI Realtime API)
+- ✨ Expanded to 15+ platform providers across ASR/TTS/LLM
+- ✨ Added safety constraints and tool access configuration
+- ✨ Added system prompt validation
+- ✨ Added 4 new example configs (customer service, education, technical support, healthcare)
+- 🎯 Enhanced system prompt generation with advanced options
 
 ---
 

@@ -19,3 +19,69 @@ openai_response:
   api_key_field: "api_key"
   model_field: "model"
   notes: "OpenAI Responses API for streaming interactions"
+
+anthropic_claude:
+  name: "Anthropic Claude"
+  platform: "anthropic"
+  url: "https://api.anthropic.com/v1/messages"
+  model: "claude-3-5-sonnet-20241022"
+  history: 10
+  api_key_url: "https://console.anthropic.com/settings/keys"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "Advanced reasoning, 200K context, excellent for complex tasks"
+
+google_gemini:
+  name: "Google Gemini"
+  platform: "google"
+  url: "https://generativelanguage.googleapis.com/v1beta/models"
+  model: "gemini-2.0-flash-exp"
+  history: 8
+  api_key_url: "https://aistudio.google.com/app/apikey"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "Multimodal, fast, 1M context window, free tier available"
+
+groq:
+  name: "Groq (Ultra-Fast)"
+  platform: "groq"
+  url: "https://api.groq.com/openai/v1/chat/completions"
+  model: "llama-3.3-70b-versatile"
+  history: 5
+  api_key_url: "https://console.groq.com/keys"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "Fastest inference (500+ tokens/s), OpenAI-compatible, free tier"
+
+together_ai:
+  name: "Together AI"
+  platform: "together"
+  url: "https://api.together.xyz/v1/chat/completions"
+  model: "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo"
+  history: 5
+  api_key_url: "https://api.together.xyz/settings/api-keys"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "100+ open-source models, competitive pricing, OpenAI-compatible"
+
+deepseek:
+  name: "DeepSeek"
+  platform: "deepseek"
+  url: "https://api.deepseek.com/v1/chat/completions"
+  model: "deepseek-chat"
+  history: 5
+  api_key_url: "https://platform.deepseek.com/api_keys"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "Cost-effective, strong coding abilities, OpenAI-compatible API"
+
+mistral:
+  name: "Mistral AI"
+  platform: "mistral"
+  url: "https://api.mistral.ai/v1/chat/completions"
+  model: "mistral-large-latest"
+  history: 5
+  api_key_url: "https://console.mistral.ai/api-keys"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "European AI, multilingual, function calling, OpenAI-compatible"

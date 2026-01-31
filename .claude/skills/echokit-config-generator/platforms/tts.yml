@@ -30,3 +30,47 @@ gpt_sovits:
   api_key_field: "api_key"
   model_field: "model"
   notes: "Free and local streaming TTS, requires GPT-SoVITS server running on port 9880"
+
+azure_tts:
+  name: "Azure Text-to-Speech"
+  platform: "azure"
+  url: "https://<region>.tts.speech.microsoft.com/cognitiveservices/v1"
+  model: "en-US-JennyNeural"
+  voice: "en-US-JennyNeural"
+  api_key_url: "https://portal.azure.com/#create/Microsoft.CognitiveServicesSpeechServices"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "400+ neural voices, 140+ languages, SSML support. Replace <region> with your region"
+
+google_cloud_tts:
+  name: "Google Cloud Text-to-Speech"
+  platform: "google"
+  url: "https://texttospeech.googleapis.com/v1/text:synthesize"
+  model: "en-US-Neural2-C"
+  voice: "en-US-Neural2-C"
+  api_key_url: "https://console.cloud.google.com/apis/credentials"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "WaveNet and Neural2 voices, 40+ languages, natural prosody"
+
+cartesia:
+  name: "Cartesia Sonic"
+  platform: "cartesia"
+  url: "https://api.cartesia.ai/tts/bytes"
+  model: "sonic-english"
+  voice: "a0e99841-438c-4a64-b679-ae501e7d6091"
+  api_key_url: "https://play.cartesia.ai/console"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "Ultra-low latency (<300ms), real-time streaming, emotional control"
+
+playht:
+  name: "PlayHT 2.0"
+  platform: "playht"
+  url: "https://api.play.ht/api/v2/tts/stream"
+  model: "PlayHT2.0"
+  voice: "s3://voice-cloning-zero-shot/d9ff78ba-d016-47f6-b0ef-dd630f59414e/female-cs/manifest.json"
+  api_key_url: "https://play.ht/studio/api-access"
+  api_key_field: "api_key"
+  model_field: "model"
+  notes: "Voice cloning, ultra-realistic, streaming support, 142 languages"
