@@ -152,6 +152,11 @@ impl TTSSessionPool {
         let manager = TTSManager { config };
         let pool = deadpool::managed::Pool::builder(manager)
             .max_size(workers)
+            .timeouts(deadpool::managed::Timeouts {
+                wait: Some(std::time::Duration::from_secs(30)),
+                create: Some(std::time::Duration::from_secs(30)),
+                recycle: None,
+            })
             .build()
             .expect("Failed to create TTS session pool");
         TTSSessionPool { pool }
