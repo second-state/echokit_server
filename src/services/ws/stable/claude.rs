@@ -125,6 +125,24 @@ async fn get_choice(session: &mut Session) -> anyhow::Result<usize> {
     ))
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AskUserQuestionToolArgs {
+    questions: Vec<AskUserQuestion>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AskUserQuestion {
+    header: String,
+    question: String,
+    options: Vec<AskUserQuestionItem>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AskUserQuestionItem {
+    label: String,
+    description: String,
+}
+
 struct RunSessionState {
     cc_session: cc_session::ClaudeSession,
     session: Session,
@@ -236,6 +254,12 @@ impl RunSessionState {
             .await
     }
 
+    async fn send_select(&mut self, index: usize) -> anyhow::Result<()> {
+        self.cc_session
+            .send_message(&cc_session::WsInputMessage::Select { index })
+            .await
+    }
+
     async fn send_cancel(&mut self) -> anyhow::Result<()> {
         self.cc_session
             .send_message(&cc_session::WsInputMessage::Cancel {})
@@ -265,8 +289,12 @@ impl RunSessionState {
             state
         );
         match state {
-            cc_session::ClaudeState::Processing => {
-                let _ = self.session.send_notify("Claude is processing".to_string());
+            cc_session::ClaudeState::Processing { n } => {
+                if n % 10 == 0 {
+                    let _ = self
+                        .session
+                        .send_notify(format!("Claude is processing {}", ".".repeat(n)));
+                }
             }
             cc_session::ClaudeState::ToolUse {
                 tool_name,
@@ -275,10 +303,10 @@ impl RunSessionState {
             } => {
                 if pending {
                     match self.wait_tool_use_choice(tool_name, args).await {
-                        Ok(true) => {
-                            self.send_confirm().await.map_err(|e| {
+                        Ok(-1) => {
+                            self.send_cancel().await.map_err(|e| {
                                 log::error!(
-                                    "{}:{:x} error sending tool use confirm: {}",
+                                    "{}:{:x} error sending tool use cancel: {}",
                                     self.session.id,
                                     self.session.request_id,
                                     e
@@ -286,10 +314,10 @@ impl RunSessionState {
                                 SendStateError::ClaudeError
                             })?;
                         }
-                        Ok(false) => {
-                            self.send_cancel().await.map_err(|e| {
+                        Ok(n) => {
+                            self.send_select(n as usize).await.map_err(|e| {
                                 log::error!(
-                                    "{}:{:x} error sending tool use cancel: {}",
+                                    "{}:{:x} error sending tool use confirm: {}",
                                     self.session.id,
                                     self.session.request_id,
                                     e
@@ -354,7 +382,7 @@ impl RunSessionState {
                         let _ = self.send_input(&text).await;
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         let _ = self.send_confirm().await;
-                        self.cc_session.state = cc_session::ClaudeState::Processing;
+                        self.cc_session.state = cc_session::ClaudeState::Processing { n: 0 };
                     }
                     Err(e) => {
                         log::warn!(
@@ -411,16 +439,58 @@ impl RunSessionState {
         &mut self,
         tool_name: String,
         tool_args: serde_json::Value,
-    ) -> anyhow::Result<bool> {
-        self.session.send_choice_prompt(
-            format!(
-                "Claude is requesting to use tool `{}` \n with args: {}",
-                tool_name, tool_args
-            ),
-            vec!["Confirm".to_string(), "Cancel".to_string()],
-        )?;
-        let choice = get_choice(&mut self.session).await?;
-        Ok(choice == 0)
+    ) -> anyhow::Result<i32> {
+        if tool_name == "AskUserQuestion" {
+            let tool_args = serde_json::from_value::<AskUserQuestionToolArgs>(tool_args);
+            if tool_args.is_err() {
+                self.session.send_notify(format!(
+                    "Claude requested to use tool `AskUserQuestion` with invalid args: {}",
+                    tool_args.err().unwrap()
+                ))?;
+                return Ok(-1);
+            } else {
+                let tool_args = tool_args.unwrap();
+                for question in tool_args.questions {
+                    let options: Vec<String> = question
+                        .options
+                        .iter()
+                        .map(|item| format!("{}: {}", item.label, item.description))
+                        .collect();
+                    self.session.send_choice_prompt(
+                        format!(
+                            "{}\n{}\nPlease select one of the following options:",
+                            question.header, question.question
+                        ),
+                        options,
+                    )?;
+                    let choice = get_choice(&mut self.session).await?;
+                    return Ok(choice as i32);
+                }
+                Ok(-1)
+            }
+        } else {
+            let tool_args_string = if let serde_json::Value::String(ref s) = tool_args {
+                s.clone()
+            } else if let serde_json::Value::Object(ref map) = tool_args {
+                map.iter()
+                    .map(|(k, v)| format!("{}: {}", k, v))
+                    .collect::<Vec<String>>()
+                    .join("\n")
+            } else {
+                tool_args.to_string()
+            };
+            self.session.send_choice_prompt(
+                format!(
+                    "Claude is requesting to use tool `{}` \n with args:\n{}",
+                    tool_name, tool_args_string
+                ),
+                vec!["Confirm".to_string(), "Cancel".to_string()],
+            )?;
+            match get_choice(&mut self.session).await? {
+                0 => Ok(0),
+                _ => Ok(-1),
+            }
+        }
     }
 }
 
@@ -667,6 +737,8 @@ mod cc_session {
         Cancel {},
         #[serde(alias = "confirm")]
         Confirm {},
+        #[serde(alias = "select")]
+        Select { index: usize },
     }
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -723,7 +795,9 @@ mod cc_session {
 
     #[derive(Debug, Clone)]
     pub enum ClaudeState {
-        Processing,
+        Processing {
+            n: usize,
+        },
         ToolUse {
             tool_name: String,
             args: serde_json::Value,
@@ -810,7 +884,11 @@ mod cc_session {
                         }
                         WsOutputMessage::SessionRunning { .. } => {
                             log::debug!("Received SessionRunning for session {}", self.id);
-                            self.state = ClaudeState::Processing;
+                            if let ClaudeState::Processing { n } = &mut self.state {
+                                *n += 1;
+                            } else {
+                                self.state = ClaudeState::Processing { n: 0 };
+                            }
                         }
                         WsOutputMessage::SessionPending {
                             tool_name,
