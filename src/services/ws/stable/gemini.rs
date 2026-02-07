@@ -265,6 +265,7 @@ async fn run_session(
                         .send_realtime_input(gemini::types::RealtimeInput::Text(input))
                         .await?;
                 }
+                ClientMsg::Select(_) => {}
             },
             GeminiEvent::ServerEvent(server_content) => match server_content {
                 gemini::types::ServerContent::ModelTurn(turn) => {
@@ -437,6 +438,7 @@ async fn run_session_with_tts(
                         .send_realtime_input(gemini::types::RealtimeInput::Text(input))
                         .await?;
                 }
+                ClientMsg::Select(_) => {}
             },
             GeminiEvent::ServerEvent(server_content) => match server_content {
                 gemini::types::ServerContent::ModelTurn(turn) => {

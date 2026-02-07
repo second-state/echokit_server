@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use axum::{
     Router,
@@ -162,6 +162,27 @@ async fn routes(
                     log::error!("Gemini session manager exited with error: {}", e);
                 }
             });
+        }
+        config::AIConfig::Claude { claude, asr, tts } => {
+            let session = Arc::new(RwLock::new(Default::default()));
+            let session_ = session.clone();
+
+            tokio::spawn(async move {
+                if let Err(e) = crate::services::ws::stable::claude::run_session_manager(
+                    &tts, &asr, &claude, rx, session,
+                )
+                .await
+                {
+                    log::error!("Claude session manager exited with error: {}", e);
+                }
+            });
+
+            router = router
+                .route(
+                    "/proxy/state/{id}",
+                    get(services::ws::stable::claude::has_notification),
+                )
+                .layer(axum::Extension(session_));
         }
     }
 

@@ -19,6 +19,7 @@ use crate::{
 };
 
 mod asr;
+pub mod claude;
 pub mod gemini;
 mod llm;
 mod tts;
@@ -129,6 +130,42 @@ impl Session {
             .map_err(|_| {
                 anyhow::anyhow!(
                     "{}:{:x} error sending audio chunk ws command",
+                    self.id,
+                    self.request_id
+                )
+            })
+    }
+
+    pub fn send_choice_prompt(&self, message: String, choices: Vec<String>) -> anyhow::Result<()> {
+        self.cmd_tx
+            .send(super::WsCommand::Choices(message, choices))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{}:{:x} error sending choice prompt ws command",
+                    self.id,
+                    self.request_id
+                )
+            })
+    }
+
+    pub fn send_notify(&self, message: String) -> anyhow::Result<()> {
+        self.cmd_tx
+            .send(super::WsCommand::Action { action: message })
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{}:{:x} error sending notify ws command",
+                    self.id,
+                    self.request_id
+                )
+            })
+    }
+
+    pub fn send_display_text(&self, text: String) -> anyhow::Result<()> {
+        self.cmd_tx
+            .send(super::WsCommand::DisplayText(text))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{}:{:x} error sending display text ws command",
                     self.id,
                     self.request_id
                 )

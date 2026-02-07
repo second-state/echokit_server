@@ -354,12 +354,23 @@ pub struct RecordConfig {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EchokitCC {
+    pub url: String,
+    // pub output_optimization: TTSTextOptimizationConfig,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum AIConfig {
     Stable {
         llm: LLMConfig,
         tts: TTSConfig,
         asr: ASRConfig,
+    },
+    Claude {
+        claude: EchokitCC,
+        asr: ASRConfig,
+        tts: TTSConfig,
     },
     GeminiAndTTS {
         gemini: GeminiConfig,

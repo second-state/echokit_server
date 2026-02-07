@@ -98,6 +98,7 @@ impl WhisperASRSession {
                         vad_started |= self.vad_session.detect(&audio_chunk)?;
                     }
                 }
+                ClientMsg::Select(..) => {}
             }
         }
     }
@@ -205,6 +206,7 @@ impl WhisperASRSession {
                         log::warn!("`{id}` received a Unexpected Submit during Stream ASR");
                         return Err(anyhow::anyhow!("Unexpected Submit during Stream ASR"));
                     }
+                    ClientMsg::Select(..) => {}
                 }
             }
 
@@ -384,6 +386,7 @@ impl ParaformerASRSession {
 
                     continue;
                 }
+                ClientMsg::Select(..) => {}
             }
         }
 
@@ -518,6 +521,7 @@ impl ParaformerASRSession {
                                 }
                                 start_submit = true;
                             }
+                            ClientMsg::Select(..) => {}
                         }
                     } else {
                         log::warn!("`{}` client rx channel closed unexpectedly", session.id);

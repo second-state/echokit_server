@@ -25,6 +25,9 @@ pub enum WsCommand {
     Video(Vec<Vec<u8>>),
     EndResponse,
     EndVad,
+    Choices(String, Vec<String>),
+    DisplayText(String),
+    Close,
 }
 type WsTx = tokio::sync::mpsc::UnboundedSender<WsCommand>;
 type WsRx = tokio::sync::mpsc::UnboundedReceiver<WsCommand>;
@@ -113,6 +116,7 @@ pub enum ClientMsg {
     AudioChunk(Bytes),
     Submit,
     Text(String),
+    Select(usize),
 }
 
 pub struct ConnectConfig {
@@ -151,6 +155,11 @@ async fn process_socket_io(
 
         match r {
             Some(WsEvent::Command(cmd)) => {
+                if matches!(cmd, WsCommand::Close) {
+                    log::info!("Received Close command, closing websocket");
+                    return Ok(());
+                }
+
                 if config.enable_opus {
                     process_command_with_opus(
                         socket,
@@ -184,6 +193,12 @@ async fn process_socket_io(
                     .send(ClientMsg::Text(input))
                     .await
                     .map_err(|_| anyhow::anyhow!("audio_tx closed"))?,
+                ProcessMessageResult::Select(index) => {
+                    audio_tx
+                        .send(ClientMsg::Select(index))
+                        .await
+                        .map_err(|_| anyhow::anyhow!("audio_tx closed"))?;
+                }
                 ProcessMessageResult::Skip => {}
                 ProcessMessageResult::StartChat => {
                     audio_tx
@@ -285,6 +300,18 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
                 ws.send(Message::binary(audio_chunk)).await?;
             }
         }
+        WsCommand::Choices(message, items) => {
+            let choices =
+                rmp_serde::to_vec(&crate::protocol::ServerEvent::Choices { message, items })
+                    .expect("Failed to serialize Choices ServerEvent");
+            ws.send(Message::binary(choices)).await?;
+        }
+        WsCommand::DisplayText(text) => {
+            let display_text =
+                rmp_serde::to_vec(&crate::protocol::ServerEvent::DisplayText { text })
+                    .expect("Failed to serialize DisplayText ServerEvent");
+            ws.send(Message::binary(display_text)).await?;
+        }
         WsCommand::EndAudio => {
             log::trace!("EndAudio");
             let end_audio = rmp_serde::to_vec(&crate::protocol::ServerEvent::EndAudio)
@@ -306,6 +333,7 @@ async fn process_command(ws: &mut WebSocket, cmd: WsCommand) -> anyhow::Result<(
                 .expect("Failed to serialize EndVad ServerEvent");
             ws.send(Message::binary(end_vad)).await?;
         }
+        WsCommand::Close => {}
     }
     Ok(())
 }
@@ -341,11 +369,22 @@ async fn process_command_with_opus(
             .expect("Failed to serialize ASR ServerEvent");
             ws.send(Message::binary(asr)).await?;
         }
-
         WsCommand::Action { action } => {
             let action = rmp_serde::to_vec(&crate::protocol::ServerEvent::Action { action })
                 .expect("Failed to serialize Action ServerEvent");
             ws.send(Message::binary(action)).await?;
+        }
+        WsCommand::Choices(message, items) => {
+            let choices =
+                rmp_serde::to_vec(&crate::protocol::ServerEvent::Choices { message, items })
+                    .expect("Failed to serialize Choices ServerEvent");
+            ws.send(Message::binary(choices)).await?;
+        }
+        WsCommand::DisplayText(text) => {
+            let display_text =
+                rmp_serde::to_vec(&crate::protocol::ServerEvent::DisplayText { text })
+                    .expect("Failed to serialize DisplayText ServerEvent");
+            ws.send(Message::binary(display_text)).await?;
         }
         WsCommand::StartAudio(text) => {
             log::trace!("StartAudio: {text:?}");
@@ -453,6 +492,7 @@ async fn process_command_with_opus(
                 .expect("Failed to serialize EndVad ServerEvent");
             ws.send(Message::binary(end_vad)).await?;
         }
+        WsCommand::Close => {}
     }
     Ok(())
 }
@@ -461,6 +501,7 @@ enum ProcessMessageResult {
     Audio(Bytes),
     Submit,
     Text(String),
+    Select(usize),
     StartChat,
     Close,
     Skip,
@@ -478,13 +519,16 @@ fn process_message(msg: Message) -> ProcessMessageResult {
                     crate::protocol::ClientCommand::Text { input } => {
                         ProcessMessageResult::Text(input)
                     }
+                    crate::protocol::ClientCommand::Select { index } => {
+                        ProcessMessageResult::Select(index)
+                    }
                 }
             } else {
                 ProcessMessageResult::Skip
             }
         }
         Message::Binary(d) => {
-            log::debug!("Received binary message of size: {}", d.len());
+            log::trace!("Received binary message of size: {}", d.len());
             ProcessMessageResult::Audio(d)
         }
         Message::Close(c) => {
