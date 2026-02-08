@@ -608,6 +608,8 @@ async fn run_session(
     }
 }
 
+const NAMESPACE: uuid::Uuid = uuid::uuid!("8e1f6eb8-d389-4e62-9cfd-f1964e499c25"); // Namespace UUID for generating session UUIDs
+
 pub async fn run_session_manager(
     tts: &TTSConfig,
     asr: &ASRConfig,
@@ -650,7 +652,12 @@ pub async fn run_session_manager(
                 }
             } else {
                 let cmd_tx = session.cmd_tx.clone();
-                (session, cmd_tx, uuid::Uuid::new_v4())
+                let id = session.id.clone();
+                (
+                    session,
+                    cmd_tx,
+                    uuid::Uuid::new_v5(&NAMESPACE, id.as_bytes()),
+                )
             };
 
         // start new session
