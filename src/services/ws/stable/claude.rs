@@ -289,100 +289,60 @@ impl RunSessionState {
             state
         );
         match state {
-            cc_session::ClaudeState::Processing { n } => {
-                if n % 10 == 0 {
-                    let _ = self
-                        .session
-                        .send_notify(format!("Claude is processing {}", ".".repeat(n)));
-                }
-            }
-            cc_session::ClaudeState::ToolUse {
-                tool_name,
-                args,
-                pending,
+            cc_session::ClaudeCodeState::Output {
+                output,
+                is_thinking,
             } => {
-                if pending {
-                    match self.wait_tool_use_choice(tool_name, args).await {
-                        Ok(-1) => {
-                            self.send_cancel().await.map_err(|e| {
-                                log::error!(
-                                    "{}:{:x} error sending tool use cancel: {}",
-                                    self.session.id,
-                                    self.session.request_id,
-                                    e
-                                );
-                                SendStateError::ClaudeError
-                            })?;
-                        }
-                        Ok(n) => {
-                            self.send_select(n as usize).await.map_err(|e| {
-                                log::error!(
-                                    "{}:{:x} error sending tool use confirm: {}",
-                                    self.session.id,
-                                    self.session.request_id,
-                                    e
-                                );
-                                SendStateError::ClaudeError
-                            })?;
-                        }
-                        Err(e) => {
-                            log::warn!(
-                                "{}:{:x} error sending tool use choice prompt: {}",
-                                self.session.id,
-                                self.session.request_id,
-                                e
-                            );
-                            return Err(SendStateError::ClientError);
-                        }
-                    }
+                if is_thinking {
+                    log::debug!(
+                        "{}:{:x} sending thinking output",
+                        self.session.id,
+                        self.session.request_id
+                    );
+                    let _ = self.send_display(&output).await;
                 } else {
-                    let _ = self
-                        .send_display(&format!(
-                            "Claude is using tool `{}` with args: {}",
-                            tool_name, args
-                        ))
-                        .await;
+                    // self.cc_session.state = cc_session::ClaudeCodeState::Idle;
+
+                    if let Err(e) = self.send_output_with_tts(&output, tts_req_tx).await {
+                        log::warn!(
+                            "{}:{:x} error sending tts output: {}",
+                            self.session.id,
+                            self.session.request_id,
+                            e
+                        );
+                    }
+
+                    self.cc_session.last_output = output;
                 }
             }
-            cc_session::ClaudeState::Thinking { output } => {
-                log::debug!(
-                    "{}:{:x} sending thinking output",
+            cc_session::ClaudeCodeState::Idle => {
+                if !self.cc_session.last_output.is_empty() {
+                    if let Err(e) = self
+                        .session
+                        .send_display_text(self.cc_session.last_output.clone())
+                    {
+                        log::warn!(
+                            "{}:{:x} error sending display output: {}",
+                            self.session.id,
+                            self.session.request_id,
+                            e
+                        );
+                        return Err(SendStateError::ClientError);
+                    }
+                }
+
+                log::info!(
+                    "{}:{:x} waiting for user input",
                     self.session.id,
                     self.session.request_id
                 );
-                let _ = self.send_display(&output).await;
-            }
-            cc_session::ClaudeState::Output { output } => {
-                self.cc_session.state = cc_session::ClaudeState::Stopped {
-                    output: output.clone(),
-                };
-
-                if let Err(e) = self.send_output_with_tts(&output, tts_req_tx).await {
-                    log::warn!(
-                        "{}:{:x} error sending tts output: {}",
-                        self.session.id,
-                        self.session.request_id,
-                        e
-                    );
-                }
-            }
-            cc_session::ClaudeState::Stopped { output } => {
-                if let Err(e) = self.send_display(&output).await {
-                    log::warn!(
-                        "{}:{:x} error sending display output: {}",
-                        self.session.id,
-                        self.session.request_id,
-                        e
-                    );
-                    return Err(SendStateError::ClientError);
-                }
 
                 match self.wait_input(asr_session).await {
                     Ok(text) => {
                         let _ = self.send_input(&text).await;
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         let _ = self.send_confirm().await;
-                        self.cc_session.state = cc_session::ClaudeState::Processing { n: 0 };
+                        self.cc_session.state = cc_session::ClaudeCodeState::Idle;
                     }
                     Err(e) => {
                         log::warn!(
@@ -394,6 +354,63 @@ impl RunSessionState {
                         return Err(SendStateError::ClientError);
                     }
                 }
+            }
+            cc_session::ClaudeCodeState::PreUseTool {
+                request,
+                is_pending,
+            } => {
+                if is_pending {
+                    for tool in request {
+                        if tool.done {
+                            continue;
+                        }
+                        match self.wait_tool_use_choice(tool.name, tool.input).await {
+                            Ok(-1) => {
+                                self.send_cancel().await.map_err(|e| {
+                                    log::error!(
+                                        "{}:{:x} error sending tool use cancel: {}",
+                                        self.session.id,
+                                        self.session.request_id,
+                                        e
+                                    );
+                                    SendStateError::ClaudeError
+                                })?;
+                            }
+                            Ok(n) => {
+                                self.send_select(n as usize).await.map_err(|e| {
+                                    log::error!(
+                                        "{}:{:x} error sending tool use confirm: {}",
+                                        self.session.id,
+                                        self.session.request_id,
+                                        e
+                                    );
+                                    SendStateError::ClaudeError
+                                })?;
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "{}:{:x} error sending tool use choice prompt: {}",
+                                    self.session.id,
+                                    self.session.request_id,
+                                    e
+                                );
+                                return Err(SendStateError::ClientError);
+                            }
+                        }
+                    }
+                }
+            }
+            cc_session::ClaudeCodeState::StopUseTool => {
+                let _ = self.send_display(&"Tool use stopped.").await;
+                self.session.send_end_response().map_err(|e| {
+                    log::error!(
+                        "{}:{:x} error sending end response after tool use stop: {}",
+                        self.session.id,
+                        self.session.request_id,
+                        e
+                    );
+                    SendStateError::ClientError
+                })?;
             }
         };
 
@@ -540,6 +557,50 @@ async fn run_session(
         match r {
             RunSessionSelectResult::ClaudeMsg(Some(log)) => {
                 log::debug!("Claude session {} received message: {:?}", id, log);
+                match log {
+                    WsOutputMessage::SessionPtyOutput { .. } => {
+                        continue;
+                    }
+                    WsOutputMessage::SessionEnded { session_id } => {
+                        log::warn!("Claude session {} ended by server", session_id);
+                        return Ok(());
+                    }
+                    WsOutputMessage::SessionIdle { session_id } => {
+                        log::info!("Claude session {} is idle", session_id);
+                        if run_session_state.cc_session.state != cc_session::ClaudeCodeState::Idle {
+                            run_session_state.cc_session.state = cc_session::ClaudeCodeState::Idle;
+                        } else {
+                            continue;
+                        }
+                    }
+                    WsOutputMessage::SessionState {
+                        session_id: _,
+                        current_state,
+                    } => {
+                        if current_state == run_session_state.cc_session.state {
+                            log::debug!(
+                                "Claude session {} state unchanged: {:?}",
+                                id,
+                                current_state
+                            );
+                            continue;
+                        }
+                        run_session_state.cc_session.state = current_state;
+                    }
+                    WsOutputMessage::SessionError { session_id, code } => {
+                        log::error!(
+                            "Claude session {} received error from server: {:?}",
+                            session_id,
+                            code
+                        );
+                        return Err(anyhow::anyhow!(
+                            "claude session error for id `{}`: {:?}",
+                            id,
+                            code
+                        ));
+                    }
+                }
+
                 match run_session_state
                     .send_self_state(tts_req_tx, asr_session)
                     .await
@@ -574,13 +635,14 @@ async fn run_session(
                     })?;
             }
             RunSessionSelectResult::ClientMsg(Some(_)) => {
-                log::debug!("recv client msg while waiting claude");
                 let _ = run_session_state.session.send_end_vad();
+                let _ = run_session_state.session.send_end_response();
             }
             RunSessionSelectResult::ClientMsg(None) => {
                 log::warn!("Claude session {} client disconnected", id);
             }
             RunSessionSelectResult::Session(Some(new_session)) => {
+                log::info!("Claude session {} switching to new session", id);
                 run_session_state.set_session(new_session);
                 match run_session_state
                     .send_self_state(tts_req_tx, asr_session)
@@ -767,30 +829,42 @@ mod cc_session {
         },
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct UseTool {
+        pub id: String,
+        pub name: String,
+        pub input: serde_json::Value,
+        pub done: bool,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    #[serde(tag = "state")]
+    pub enum ClaudeCodeState {
+        PreUseTool {
+            request: Vec<UseTool>,
+            is_pending: bool,
+        },
+        Output {
+            output: String,
+            is_thinking: bool,
+        },
+        StopUseTool,
+        Idle,
+    }
+
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     #[serde(tag = "type")]
     pub enum WsOutputMessage {
         #[serde(rename = "session_pty_output")]
         SessionPtyOutput { output: String },
-        #[serde(rename = "session_output")]
-        SessionOutput { output: String, is_thinking: bool },
         #[serde(rename = "session_ended")]
         SessionEnded { session_id: String },
-        #[serde(rename = "session_running")]
-        SessionRunning { session_id: String },
         #[serde(rename = "session_idle")]
         SessionIdle { session_id: String },
-        #[serde(rename = "session_pending")]
-        SessionPending {
+        #[serde(rename = "session_state")]
+        SessionState {
             session_id: String,
-            tool_name: String,
-            tool_input: serde_json::Value,
-        },
-        #[serde(rename = "session_tool_request")]
-        SessionToolRequest {
-            session_id: String,
-            tool_name: String,
-            tool_input: serde_json::Value,
+            current_state: ClaudeCodeState,
         },
         #[serde(rename = "session_error")]
         SessionError {
@@ -800,31 +874,11 @@ mod cc_session {
         },
     }
 
-    #[derive(Debug, Clone)]
-    pub enum ClaudeState {
-        Processing {
-            n: usize,
-        },
-        ToolUse {
-            tool_name: String,
-            args: serde_json::Value,
-            pending: bool,
-        },
-        Thinking {
-            output: String,
-        },
-        Output {
-            output: String,
-        },
-        Stopped {
-            output: String,
-        },
-    }
-
     pub struct ClaudeSession {
         pub id: String,
         pub socket: WebSocket,
-        pub state: ClaudeState,
+        pub state: ClaudeCodeState,
+        pub last_output: String,
     }
 
     impl ClaudeSession {
@@ -840,9 +894,11 @@ mod cc_session {
             Ok(Self {
                 id: id.to_string(),
                 socket: websocket,
-                state: ClaudeState::Stopped {
-                    output: "Ready".to_string(),
+                state: ClaudeCodeState::Output {
+                    output: String::new(),
+                    is_thinking: false,
                 },
+                last_output: String::new(),
             })
         }
 
@@ -855,99 +911,6 @@ mod cc_session {
         }
 
         pub async fn receive_message(&mut self) -> anyhow::Result<Option<WsOutputMessage>> {
-            loop {
-                let r = self.receive_message_().await?;
-                if let Some(ref msg) = r {
-                    match msg {
-                        WsOutputMessage::SessionPtyOutput { .. } => {
-                            log::debug!("Received SessionPtyOutput for session {}", self.id,);
-                        }
-                        WsOutputMessage::SessionOutput {
-                            output,
-                            is_thinking,
-                        } => {
-                            log::debug!("Received SessionOutput for session {}", self.id);
-                            if *is_thinking {
-                                self.state = ClaudeState::Thinking {
-                                    output: output.clone(),
-                                };
-                            } else {
-                                self.state = ClaudeState::Output {
-                                    output: output.clone(),
-                                };
-                            }
-                        }
-                        WsOutputMessage::SessionIdle { .. } => {
-                            log::debug!("Received SessionIdle for session {}", self.id);
-                            if let ClaudeState::Output { output } = &self.state {
-                                self.state = ClaudeState::Stopped {
-                                    output: output.clone(),
-                                };
-                            } else if let ClaudeState::ToolUse { .. } = &self.state {
-                                self.state = ClaudeState::Output {
-                                    output: "Stopped".to_string(),
-                                };
-                            }
-                        }
-                        WsOutputMessage::SessionRunning { .. } => {
-                            log::debug!("Received SessionRunning for session {}", self.id);
-                            if let ClaudeState::Processing { n } = &mut self.state {
-                                *n += 1;
-                            } else {
-                                self.state = ClaudeState::Processing { n: 0 };
-                            }
-                        }
-                        WsOutputMessage::SessionPending {
-                            tool_name,
-                            tool_input,
-                            ..
-                        } => {
-                            log::debug!("Received SessionPending for session {}", self.id);
-                            if let ClaudeState::ToolUse {
-                                tool_name: tool_name_,
-                                args: args_,
-                                pending: true,
-                            } = &self.state
-                            {
-                                if tool_name_ == tool_name && args_ == tool_input {
-                                    log::debug!(
-                                        "Ignoring duplicate SessionPending for session {}",
-                                        self.id
-                                    );
-                                    continue;
-                                }
-                            } else {
-                                self.state = ClaudeState::ToolUse {
-                                    tool_name: tool_name.clone(),
-                                    args: tool_input.clone(),
-                                    pending: true,
-                                };
-                            }
-                        }
-                        WsOutputMessage::SessionToolRequest {
-                            tool_name,
-                            tool_input,
-                            ..
-                        } => {
-                            log::debug!("Received SessionToolRequest for session {}", self.id);
-                            self.state = ClaudeState::ToolUse {
-                                tool_name: tool_name.clone(),
-                                args: tool_input.clone(),
-                                pending: false,
-                            };
-                        }
-                        WsOutputMessage::SessionEnded { .. } => {
-                            log::debug!("Received SessionEnded for session {}", self.id);
-                        }
-                        WsOutputMessage::SessionError { .. } => {
-                            log::debug!("Received SessionError for session {}", self.id);
-                        }
-                    }
-                }
-                return Ok(r);
-            }
-        }
-        async fn receive_message_(&mut self) -> anyhow::Result<Option<WsOutputMessage>> {
             loop {
                 let msg = self.socket.next().await;
 
