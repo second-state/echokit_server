@@ -360,7 +360,7 @@ impl RunSessionState {
                 is_pending,
             } => {
                 if is_pending {
-                    for tool in request {
+                    for (i, tool) in request.into_iter().enumerate() {
                         if tool.done {
                             continue;
                         }
@@ -386,6 +386,13 @@ impl RunSessionState {
                                     );
                                     SendStateError::ClaudeError
                                 })?;
+                                if let cc_session::ClaudeCodeState::PreUseTool { request, .. } =
+                                    &mut self.cc_session.state
+                                {
+                                    request[i].submited = true;
+                                }
+
+                                break;
                             }
                             Err(e) => {
                                 log::warn!(
@@ -400,8 +407,12 @@ impl RunSessionState {
                     }
                 }
             }
-            cc_session::ClaudeCodeState::StopUseTool => {
-                let _ = self.send_display(&"Tool use stopped.").await;
+            cc_session::ClaudeCodeState::StopUseTool { is_error } => {
+                if is_error {
+                    let _ = self.send_display(&"Tool use stopped with error.").await;
+                } else {
+                    let _ = self.send_display(&"Tool use completed successfully.").await;
+                }
                 self.session.send_end_response().map_err(|e| {
                     log::error!(
                         "{}:{:x} error sending end response after tool use stop: {}",
@@ -511,6 +522,51 @@ impl RunSessionState {
     }
 }
 
+fn update_state(
+    cc_state: &mut cc_session::ClaudeCodeState,
+    new_state: cc_session::ClaudeCodeState,
+) -> bool {
+    match (cc_state, new_state) {
+        (
+            cc_session::ClaudeCodeState::PreUseTool {
+                request,
+                is_pending,
+            },
+            cc_session::ClaudeCodeState::PreUseTool {
+                request: new_request,
+                is_pending: new_is_pending,
+            },
+        ) => {
+            if *is_pending != new_is_pending {
+                *request = new_request;
+                *is_pending = new_is_pending;
+                return true;
+            }
+
+            if request.len() != new_request.len() {
+                *request = new_request;
+                return true;
+            }
+
+            for (r, nr) in request.iter_mut().zip(new_request.into_iter()) {
+                if r.submited && !nr.done {
+                    log::debug!("Received PreUseTool state without done tool after submited");
+                    return false;
+                }
+                *r = nr;
+            }
+            return true;
+        }
+        (cc_state, new_state) => {
+            if cc_state != &new_state {
+                *cc_state = new_state;
+                return true;
+            }
+        }
+    }
+    false
+}
+
 async fn run_session(
     id: uuid::Uuid,
     url: &str,
@@ -577,15 +633,15 @@ async fn run_session(
                         session_id: _,
                         current_state,
                     } => {
-                        if current_state == run_session_state.cc_session.state {
-                            log::debug!(
-                                "Claude session {} state unchanged: {:?}",
-                                id,
-                                current_state
-                            );
+                        log::debug!(
+                            "Claude session {} received state update: {:?}",
+                            id,
+                            current_state
+                        );
+                        if !update_state(&mut run_session_state.cc_session.state, current_state) {
+                            log::debug!("Claude session {} state unchanged after update", id,);
                             continue;
                         }
-                        run_session_state.cc_session.state = current_state;
                     }
                     WsOutputMessage::SessionError { session_id, code } => {
                         log::error!(
@@ -835,6 +891,8 @@ mod cc_session {
         pub name: String,
         pub input: serde_json::Value,
         pub done: bool,
+        #[serde(default)]
+        pub submited: bool,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -848,7 +906,9 @@ mod cc_session {
             output: String,
             is_thinking: bool,
         },
-        StopUseTool,
+        StopUseTool {
+            is_error: bool,
+        },
         Idle,
     }
 
