@@ -663,7 +663,17 @@ async fn run_session(
                 {
                     Ok(_) => {}
                     Err(SendStateError::ClientError) => {
-                        run_session_state.notify.mark();
+                        if !matches!(
+                            run_session_state.cc_session.state,
+                            cc_session::ClaudeCodeState::Idle
+                        ) {
+                            run_session_state.notify.mark();
+                        } else {
+                            log::info!(
+                                "Claude session {} client disconnected during idle state, ending session",
+                                id
+                            );
+                        }
                     }
                     Err(SendStateError::ClaudeError) => {
                         return Err(anyhow::anyhow!(
