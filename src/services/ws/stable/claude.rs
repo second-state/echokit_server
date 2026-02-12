@@ -410,18 +410,18 @@ impl RunSessionState {
             cc_session::ClaudeCodeState::StopUseTool { is_error } => {
                 if is_error {
                     let _ = self.send_display(&"Tool use stopped with error.").await;
+                    self.session.send_end_response().map_err(|e| {
+                        log::error!(
+                            "{}:{:x} error sending end response after tool use stop: {}",
+                            self.session.id,
+                            self.session.request_id,
+                            e
+                        );
+                        SendStateError::ClientError
+                    })?;
                 } else {
                     let _ = self.send_display(&"Tool use completed successfully.").await;
                 }
-                self.session.send_end_response().map_err(|e| {
-                    log::error!(
-                        "{}:{:x} error sending end response after tool use stop: {}",
-                        self.session.id,
-                        self.session.request_id,
-                        e
-                    );
-                    SendStateError::ClientError
-                })?;
             }
         };
 
@@ -548,11 +548,14 @@ fn update_state(
                 return true;
             }
 
-            for (r, nr) in request.iter_mut().zip(new_request.into_iter()) {
+            for (r, mut nr) in request.iter_mut().zip(new_request.into_iter()) {
                 if r.submited && !nr.done {
-                    log::debug!("Received PreUseTool state without done tool after submited");
+                    log::debug!(
+                        "Received PreUseTool state without done tool after submited\n {r:?}\n vs\n {nr:?}"
+                    );
                     return false;
                 }
+                nr.submited = r.submited;
                 *r = nr;
             }
             return true;
