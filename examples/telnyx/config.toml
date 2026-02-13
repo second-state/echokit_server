@@ -1,0 +1,64 @@
+# EchoKit Server Configuration with Telnyx
+#
+# This example demonstrates using Telnyx AI services with EchoKit Server.
+# Telnyx offers 53 AI models via an OpenAI-compatible inference API,
+# making it a natural fit for EchoKit's OpenAI-spec architecture.
+#
+# Key benefits:
+# - Single API key for LLM, ASR, and TTS
+# - Global edge network for low-latency inference
+# - 53+ AI models including GPT, Claude, Llama, and open-source options
+# - Pay-per-use pricing with no minimum commitments
+#
+# Setup:
+# 1. Create a Telnyx account at https://telnyx.com
+# 2. Generate an API key from the Portal
+# 3. Set your TELNYX_API_KEY environment variable
+#
+# API Documentation: https://developers.telnyx.com
+
+addr = "0.0.0.0:8080"
+hello_wav = "hello.wav"
+
+[asr]
+platform = "openai"
+url = "https://api.telnyx.com/v2/ai/transcriptions"
+api_key = "${TELNYX_API_KEY}"
+model = "whisper-1"
+lang = "en"
+
+[tts]
+platform = "openai"
+url = "https://api.telnyx.com/v2/ai/speech"
+model = "tts-1"
+api_key = "${TELNYX_API_KEY}"
+voice = "alloy"
+
+[llm]
+platform = "openai_chat"
+url = "https://api.telnyx.com/v2/ai/chat/completions"
+api_key = "${TELNYX_API_KEY}"
+model = "gpt-4o-mini"
+history = 5
+
+[[llm.sys_prompts]]
+role = "system"
+content = """
+You are a helpful assistant. Answer truthfully and concisely. Always answer in English.
+
+- NEVER use bullet points
+- NEVER use tables
+- Answer in complete English sentences as if you are in a conversation.
+
+"""
+
+# Alternative: Use Telnyx's LiteLLM proxy for unified access to 53+ models
+# Uncomment the section below and comment out the [llm] section above
+#
+# [llm]
+# platform = "openai_chat"
+# url = "https://api.telnyx.com/v2/ai/chat/completions"
+# api_key = "${TELNYX_API_KEY}"
+# # Available models include: gpt-4o, claude-3-5-sonnet, llama-3.1-70b, and more
+# model = "llama-3.1-70b-instruct"
+# history = 5
