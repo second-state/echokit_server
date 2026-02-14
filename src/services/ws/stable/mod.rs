@@ -19,6 +19,7 @@ use crate::{
 };
 
 mod asr;
+pub mod claude;
 pub mod gemini;
 mod llm;
 mod tts;
@@ -133,6 +134,52 @@ impl Session {
                     self.request_id
                 )
             })
+    }
+
+    pub fn send_choice_prompt(&self, message: String, choices: Vec<String>) -> anyhow::Result<()> {
+        self.cmd_tx
+            .send(super::WsCommand::Choices(message, choices))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{}:{:x} error sending choice prompt ws command",
+                    self.id,
+                    self.request_id
+                )
+            })
+    }
+
+    pub fn send_notify(&self, message: String) -> anyhow::Result<()> {
+        self.cmd_tx
+            .send(super::WsCommand::Action { action: message })
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{}:{:x} error sending notify ws command",
+                    self.id,
+                    self.request_id
+                )
+            })
+    }
+
+    pub fn send_display_text(&self, text: String) -> anyhow::Result<()> {
+        self.cmd_tx
+            .send(super::WsCommand::DisplayText(text))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "{}:{:x} error sending display text ws command",
+                    self.id,
+                    self.request_id
+                )
+            })
+    }
+
+    pub fn send_end_audio(&self) -> anyhow::Result<()> {
+        self.cmd_tx.send(super::WsCommand::EndAudio).map_err(|_| {
+            anyhow::anyhow!(
+                "{}:{:x} error sending end audio ws command",
+                self.id,
+                self.request_id
+            )
+        })
     }
 
     pub fn send_end_response(&self) -> anyhow::Result<()> {
@@ -273,17 +320,14 @@ async fn handle_tts_requests(mut chunks_rx: ChunksRx, session: &mut Session) -> 
             chunk
         );
 
-        session
-            .cmd_tx
-            .send(super::WsCommand::StartAudio(chunk.clone()))
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "{}:{:x} error sending start audio ws command for chunk `{}`",
-                    session.id,
-                    session.request_id,
-                    chunk
-                )
-            })?;
+        session.send_start_audio(chunk.clone()).map_err(|_| {
+            anyhow::anyhow!(
+                "{}:{:x} error sending start audio ws command for chunk `{}`",
+                session.id,
+                session.request_id,
+                chunk
+            )
+        })?;
 
         while let Some(tts_chunk) = tts_resp_rx.recv().await {
             log::trace!(
@@ -297,28 +341,22 @@ async fn handle_tts_requests(mut chunks_rx: ChunksRx, session: &mut Session) -> 
                 continue;
             }
 
-            session
-                .cmd_tx
-                .send(super::WsCommand::Audio(tts_chunk))
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "{}:{:x} error sending audio chunk ws command for tts chunk",
-                        session.id,
-                        session.request_id
-                    )
-                })?;
-        }
-
-        session
-            .cmd_tx
-            .send(super::WsCommand::EndAudio)
-            .map_err(|_| {
+            session.send_audio_chunk(tts_chunk.clone()).map_err(|_| {
                 anyhow::anyhow!(
-                    "{}:{:x} error sending end audio ws command after tts chunk",
+                    "{}:{:x} error sending audio chunk ws command for tts chunk",
                     session.id,
                     session.request_id
                 )
             })?;
+        }
+
+        session.send_end_audio().map_err(|_| {
+            anyhow::anyhow!(
+                "{}:{:x} error sending end audio ws command after tts chunk",
+                session.id,
+                session.request_id
+            )
+        })?;
 
         log::info!(
             "{}:{:x} finished tts for chunk: {}",

@@ -9,8 +9,10 @@ pub enum ServerEvent {
 
     ASR { text: String },
     Action { action: String },
+    Choices { message: String, items: Vec<String> },
     StartAudio { text: String },
     AudioChunk { data: Vec<u8> },
+    DisplayText { text: String },
     AudioChunkWithVowel { data: Vec<u8>, vowel: u8 },
     EndAudio,
     StartVideo,
@@ -47,6 +49,7 @@ pub enum ClientCommand {
     StartChat,
     Submit,
     Text { input: String },
+    Select { index: usize },
 }
 
 #[test]

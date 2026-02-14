@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use lazy_regex::regex;
 
 use crate::ai::{
-    llm::Content, ChatSession, LLMResponsesChunk, ResponsesSession, StableLLMResponseChunk,
+    ChatSession, LLMResponsesChunk, ResponsesSession, StableLLMResponseChunk, llm::Content,
 };
 
 pub type ChunksTx = tokio::sync::mpsc::UnboundedSender<(String, super::tts::TTSResponseRx)>;
