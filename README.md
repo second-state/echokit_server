@@ -120,3 +120,26 @@ Configure WiFi and server
 **Chat:** press the `K0` button once or multiple times until the status bar shows "Ready". You can now speak and it will show "Listening ...". The device answers after it decides that you have done speaking.
 
 **Config:** press `RST`. While it is restarting, press and hold `K0` to enter the configuration mode. Then [open the configuration UI](https://echokit.dev/setup/) to connect to the device via BT.
+
+## 🤖 AI-Powered Development with Claude Code
+
+EchoKit Server includes specialized **SKILLs** for [Claude Code](https://claude.ai/code) to automate configuration and environment setup.
+
+### 1. Install SKILLs
+Link the project's local skills to your Claude Code environment:
+
+```bash
+mkdir -p ~/.claude/skills/
+ln -s $(pwd)/.claude/skills/echokit-config-generator ~/.claude/skills/
+```
+
+### 2. Available Slash Commands
+Once installed, you can use the following commands within Claude Code:
+
+*   **/setup-echokit**: Interactive five-phase guide to generate a complete `config.toml`. It handles assistant definitions, platform selection (OpenAI, Groq, etc.), and server launch.
+*   **/sync-seekdb**: (If using SeekDB) Automatically generates `config.toml` tailored for SeekDB/OceanBase vector storage and verifies connectivity.
+
+### 3. Benefits
+*   **Zero-Config Setup**: Automatically detects available API endpoints and generates the correct TOML structure.
+*   **Context-Aware**: The generator can create sophisticated system prompts based on your specific use case.
+*   **Validation**: Built-in health checks ensure your API keys and server address are correct before finishing.
