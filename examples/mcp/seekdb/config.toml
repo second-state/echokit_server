@@ -1,0 +1,57 @@
+addr = "0.0.0.0:9090"
+hello_wav = "hello.wav"
+
+# Text-to-Speech Configuration
+# Requires a local TTS server (e.g., GSV-TTS or Cosyvoice)
+[tts]
+platform = "stream_gsv"
+url = "http://localhost:9094/v1/audio/stream_speech"
+speaker = "cooper"
+
+# Speech Recognition Configuration
+# Using Groq's Whisper API for fast ASR
+[asr]
+platform = "openai"
+url = "https://api.groq.com/openai/v1/audio/transcriptions"
+api_key = "YOUR_GROQ_API_KEY"
+model = "whisper-large-v3"
+lang = "en"
+prompt = "Hello\n你好\n(noise)\n(bgm)\n(silence)\n"
+
+# Language Model Configuration
+# Using Groq for fast LLM responses with MCP tool support
+[llm]
+platform = "openai_chat"
+url = "https://api.groq.com/openai/v1/chat/completions"
+api_key = "YOUR_GROQ_API_KEY"
+model = "llama-3.3-70b-versatile"
+history = 10
+
+# SeekDB MCP Server Connection
+# The MCP server provides vector search tools for knowledge base queries
+[[llm.mcp_server]]
+server = "http://localhost:8000/mcp"
+type = "http_streamable"
+call_mcp_message = "Please hold on while I search the knowledge base..."
+
+# System prompts for the voice assistant
+[[llm.sys_prompts]]
+role = "system"
+content = """
+You are a helpful voice assistant with access to a knowledge base through the SeekDB search tools.
+
+When users ask questions that might be answered by the knowledge base:
+1. Use the `query_collection` tool to search for relevant information
+2. Use the `hybrid_search` tool for complex queries that need both keyword and semantic matching
+3. Synthesize the search results into a natural, conversational response
+
+Guidelines:
+- Keep responses concise and suitable for voice output
+- If search results don't contain relevant information, acknowledge this and provide general guidance
+- Respond in the same language as the user's question
+- Be helpful, accurate, and conversational
+
+Available knowledge collections:
+- `echokit_faq`: Frequently asked questions about EchoKit devices and setup
+- `product_info`: Product specifications and features
+"""
