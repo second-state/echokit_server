@@ -120,3 +120,63 @@ Configure WiFi and server
 **Chat:** press the `K0` button once or multiple times until the status bar shows "Ready". You can now speak and it will show "Listening ...". The device answers after it decides that you have done speaking.
 
 **Config:** press `RST`. While it is restarting, press and hold `K0` to enter the configuration mode. Then [open the configuration UI](https://echokit.dev/setup/) to connect to the device via BT.
+## FAQ
+
+### What is EchoKit Server?
+
+EchoKit Server is the central component managing communication between EchoKit device and AI services. It powers the full voice–AI interaction loop with ASR → LLM → TTS pipeline.
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| ASR → LLM → TTS | Real-time, natural conversations |
+| Model Compatibility | OpenAI-compatible APIs |
+| Gemini Pipeline | Google's multimodal model |
+| Qwen Real-Time | Alibaba's open LLM |
+| Local/Remote | Deploy locally or connect to remote |
+| MCP Integration | Extended functionality via MCP servers |
+
+### Model Compatibility
+
+| Stage | Compatibility |
+|-------|---------------|
+| ASR | OpenAI-compatible APIs |
+| LLM | OpenAI-spec endpoints (local/cloud) |
+| TTS | OpenAI-spec voice models + ElevenLabs |
+
+### How to build?
+
+```bash
+git clone https://github.com/second-state/echokit_server
+cargo build --release
+```
+
+### Configuration
+
+Edit `config.toml` to customize:
+- VAD, ASR, LLM, TTS services
+- Prompts
+- MCP servers
+
+### Server URLs
+
+| Region | WebSocket URL |
+|--------|---------------|
+| US | `ws://indie.echokit.dev/ws/` |
+| Taiwan | `ws://tw.echokit.dev/ws/` |
+| Rest of world | `ws://edge.echokit.dev/ws/` |
+
+### Is EchoKit free?
+
+EchoKit is open-source. Check repository for license.
+
+### Help Resources
+
+| Resource | Link |
+|----------|------|
+| Website | [echokit.dev](https://echokit.dev/) |
+| Discord | [Join Discord](https://discord.gg/Fwe3zsT5g3) |
+| Docs | [Quick Start](https://echokit.dev/docs/quick-start/) |
+| Demo | [Live Demo](https://youtu.be/Zy-rLT4EgZQ) |
+
