@@ -1,4 +1,6 @@
 use bytes::{BufMut, Bytes};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use crate::config::{ElevenlabsTTS, FishTTS, GSVTTS, GroqTTS, OpenaiTTS, StreamGSV};
 
@@ -122,23 +124,98 @@ impl TTSSession {
     }
 }
 
-pub struct TTSManager {
-    config: crate::config::TTSConfig,
+/// Default time after which an idle session is considered stale and reaped
+/// lazily (next time it would be handed out from the pool).
+pub const DEFAULT_TTS_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Default hard cap on how long a session may live before being discarded on
+/// the next recycle check.
+pub const DEFAULT_TTS_MAX_LIFETIME: Duration = Duration::from_secs(30 * 60);
+
+/// Pooled entry wrapping a `TTSSession` together with the timestamps used to
+/// enforce idle / max-lifetime eviction.
+pub struct TtsSessionEntry {
+    pub session: TTSSession,
+    pub created_at: Instant,
+    pub last_used: Mutex<Instant>,
 }
 
+impl TtsSessionEntry {
+    pub fn new(session: TTSSession) -> Self {
+        let now = Instant::now();
+        Self {
+            session,
+            created_at: now,
+            last_used: Mutex::new(now),
+        }
+    }
+
+    pub fn touch(&self) {
+        if let Ok(mut last) = self.last_used.lock() {
+            *last = Instant::now();
+        }
+    }
+}
+
+pub struct TTSManager {
+    config: crate::config::TTSConfig,
+    idle_timeout: Duration,
+    max_lifetime: Duration,
+}
+
+impl TTSManager {
+    fn new(
+        config: crate::config::TTSConfig,
+        idle_timeout: Duration,
+        max_lifetime: Duration,
+    ) -> Self {
+        Self {
+            config,
+            idle_timeout,
+            max_lifetime,
+        }
+    }
+}
+
+#[async_trait::async_trait]
 impl deadpool::managed::Manager for TTSManager {
-    type Type = TTSSession;
+    type Type = TtsSessionEntry;
     type Error = anyhow::Error;
 
-    async fn create(&self) -> Result<TTSSession, anyhow::Error> {
-        TTSSession::new_from_config(&self.config).await
+    async fn create(&self) -> Result<TtsSessionEntry, anyhow::Error> {
+        let session = TTSSession::new_from_config(&self.config).await?;
+        Ok(TtsSessionEntry::new(session))
     }
 
     async fn recycle(
         &self,
-        _obj: &mut TTSSession,
+        obj: &mut TtsSessionEntry,
         _metrics: &deadpool::managed::Metrics,
     ) -> deadpool::managed::RecycleResult<anyhow::Error> {
+        let now = Instant::now();
+        let age = now.saturating_duration_since(obj.created_at);
+        if age >= self.max_lifetime {
+            log::info!(
+                "TTS session exceeded max lifetime ({:?}); discarding",
+                age
+            );
+            return Err(deadpool::managed::RecycleError::Message(
+                "max lifetime exceeded".to_string(),
+            ));
+        }
+
+        let last_used = *obj
+            .last_used
+            .lock()
+            .map_err(|e| deadpool::managed::RecycleError::Message(e.to_string()))?;
+        let idle = now.saturating_duration_since(last_used);
+        if idle >= self.idle_timeout {
+            log::info!("TTS session idle for {:?}; discarding", idle);
+            return Err(deadpool::managed::RecycleError::Message(
+                "idle timeout exceeded".to_string(),
+            ));
+        }
+
         Ok(())
     }
 }
@@ -149,14 +226,31 @@ pub struct TTSSessionPool {
 
 impl TTSSessionPool {
     pub fn new(config: crate::config::TTSConfig, workers: usize) -> Self {
-        let manager = TTSManager { config };
+        Self::with_timeouts(
+            config,
+            workers,
+            DEFAULT_TTS_IDLE_TIMEOUT,
+            DEFAULT_TTS_MAX_LIFETIME,
+        )
+    }
+
+    pub fn with_timeouts(
+        config: crate::config::TTSConfig,
+        workers: usize,
+        idle_timeout: Duration,
+        max_lifetime: Duration,
+    ) -> Self {
+        let manager = TTSManager::new(config, idle_timeout, max_lifetime);
         let pool = deadpool::managed::Pool::builder(manager)
             .max_size(workers)
             .timeouts(deadpool::managed::Timeouts {
-                wait: Some(std::time::Duration::from_secs(30)),
-                create: Some(std::time::Duration::from_secs(30)),
-                recycle: None,
+                wait: Some(Duration::from_secs(30)),
+                create: Some(Duration::from_secs(30)),
+                // Cap how long a single recycle() call may take; should be
+                // cheap but a stuck call must not stall pool.get().
+                recycle: Some(Duration::from_secs(5)),
             })
+            .runtime(deadpool::Runtime::Tokio1)
             .build()
             .expect("Failed to create TTS session pool");
         TTSSessionPool { pool }
@@ -165,10 +259,11 @@ impl TTSSessionPool {
     pub async fn run_loop(&mut self, mut rx: TTSRequestRx) -> anyhow::Result<()> {
         while let Some((text, tts_resp_tx)) = rx.recv().await {
             match self.pool.get().await {
-                Ok(mut session) => {
+                Ok(mut entry) => {
+                    entry.touch();
                     tokio::spawn(async move {
                         log::info!("Processing TTS request: {}", text);
-                        if let Err(e) = session.synthesize(&text, &tts_resp_tx).await {
+                        if let Err(e) = entry.session.synthesize(&text, &tts_resp_tx).await {
                             log::error!("TTS synthesis error: {}", e);
                         }
                     });
