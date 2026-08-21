@@ -11,6 +11,19 @@ pub type ChunksRx = tokio::sync::mpsc::UnboundedReceiver<(String, super::tts::TT
 
 use tokio::time::Duration;
 
+async fn queue_tts_request(
+    tts_tx: &mut super::tts::TTSRequestTx,
+    chunks_tx: &ChunksTx,
+    text: String,
+) -> anyhow::Result<()> {
+    let tts_resp_rx = super::tts::submit_request(tts_tx, text.clone()).await?;
+
+    chunks_tx
+        .send((text, tts_resp_rx))
+        .map_err(|e| anyhow::anyhow!("error sending tts chunks receiver: {e}"))?;
+    Ok(())
+}
+
 #[cached::proc_macro::cached(time = 60, size = 100, result = true)]
 async fn load_url_content(url: String) -> anyhow::Result<String> {
     let client = reqwest::Client::new();
@@ -214,18 +227,7 @@ pub async fn chat(
                     continue;
                 }
 
-                let (tts_resp_tx, tts_resp_rx) = tokio::sync::mpsc::unbounded_channel();
-
-                tts_tx
-                    .send((chunk_.to_string(), tts_resp_tx))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("error sending tts request for llm chunk: {e}"))?;
-
-                chunks_tx
-                    .send((chunk_.to_string(), tts_resp_rx))
-                    .map_err(|e| {
-                        anyhow::anyhow!("error sending tts chunks receiver for llm chunk: {e}")
-                    })?;
+                queue_tts_request(tts_tx, &chunks_tx, chunk_.to_string()).await?;
             }
             Ok(StableLLMResponseChunk::Functions(functions)) => {
                 log::info!("llm functions: {:#?}", functions);
@@ -234,20 +236,7 @@ pub async fn chat(
                     if let Some(message) = chat_session.get_tool_call_message(&function) {
                         log::info!("tool {} call message: {}", &function.function.name, message);
                         if !message.is_empty() {
-                            let (tts_resp_tx, tts_resp_rx) = tokio::sync::mpsc::unbounded_channel();
-
-                            tts_tx
-                                .send((message.to_string(), tts_resp_tx))
-                                .await
-                                .map_err(|e| {
-                                    anyhow::anyhow!("error sending tts request for llm chunk: {e}")
-                                })?;
-
-                            chunks_tx.send((message, tts_resp_rx)).map_err(|e| {
-                                anyhow::anyhow!(
-                                    "error sending tts chunks receiver for llm chunk: {e}"
-                                )
-                            })?;
+                            queue_tts_request(tts_tx, &chunks_tx, message).await?;
                         }
                     }
                     chat_session.execute_tool(&function).await?
@@ -381,22 +370,7 @@ pub async fn responses(
                     continue;
                 }
 
-                let (tts_resp_tx, tts_resp_rx) = tokio::sync::mpsc::unbounded_channel();
-
-                tts_tx
-                    .send((chunk_.to_string(), tts_resp_tx))
-                    .await
-                    .map_err(|e| {
-                        anyhow::anyhow!("error sending tts request for llm responses chunk: {e}")
-                    })?;
-
-                chunks_tx
-                    .send((chunk_.to_string(), tts_resp_rx))
-                    .map_err(|e| {
-                        anyhow::anyhow!(
-                            "error sending tts chunks receiver for llm responses chunk: {e}"
-                        )
-                    })?;
+                queue_tts_request(tts_tx, &chunks_tx, chunk_.to_string()).await?;
             }
             LLMResponsesChunk::Functions(functions) => {
                 log::info!("llm responses functions: {:#?}", functions);
@@ -405,20 +379,7 @@ pub async fn responses(
                     if let Some(message) = responses_session.get_tool_call_message(&function) {
                         log::info!("tool {} call message: {}", &function.function.name, message);
                         if !message.is_empty() {
-                            let (tts_resp_tx, tts_resp_rx) = tokio::sync::mpsc::unbounded_channel();
-
-                            tts_tx
-                                .send((message.to_string(), tts_resp_tx))
-                                .await
-                                .map_err(|e| {
-                                    anyhow::anyhow!("error sending tts request for llm chunk: {e}")
-                                })?;
-
-                            chunks_tx.send((message, tts_resp_rx)).map_err(|e| {
-                                anyhow::anyhow!(
-                                    "error sending tts chunks receiver for llm chunk: {e}"
-                                )
-                            })?;
+                            queue_tts_request(tts_tx, &chunks_tx, message).await?;
                         }
                     }
                     let result = responses_session.execute_tool(&function).await;

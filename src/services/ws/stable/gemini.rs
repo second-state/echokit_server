@@ -27,7 +27,12 @@ pub async fn run_session_manager(
     > = HashMap::new();
 
     let tts_req_tx = if let Some(tts) = tts {
-        let mut tts_session_pool = super::tts::TTSSessionPool::new(tts.clone(), 4);
+        let mut tts_session_pool = super::tts::TTSSessionPool::new(
+            tts.clone(),
+            super::tts::DEFAULT_TTS_IDLE_WORKERS,
+            super::tts::DEFAULT_TTS_MAX_WORKERS,
+            super::tts::DEFAULT_TTS_IDLE_TIMEOUT,
+        );
         let (tts_req_tx, tts_req_rx) = tokio::sync::mpsc::channel(128);
 
         tokio::spawn(async move {
@@ -471,8 +476,7 @@ async fn run_session_with_tts(
                 gemini::types::ServerContent::Interrupted(_) => {}
                 gemini::types::ServerContent::TurnComplete(_) => {
                     let (chunks_tx, chunks_rx) = tokio::sync::mpsc::unbounded_channel();
-                    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                    tts_req_tx.send((llm_text.clone(), tx)).await?;
+                    let rx = super::tts::submit_request(tts_req_tx, llm_text.clone()).await?;
                     chunks_tx.send((llm_text.clone(), rx))?;
                     asr_text.clear();
                     llm_text = String::with_capacity(1024);
