@@ -380,7 +380,12 @@ pub async fn run_session_manager(
         tokio::sync::mpsc::UnboundedSender<(Session, Option<llm::MixPrompts>)>,
     > = HashMap::new();
 
-    let mut tts_session_pool = tts::TTSSessionPool::new(tts.clone(), 4);
+    let mut tts_session_pool = tts::TTSSessionPool::new(
+        tts.clone(),
+        tts::DEFAULT_TTS_IDLE_WORKERS,
+        tts::DEFAULT_TTS_MAX_WORKERS,
+        tts::DEFAULT_TTS_IDLE_TIMEOUT,
+    );
     let (tts_req_tx, tts_req_rx) = tokio::sync::mpsc::channel(128);
 
     tokio::spawn(async move {

@@ -1,14 +1,33 @@
 use bytes::{BufMut, Bytes};
+use std::time::{Duration, Instant};
+use std::{cell::Cell, sync::Mutex};
 
 use crate::config::{ElevenlabsTTS, FishTTS, GSVTTS, GroqTTS, OpenaiTTS, StreamGSV};
 
-pub type TTSRequest = (String, TTSResponseTx);
+pub type TTSRequest = (String, TTSResponseTx, TTSRequestAckTx);
 
 pub type TTSRequestTx = tokio::sync::mpsc::Sender<TTSRequest>;
 pub type TTSRequestRx = tokio::sync::mpsc::Receiver<TTSRequest>;
+pub type TTSRequestAckTx = tokio::sync::oneshot::Sender<anyhow::Result<()>>;
 
 pub type TTSResponseRx = tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>;
 pub type TTSResponseTx = tokio::sync::mpsc::UnboundedSender<Vec<u8>>;
+
+pub async fn submit_request(tts_tx: &TTSRequestTx, text: String) -> anyhow::Result<TTSResponseRx> {
+    let (tts_resp_tx, tts_resp_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (request_ack_tx, request_ack_rx) = tokio::sync::oneshot::channel();
+
+    tts_tx
+        .send((text, tts_resp_tx, request_ack_tx))
+        .await
+        .map_err(|e| anyhow::anyhow!("error sending tts request: {e}"))?;
+
+    request_ack_rx
+        .await
+        .map_err(|e| anyhow::anyhow!("TTS pool dropped request acknowledgement: {e}"))??;
+
+    Ok(tts_resp_rx)
+}
 
 pub enum TTSSession {
     GsvStable {
@@ -122,87 +141,349 @@ impl TTSSession {
     }
 }
 
+/// Default number of sessions kept ready while the pool is idle.
+pub const DEFAULT_TTS_IDLE_WORKERS: usize = 1;
+
+/// Default upper bound for concurrently leased TTS sessions.
+pub const DEFAULT_TTS_MAX_WORKERS: usize = 4;
+
+/// Default time after which an idle session is considered stale and reaped.
+pub const DEFAULT_TTS_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Default hard cap on how long a session may live before being discarded on
+/// the next recycle check.
+pub const DEFAULT_TTS_MAX_LIFETIME: Duration = Duration::from_secs(30 * 60);
+
+/// Pooled entry wrapping a `TTSSession` together with the timestamps used to
+/// enforce idle / max-lifetime eviction.
+pub struct TtsSessionEntry {
+    pub session: TTSSession,
+    pub created_at: Instant,
+    pub last_used: Mutex<Instant>,
+}
+
+impl TtsSessionEntry {
+    pub fn new(session: TTSSession) -> Self {
+        let now = Instant::now();
+        Self {
+            session,
+            created_at: now,
+            last_used: Mutex::new(now),
+        }
+    }
+
+    pub fn touch(&self) {
+        if let Ok(mut last) = self.last_used.lock() {
+            *last = Instant::now();
+        }
+    }
+}
+
+pub struct TTSManager {
+    config: crate::config::TTSConfig,
+    idle_timeout: Duration,
+    max_lifetime: Duration,
+}
+
+impl TTSManager {
+    fn new(
+        config: crate::config::TTSConfig,
+        idle_timeout: Duration,
+        max_lifetime: Duration,
+    ) -> Self {
+        Self {
+            config,
+            idle_timeout,
+            max_lifetime,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl deadpool::managed::Manager for TTSManager {
+    type Type = TtsSessionEntry;
+    type Error = anyhow::Error;
+
+    async fn create(&self) -> Result<TtsSessionEntry, anyhow::Error> {
+        let session = TTSSession::new_from_config(&self.config).await?;
+        Ok(TtsSessionEntry::new(session))
+    }
+
+    async fn recycle(
+        &self,
+        obj: &mut TtsSessionEntry,
+        _metrics: &deadpool::managed::Metrics,
+    ) -> deadpool::managed::RecycleResult<anyhow::Error> {
+        let now = Instant::now();
+        let age = now.saturating_duration_since(obj.created_at);
+        if age >= self.max_lifetime {
+            log::info!("TTS session exceeded max lifetime ({:?}); discarding", age);
+            return Err(deadpool::managed::RecycleError::Message(
+                "max lifetime exceeded".to_string(),
+            ));
+        }
+
+        let last_used = *obj
+            .last_used
+            .lock()
+            .map_err(|e| deadpool::managed::RecycleError::Message(e.to_string()))?;
+        let idle = now.saturating_duration_since(last_used);
+        if idle >= self.idle_timeout {
+            log::info!("TTS session idle for {:?}; discarding", idle);
+            return Err(deadpool::managed::RecycleError::Message(
+                "idle timeout exceeded".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
 pub struct TTSSessionPool {
-    pub config: crate::config::TTSConfig,
-    pub workers: usize,
-    pub pool: tokio::sync::mpsc::UnboundedReceiver<tokio::sync::oneshot::Sender<TTSRequest>>,
-    pub tx: tokio::sync::mpsc::UnboundedSender<tokio::sync::oneshot::Sender<TTSRequest>>,
+    pool: deadpool::managed::Pool<TTSManager>,
+    idle_workers: usize,
+    idle_timeout: Duration,
 }
 
 impl TTSSessionPool {
-    pub fn new(config: crate::config::TTSConfig, workers: usize) -> Self {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        TTSSessionPool {
+    pub fn new(
+        config: crate::config::TTSConfig,
+        idle_workers: usize,
+        max_workers: usize,
+        idle_timeout: Duration,
+    ) -> Self {
+        Self::with_timeouts(
             config,
-            workers,
-            pool: rx,
-            tx,
+            idle_workers,
+            max_workers,
+            idle_timeout,
+            DEFAULT_TTS_MAX_LIFETIME,
+        )
+    }
+
+    pub fn with_timeouts(
+        config: crate::config::TTSConfig,
+        idle_workers: usize,
+        max_workers: usize,
+        idle_timeout: Duration,
+        max_lifetime: Duration,
+    ) -> Self {
+        let max_workers = max_workers.max(idle_workers);
+        let manager = TTSManager::new(config, idle_timeout, max_lifetime);
+        let pool = deadpool::managed::Pool::builder(manager)
+            .max_size(max_workers)
+            .timeouts(deadpool::managed::Timeouts {
+                wait: Some(Duration::from_secs(30)),
+                create: Some(Duration::from_secs(30)),
+                // Cap how long a single recycle() call may take; should be
+                // cheap but a stuck call must not stall pool.get().
+                recycle: Some(Duration::from_secs(5)),
+            })
+            .runtime(deadpool::Runtime::Tokio1)
+            .build()
+            .expect("Failed to create TTS session pool");
+        TTSSessionPool {
+            pool,
+            idle_workers,
+            idle_timeout,
         }
     }
 
-    pub async fn create_session(&self) -> anyhow::Result<TTSSession> {
-        TTSSession::new_from_config(&self.config).await
-    }
-
-    pub async fn run_session(
-        id: u128,
-        mut session: TTSSession,
-        tx: tokio::sync::mpsc::UnboundedSender<tokio::sync::oneshot::Sender<TTSRequest>>,
-    ) -> anyhow::Result<()> {
-        log::info!("{} starting TTS session worker", id);
-        loop {
-            let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-            tx.send(resp_tx)
-                .map_err(|e| anyhow::anyhow!("send session request error: {}", e))?;
-
-            let (text, tts_resp_tx) = resp_rx
+    async fn prewarm(&self) -> anyhow::Result<()> {
+        let mut entries = Vec::with_capacity(self.idle_workers);
+        for worker in 0..self.idle_workers {
+            let entry = self
+                .pool
+                .get()
                 .await
-                .map_err(|e| anyhow::anyhow!("receive session request error: {}", e))?;
-
-            log::info!("{} processing TTS request: {}", id, text);
-
-            if let Err(e) = session.synthesize(&text, &tts_resp_tx).await {
-                log::error!("{} TTS synthesis error: {}", id, e);
-            }
+                .map_err(|e| anyhow::anyhow!("create idle TTS session[{worker}] error: {e}"))?;
+            entries.push(entry);
         }
+        drop(entries);
+        Ok(())
     }
 
-    async fn get_req_tx(&mut self) -> anyhow::Result<tokio::sync::oneshot::Sender<TTSRequest>> {
-        let req_tx = self
-            .pool
-            .recv()
-            .await
-            .ok_or_else(|| anyhow::anyhow!("no available tts session"))?;
-        Ok(req_tx)
+    fn reap_idle(&self) {
+        let status = self.pool.status();
+        let removable = Cell::new(status.available.saturating_sub(self.idle_workers));
+        if removable.get() == 0 {
+            return;
+        }
+
+        let now = Instant::now();
+        let idle_timeout = self.idle_timeout;
+        self.pool.retain(|entry, _| {
+            let remaining = removable.get();
+            if remaining == 0 {
+                return true;
+            }
+
+            let idle = entry
+                .last_used
+                .lock()
+                .map(|last_used| now.saturating_duration_since(*last_used) >= idle_timeout)
+                .unwrap_or(true);
+            if idle {
+                removable.set(remaining - 1);
+                false
+            } else {
+                true
+            }
+        });
     }
 
     pub async fn run_loop(&mut self, mut rx: TTSRequestRx) -> anyhow::Result<()> {
-        let mut sucess_workers = 0;
-        for i in 0..self.workers {
-            match self.create_session().await {
-                Ok(session) => {
-                    tokio::spawn(Self::run_session(i as u128, session, self.tx.clone()));
-                    sucess_workers += 1;
-                }
-                Err(e) => {
-                    log::error!("create tts session[{i}] error: {}", e);
-                    continue;
-                }
-            };
+        if let Err(e) = self.prewarm().await {
+            log::warn!("initial TTS pool prewarm failed; retrying on demand: {e}");
         }
 
-        if sucess_workers == 0 {
-            return Err(anyhow::anyhow!("no available tts session worker"));
-        }
+        let reap_period = self.idle_timeout.max(Duration::from_millis(1));
+        let mut reap_interval = tokio::time::interval(reap_period);
+        reap_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-        while let Some(tts_req) = rx.recv().await {
-            let req_tx = self.get_req_tx().await?;
+        loop {
+            tokio::select! {
+                request = rx.recv() => {
+                    let Some((text, tts_resp_tx, request_ack_tx)) = request else {
+                        break;
+                    };
 
-            if let Err(e) = req_tx.send(tts_req) {
-                log::error!("send tts request to session error: {}", e.0);
+                    match self.pool.get().await {
+                        Ok(mut entry) => {
+                            let _ = request_ack_tx.send(Ok(()));
+                            tokio::spawn(async move {
+                                log::info!("Processing TTS request: {}", text);
+                                let result = entry.session.synthesize(&text, &tts_resp_tx).await;
+                                entry.touch();
+                                if let Err(e) = result {
+                                    log::error!("TTS synthesis error: {}", e);
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            let message = format!("Failed to get TTS session from pool: {e}");
+                            log::error!("{message}");
+                            let _ = request_ack_tx.send(Err(anyhow::anyhow!(message)));
+                        }
+                    }
+                }
+                _ = reap_interval.tick() => self.reap_idle(),
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{GSVTTS, TTSConfig};
+
+    fn test_config() -> TTSConfig {
+        TTSConfig::GSV(GSVTTS {
+            api_key: String::new(),
+            url: String::new(),
+            speaker: String::new(),
+            timeout_sec: None,
+            text_optimization: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn prewarms_idle_workers_and_scales_to_max_workers() {
+        let pool = TTSSessionPool::with_timeouts(
+            test_config(),
+            2,
+            3,
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+        );
+
+        pool.prewarm().await.unwrap();
+        assert_eq!(pool.pool.status().size, 2);
+
+        let (first, second, third) =
+            tokio::join!(pool.pool.get(), pool.pool.get(), pool.pool.get(),);
+        assert!(first.is_ok());
+        assert!(second.is_ok());
+        assert!(third.is_ok());
+        assert_eq!(pool.pool.status().size, 3);
+    }
+
+    #[tokio::test]
+    async fn reaper_keeps_idle_workers_and_removes_excess_idle_sessions() {
+        let pool = TTSSessionPool::with_timeouts(
+            test_config(),
+            1,
+            3,
+            Duration::from_millis(10),
+            Duration::from_secs(60),
+        );
+        let (first, second, third) =
+            tokio::join!(pool.pool.get(), pool.pool.get(), pool.pool.get(),);
+        drop((first, second, third));
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        pool.reap_idle();
+        assert_eq!(pool.pool.status().size, 1);
+    }
+
+    #[tokio::test]
+    async fn touching_a_session_after_use_prevents_premature_idle_reaping() {
+        let pool = TTSSessionPool::with_timeouts(
+            test_config(),
+            0,
+            1,
+            Duration::from_millis(100),
+            Duration::from_secs(60),
+        );
+        let entry = pool.pool.get().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        entry.touch();
+        drop(entry);
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        pool.reap_idle();
+        assert_eq!(pool.pool.status().size, 1);
+    }
+
+    #[tokio::test]
+    async fn recycle_replaces_expired_sessions() {
+        let pool = TTSSessionPool::with_timeouts(
+            test_config(),
+            0,
+            1,
+            Duration::from_secs(60),
+            Duration::from_millis(10),
+        );
+        let entry = pool.pool.get().await.unwrap();
+        let created_at = entry.created_at;
+        drop(entry);
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let replacement = pool.pool.get().await.unwrap();
+        assert!(replacement.created_at > created_at);
+    }
+
+    #[tokio::test]
+    async fn submit_request_propagates_pool_acquisition_errors() {
+        let (tts_tx, mut tts_rx) = tokio::sync::mpsc::channel(1);
+        let request =
+            tokio::spawn(async move { submit_request(&tts_tx, "hello".to_string()).await });
+
+        let (_, _, request_ack_tx) = tts_rx.recv().await.unwrap();
+        request_ack_tx
+            .send(Err(anyhow::anyhow!("pool unavailable")))
+            .unwrap();
+
+        let result = request.await.unwrap();
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("pool unavailable")
+        );
     }
 }
 

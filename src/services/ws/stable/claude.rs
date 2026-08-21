@@ -223,17 +223,17 @@ impl RunSessionState {
 
         let mut rx_list = LinkedList::new();
         for chunk in finished_output {
-            let (tts_response_tx, tts_response_rx) = tokio::sync::mpsc::unbounded_channel();
-            if let Err(e) = tts_req_tx.send((chunk.to_string(), tts_response_tx)).await {
-                log::error!(
-                    "{}:{:x} error sending tts request: {}",
-                    self.session.id,
-                    self.session.request_id,
-                    e
-                );
-            } else {
-                rx_list.push_back((chunk, tts_response_rx));
-            }
+            let tts_response_rx = super::tts::submit_request(tts_req_tx, chunk.to_string())
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "{}:{:x} error sending tts request: {}",
+                        self.session.id,
+                        self.session.request_id,
+                        e
+                    )
+                })?;
+            rx_list.push_back((chunk, tts_response_rx));
         }
 
         for (text_chunk, mut tts_response_rx) in rx_list {
@@ -746,7 +746,12 @@ pub async fn run_session_manager(
     mut session_rx: tokio::sync::mpsc::UnboundedReceiver<Session>,
     notifications: Arc<RwLock<ClaudeNotifications>>,
 ) -> anyhow::Result<()> {
-    let mut tts_session_pool = super::tts::TTSSessionPool::new(tts.clone(), 4);
+    let mut tts_session_pool = super::tts::TTSSessionPool::new(
+        tts.clone(),
+        super::tts::DEFAULT_TTS_IDLE_WORKERS,
+        super::tts::DEFAULT_TTS_MAX_WORKERS,
+        super::tts::DEFAULT_TTS_IDLE_TIMEOUT,
+    );
     let (tts_req_tx, tts_req_rx) = tokio::sync::mpsc::channel(128);
 
     let mut sessions: HashMap<
