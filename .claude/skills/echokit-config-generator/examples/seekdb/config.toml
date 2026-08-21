@@ -14,6 +14,8 @@ url = "https://api.openai.com/v1/audio/transcriptions"
 api_key = "YOUR_API_KEY_HERE"
 model = "gpt-4o-mini-transcribe"
 lang = "en"
+prompt = "Hello\\n你好\\n(noise)\\n(bgm)\\n(silence)\\n"
+vad_url = "http://localhost:9093/v1/audio/vad"
 
 [llm]
 platform = "openai_chat"

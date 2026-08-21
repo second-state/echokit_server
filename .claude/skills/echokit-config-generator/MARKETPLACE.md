@@ -5,13 +5,13 @@
 **Name:** EchoKit Config Generator
 **Category:** Development Tools / Configuration
 **Tags:** echokit, config, toml, rust, iot, server
-**Version:** 1.0.0
+**Version:** 1.4.0
 **License:** MIT
 **Standalone:** Yes (no dependencies)
 
 ## Short Description
 
-Generate `config.toml` files for EchoKit servers through an interactive 4-step process. Choose ASR, TTS, and LLM platforms, define your AI assistant's personality, and get production-ready configurations with setup guides.
+Generate `config.toml` files for EchoKit servers through an interactive 5-phase process. Choose ASR, TTS, and LLM platforms, define your AI assistant's personality, configure MCP servers such as SeekDB, and get production-ready configurations with setup guides.
 
 ## Long Description
 
