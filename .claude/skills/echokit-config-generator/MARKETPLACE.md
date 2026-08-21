@@ -28,7 +28,7 @@ The EchoKit Config Generator SKILL simplifies setting up EchoKit servers by guid
 - ✅ **Platform knowledge** - Curated platform data with API key locations
 - ✅ **System prompts** - Auto-generate prompts based on your requirements
 - ✅ **MCP support** - Templates for common MCP servers
-- ✅ **Examples** - Pre-built configs for voice companion and coding assistant
+- ✅ **Examples** - Pre-built configs for voice companion, coding assistant, and SeekDB MCP
 - ✅ **Zero dependencies** - Completely standalone SKILL
 
 ### Supported Platforms

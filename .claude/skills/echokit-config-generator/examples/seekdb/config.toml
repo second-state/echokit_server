@@ -1,0 +1,38 @@
+addr = "0.0.0.0:8080"
+hello_wav = "hello.wav"
+
+[tts]
+platform = "openai"
+url = "https://api.openai.com/v1/audio/speech"
+api_key = "YOUR_API_KEY_HERE"
+model = "gpt-4o-mini-tts"
+voice = "ash"
+
+[asr]
+platform = "openai"
+url = "https://api.openai.com/v1/audio/transcriptions"
+api_key = "YOUR_API_KEY_HERE"
+model = "gpt-4o-mini-transcribe"
+lang = "en"
+
+[llm]
+platform = "openai_chat"
+url = "https://api.openai.com/v1/chat/completions"
+api_key = "YOUR_API_KEY_HERE"
+model = "gpt-4o-mini"
+history = 5
+
+[[llm.mcp_server]]
+server = "http://127.0.0.1:6000/mcp"
+type = "http_streamable"
+call_mcp_message = "Please hold on a few seconds while I query SeekDB."
+
+[[llm.sys_prompts]]
+role = "system"
+content = """
+You are a helpful assistant with access to SeekDB through MCP tools.
+
+Use the SeekDB tools when the user asks you to search, store, update, or
+retrieve information from the connected database. Explain what you found and
+mention when a requested operation could not be completed.
+"""

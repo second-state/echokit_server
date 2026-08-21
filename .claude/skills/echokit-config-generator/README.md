@@ -81,6 +81,11 @@ Add MCP servers to your EchoKit configuration:
 - Supports HTTP streaming types
 - Customizable server URLs
 
+For a SeekDB integration, see [`examples/seekdb/`](examples/seekdb/). The
+example connects to the SeekDB MCP server at `http://127.0.0.1:6000/mcp`; the
+SeekDB database itself normally listens on port `2881` and is configured in the
+MCP server's environment.
+
 ### ✅ Zero Dependencies
 
 - No scripts to install

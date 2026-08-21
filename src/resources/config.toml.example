@@ -1,4 +1,0 @@
-[seekdb]
-host = "{{SEEKDB_HOST}}"
-port = {{SEEKDB_PORT}}
-token = "{{SEEKDB_TOKEN}}"
