@@ -1,7 +1,7 @@
 ---
 name: EchoKit Config Generator
 description: Generate config.toml for EchoKit servers with interactive setup for ASR, TTS, LLM services, MCP servers, API key entry, and server launch
-version: 1.3.1
+version: 1.4.0
 author: "EchoKit Config Generator Contributors"
 repository: "https://github.com/second-state/echokit_server"
 ---
@@ -238,6 +238,29 @@ call_mcp_message = "Please hold on a few seconds while I am searching for an ans
 - The MCP server will be added to the LLM section
 - `type` can be: "http_streamable" or "http"
 - `call_mcp_message` is shown to users when MCP is being called
+
+### SeekDB MCP example
+
+When the user asks to connect EchoKit to SeekDB, use the example at
+`examples/seekdb/config.toml` and explain that SeekDB has two separate
+endpoints:
+
+1. The SeekDB database listens on port `2881` by default.
+2. The SeekDB MCP server exposes the Streamable HTTP endpoint, for example
+   `http://127.0.0.1:6000/mcp`.
+
+Do not use the database port as the MCP URL. The MCP server can be started with
+the official [`seekdb-mcp-server`](https://github.com/oceanbase/awesome-oceanbase-mcp/tree/main/src/seekdb_mcp_server) package:
+
+```bash
+source .env
+uvx seekdb-mcp-server --transport streamable-http --host 127.0.0.1 --port 6000
+```
+
+The database connection belongs in the MCP server's environment, using
+`SEEKDB_HOST`, `SEEKDB_PORT`, `SEEKDB_USER`, `SEEKDB_PASSWORD`, and
+`SEEKDB_DATABASE`. Keep those values out of the committed EchoKit config; the
+repository includes `examples/seekdb/.env.example` as a safe template.
 
 ## Phase 4: Generate Files
 
@@ -569,7 +592,8 @@ Provide troubleshooting suggestions based on error messages.
 All files are relative to SKILL root:
 - Platform data: `platforms/asr.yml`, `platforms/tts.yml`, `platforms/llm.yml`
 - Templates: `templates/SETUP_GUIDE.md`
-- Examples: `examples/voice-companion.toml`, `examples/coding-assistant.toml`
+- Examples: `examples/voice-companion.toml`, `examples/coding-assistant.toml`,
+  `examples/seekdb/config.toml`
 
 **No external dependencies** - this SKILL is completely self-contained.
 
@@ -688,6 +712,7 @@ User: [Enter]
 
 ## Version History
 
+- 1.4.0 - Added a SeekDB Streamable HTTP MCP example and documented the separate database and MCP endpoints
 - 1.3.1 - Added `export RUST_LOG=debug` before server launch for better troubleshooting
 - 1.3.0 - Fixed config.toml format with correct section order ([tts] → [asr] → [llm]), platform-specific field names (ElevenLabs uses `token`/`model_id`), removed comments from top, added `prompt` and `vad_url` fields for ASR
 - 1.2.0 - Added Phase 5: API Key Entry and Server Launch with interactive key collection, automatic config updates, server build, and launch
@@ -705,6 +730,8 @@ To test this SKILL:
 5. Test Phase 5: Enter API keys and verify config.toml is updated
 6. Test server build (optional, requires Rust/Cargo)
 7. Test server launch (optional, requires built server)
+8. For the SeekDB example, verify that the EchoKit MCP URL uses the MCP
+   server port (default `6000`) and not the SeekDB database port (`2881`)
 
 ---
 

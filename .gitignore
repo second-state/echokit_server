@@ -1,5 +1,6 @@
 /target
 /record
+.env
 
 # macOS
 .DS_Store
